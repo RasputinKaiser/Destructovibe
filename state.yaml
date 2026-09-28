@@ -50,3 +50,11 @@ github_publication:
     fx_regression: failed - steel must not throw a masonry dust cloud
   game_deployment: not deployed
   license: not selected
+
+  publication_result:
+    creation_and_initial_push: accepted by GitHub
+    pushed_commit: c3c80d4
+    followup_verification: blocked by GitHub account suspension, HTTP 403
+    public_url_check: HTTP 404
+    publicly_available: false
+    next_action: resolve account suspension through GitHub Support, then verify remote and push this status update
