@@ -1,0 +1,52 @@
+project: Destructovibe
+status: local development
+version: 2.0.0
+stack:
+  - TypeScript
+  - Three.js
+  - Box3D
+  - Vite
+entrypoint: index.html
+commands:
+  install: npm install
+  dev: npm run dev
+  build: npm run build
+  typecheck: npm run typecheck
+  validate_levels: node scripts/validate-levels.ts
+  validate_fractures: node scripts/validate-fractures.ts
+notes:
+  - legacy/ contains the v1 Rapier implementation for reference.
+  - dist/ and dependency directories are generated and ignored by Git.
+building_pass:
+  status: verified locally
+  approach: layered load-bearing frames and masonry, room partitions, supported entrances, articulated facades and roofs
+  materials_added:
+    - ceramic glazed tile
+    - asphalt aggregate paving
+    - patinated copper sheet
+  verification:
+    - npm run typecheck
+    - npm run build
+    - node scripts/validate-levels.ts
+    - browser smoke of bungalow, warehouse and mill with no console errors
+    - warehouse facade blast increased demolished fraction and produced fractures and weld snaps
+scale_and_stability_pass:
+  status: in progress
+  fracture_geometry: impact-centred seed distribution for thin walls and floor slabs; regression validates volume conservation
+  remaining: grander architectural structures, structural load-path simulation and combined browser playtest
+
+github_publication:
+  prepared_on: 2026-09-28
+  repository: https://github.com/RasputinKaiser/Destructovibe
+  branch: main
+  contents: current source, legacy source, lockfile, documentation, validators, and CI
+  validation:
+    clean_install: passed
+    production_build: passed with Box3D Node module externalization warnings
+    fractures: passed
+    levels: passed with blueprint warnings
+    grid: passed
+    rigging: passed
+    fx_regression: failed - steel must not throw a masonry dust cloud
+  game_deployment: not deployed
+  license: not selected

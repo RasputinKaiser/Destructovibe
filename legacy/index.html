@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DESTRUCTOVIBE</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div id="vignette"></div><div id="flash"></div>
+
+<!-- ============ in-game HUD ============ -->
+<div class="hud hidden" id="hud">
+  <div id="scorePanel" class="glass">
+    <div class="label stencil">Demolition Score</div>
+    <div id="scoreVal">0</div>
+    <div id="comboRow"><span id="comboVal" class="hidden">×1.0 COMBO</span></div>
+  </div>
+
+  <div id="objectivePanel" class="glass">
+    <div class="label stencil" id="objTitle">Demolish 60%</div>
+    <div id="objBarWrap"><div id="objBar"></div><div id="objTarget"></div></div>
+    <div id="objPct">0% demolished</div>
+    <div id="objWarn" class="hidden">⚠ PROTECTED STRUCTURE HIT — <span id="penaltyVal">0</span> penalty</div>
+  </div>
+
+  <div id="telemetry" class="glass">
+    <div class="tele-item"><div class="k stencil">Time</div><div class="v" id="timeVal">0:00</div></div>
+    <div class="tele-item"><div class="k stencil">FPS</div><div class="v" id="fps">60</div></div>
+    <div class="tele-item"><div class="k stencil">Bodies</div><div class="v" id="bodies">0</div></div>
+    <div id="flyPill" class="stencil">FLY&nbsp;OFF</div>
+  </div>
+
+  <div id="crosshair"><div id="chDot"></div></div>
+  <div id="hitmark"><span></span><span></span><span></span><span></span></div>
+
+  <div id="weaponBar">
+    <div class="wcard glass sel" data-w="0"><span class="num">1</span>
+      <div class="wname">Cannonball</div><div class="wdesc">18 kg cast iron. Pure kinetic punch.</div>
+      <div class="ammo" id="ammo0">∞</div><div class="cd"></div></div>
+    <div class="wcard glass" data-w="1"><span class="num">2</span>
+      <div class="wname">Grenade</div><div class="wdesc">2.2 s fuse. Bounces into tight spots.</div>
+      <div class="ammo" id="ammo1">∞</div><div class="cd"></div></div>
+    <div class="wcard glass" data-w="2"><span class="num">3</span>
+      <div class="wname">Rocket</div><div class="wdesc">Shaped charge. Detonates on impact.</div>
+      <div class="ammo" id="ammo2">∞</div><div class="cd"></div></div>
+    <div class="wcard glass" data-w="3"><span class="num">4</span>
+      <div class="wname">C4 Charge</div><div class="wdesc">Sticks on impact. <b>G</b> detonates all.</div>
+      <div class="ammo" id="ammo3">∞</div><div class="cd"></div></div>
+  </div>
+
+  <div id="hint" class="glass">
+    <b>WASD</b>move &nbsp;<b>Space</b>jump &nbsp;<b>F</b>fly &nbsp;<b>1–4</b>weapon
+    &nbsp;<b>LMB</b>fire &nbsp;<b>G</b>detonate C4 &nbsp;<b>R</b>restart &nbsp;<b>Esc</b>pause
+  </div>
+
+  <div id="toast" class="stencil hidden"></div>
+</div>
+
+<!-- ============ title ============ -->
+<div class="overlay" id="titleScreen">
+  <div class="ovBox glass">
+    <div class="hazard"></div>
+    <h1>Destructo<span>vibe</span></h1>
+    <p class="ovSub">Contract demolition. Brick shatters, timber snaps, steel dents and shears.<br>
+      Bring it all down — on budget, on time, and get paid.</p>
+    <div class="menuCol">
+      <button class="bigBtn" id="btnCampaign">Contracts</button>
+      <button class="bigBtn ghost" id="btnFreeplay">Free play</button>
+    </div>
+    <div class="setRow">
+      <label class="stencil">Volume</label>
+      <input type="range" id="volSlider" min="0" max="100" value="80">
+      <label class="stencil" for="qualitySel">Quality</label>
+      <select id="qualitySel"><option value="high">High</option><option value="low">Low</option></select>
+    </div>
+  </div>
+</div>
+
+<!-- ============ level select ============ -->
+<div class="overlay hidden" id="levelSelect">
+  <div class="ovBox glass wide">
+    <div class="hazard"></div>
+    <h1 style="font-size:26px">Select <span>Contract</span></h1>
+    <div id="contractGrid"></div>
+    <button class="bigBtn ghost small" id="btnBackTitle">Back</button>
+  </div>
+</div>
+
+<!-- ============ briefing ============ -->
+<div class="overlay hidden" id="briefing">
+  <div class="ovBox glass">
+    <div class="hazard"></div>
+    <div class="label stencil" style="margin-bottom:6px" id="briefNum">CONTRACT 01</div>
+    <h1 style="font-size:26px" id="briefName">Training Grounds</h1>
+    <p class="ovSub" id="briefDesc"></p>
+    <div id="briefStats"></div>
+    <div class="menuCol">
+      <button class="bigBtn" id="btnStartContract">Accept contract</button>
+      <button class="bigBtn ghost small" id="btnBackSelect">Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ pause ============ -->
+<div class="overlay hidden" id="pauseScreen">
+  <div class="ovBox glass">
+    <div class="hazard"></div>
+    <h1 style="font-size:24px">Paused</h1>
+    <div class="menuCol">
+      <button class="bigBtn" id="btnResume">Resume</button>
+      <button class="bigBtn ghost" id="btnRestart">Restart contract</button>
+      <button class="bigBtn ghost" id="btnQuit">Quit to menu</button>
+    </div>
+    <div class="setRow">
+      <label class="stencil">Volume</label>
+      <input type="range" id="volSlider2" min="0" max="100" value="80">
+    </div>
+  </div>
+</div>
+
+<!-- ============ results ============ -->
+<div class="overlay hidden" id="resultsScreen">
+  <div class="ovBox glass">
+    <div class="hazard" id="resHazard"></div>
+    <div class="label stencil" id="resStatus">CONTRACT COMPLETE</div>
+    <div id="stars"><span></span><span></span><span></span></div>
+    <div id="resBreakdown"></div>
+    <div id="resTotal" class="stencil">0</div>
+    <div class="menuCol">
+      <button class="bigBtn" id="btnNext">Next contract</button>
+      <button class="bigBtn ghost" id="btnRetry">Retry</button>
+      <button class="bigBtn ghost small" id="btnResMenu">Menu</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
