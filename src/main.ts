@@ -449,12 +449,22 @@ function finish(won: boolean): void {
     title: won ? 'Contract complete' : 'Contract failed',
     subtitle: won
       ? `${c.name} — ${Math.round(pct * 100)}% down in ${fmtTime(scoring.score.elapsed)} (par ${fmtTime(c.par)})\n★★ ${stars2.toLocaleString()} pts · ★★★ ${stars3.toLocaleString()} pts`
-      : `${c.name} — ${Math.round(pct * 100)}% of ${Math.round(c.target * 100)}% required`,
+      : `${c.name} — ${Math.round(pct * 100)}% of ${Math.round(c.target * 100)}% required · ${failReason(c)}${(c as Partial<Job>).tip ? `\nForeman: ${(c as Partial<Job>).tip}` : ''}`,
     rows, total, stars, newBest,
     hasNext: won && contractIdx < CONTRACTS.length - 1,
     unlockText: firstClear ? c.unlockText : undefined,
   });
   ui.showScreen('results');
+}
+
+/* Why a job was lost, in the report's words. */
+function failReason(c: Contract): string {
+  const g = goalOf(c);
+  if (scoring.goalExpired(c.target)) return 'out of time';
+  if (g?.salvage && scoring.salvageLost()) return 'salvage lost';
+  if (scoring.objective.frac >= c.target && scoring.salvageOwed() > 0) return 'salvage not carried out';
+  if (rangedAmmoLeft() === 0 && liveOrdnance() === 0) return 'ordnance spent';
+  return 'called early';
 }
 
 /* ---------------- protected property ---------------- */
