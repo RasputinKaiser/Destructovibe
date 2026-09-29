@@ -272,8 +272,9 @@ const TEMPLATE = () => `
         </dl>
         <h3 class="label">Rating</h3>
         <ol class="thresholds" data-r="bStars"></ol>
-        <h3 class="label">Controls</h3>
-        ${keys(false)}
+        <h3 class="label">Controls for this job</h3>
+        <dl class="keys" data-r="bKeys"></dl>
+        <p class="brief__more">Full list: <span class="kbd">Esc</span> in play</p>
       </aside>
     </div>
     <footer class="brief__foot">
@@ -350,7 +351,7 @@ const REFS = [
   'vig', 'penFlash', 'hud', 'tl', 'title', 'clock', 'par', 'demo', 'pct', 'demoLabel', 'fill', 'notch', 'notchLabel',
   'tr', 'score', 'combo', 'comboX', 'comboFill', 'penalty', 'xh', 'xhPulse', 'hit', 'pops', 'charges', 'chargeN', 'hint',
   'weapons', 'fps', 'ptr', 'tool', 'toolT', 'toolBar', 'toolD', 'seq', 'seqTrack', 'seqScale', 'loadFill', 'loadLabel', 'loadPct', 'cards', 'bNo', 'bName', 'bLoc', 'bText', 'bProtect',
-  'bProtectText', 'bTerms', 'bTermsLabel', 'bAmmo', 'bTarget', 'bPar', 'bEnv', 'bStars', 'report', 'rTitle', 'rSub', 'rRows', 'rTotalRow', 'rTotal',
+  'bProtectText', 'bTerms', 'bTermsLabel', 'bAmmo', 'bKeys', 'bTarget', 'bPar', 'bEnv', 'bStars', 'report', 'rTitle', 'rSub', 'rRows', 'rTotalRow', 'rTotal',
   'rStars', 'rBest', 'rUnlock', 'rRetry', 'rNext', 'sVol', 'oVol', 'sQual', 'sSens', 'oSens', 'sFov', 'oFov', 'sInv', 'oInv', 'sExp', 'oExp', 'sScale', 'sShake', 'oShake', 'sGrain', 'oGrain', 'sCA', 'oCA',
   'toasts', 'slow', 'slowX', 'rp', 'rpSpeed', 'rpTime', 'rpBar', 'ovl', 'sbx', 'pal', 'palSearch', 'palCount', 'palBody', 'xTime', 'xGrav', 'oGrav', 'xJoint', 'oJoint',
   'xWind', 'oWind', 'xFire', 'oFire', 'xDebris', 'oDebris',
@@ -466,7 +467,11 @@ function onKey(e: KeyboardEvent): void {
     if ((e.target as Element | null)?.closest?.('button, input, select, textarea, label')) return;
     if (s === 'title') run('onCampaign');
     else if (s === 'briefing') run('onStartContract');
-    else if (s === 'results') run(resHasNext ? 'onNext' : 'onRetry');
+    else if (s === 'results') {
+      // an Enter meant for "sign off" that lands as the job signs itself off must not skip the report unread
+      if (performance.now() - resultsAt < 900) return;
+      run(resHasNext ? 'onNext' : 'onRetry');
+    }
     else return;
     e.preventDefault();
   }
@@ -529,6 +534,7 @@ export function showScreen(s: ScreenId | null): void {
     el.inert = !on;
   }
   if (s === 'results') {
+    resultsAt = performance.now();
     if (resPending) startResults();
   } else if (resFinish) finishResults();
 }
@@ -583,6 +589,23 @@ function card(c: JobCard, i: number): string {
 </button>`;
 }
 
+/* The briefing lists the keys this job's loadout needs; the pause screen keeps the full list. */
+function jobKeys(ids: WeaponId[]): KeyRow[] {
+  const has = (...w: WeaponId[]) => w.some(id => ids.includes(id));
+  const banks = new Set(ids.map(id => BANK_OF.get(id)?.bank ?? 0)).size;
+  const rows: KeyRow[] = [
+    ['W A S D', 'Move · Shift sprint · Space jump'],
+    ['Mouse', 'Look'],
+    ['LMB', has('hammer') ? 'Fire / use the tool · hold the sledge to wind up, release to strike' : 'Fire / use the tool'],
+    [banks > 1 ? '1–6 · Q' : '1–6', banks > 1 ? 'Pick a tool · Q switches bank' : 'Pick a tool (wheel steps through them)'],
+  ];
+  if (has('charge', 'cutter', 'planner', 'thermite', 'megabomb')) rows.push(['G / RMB', 'Detonate what you have placed'], ['Wheel', 'Charge size / delay on the tool in hand']);
+  if (has('excavator')) rows.push(['E', 'Climb into the machine / get out']);
+  rows.push(['X', 'Engineer’s x-ray: which joints carry the load'], ['T', 'Bullet time'], ['V', 'Replay the last 12 s'],
+    ['Enter', 'Call the job early'], ['R', 'Restart'], ['Esc', 'Pause · every control']);
+  return rows;
+}
+
 export function renderBriefing(v: JobBriefing): void {
   if (!root) return;
   R.bNo.textContent = `Contract No. ${pad2(v.index + 1)}`;
@@ -599,8 +622,9 @@ export function renderBriefing(v: JobBriefing): void {
   R.bEnv.textContent = ENV_LABEL[v.env];
   R.bStars.innerHTML =
     `<li>${stars(1)}<span>Hit ${Math.round(v.target * 100)}% target</span></li>` +
-    `<li>${stars(2)}<span>${fmt(v.stars[0])}</span></li>` +
-    `<li>${stars(3)}<span>${fmt(v.stars[1])}</span></li>`;
+    `<li>${stars(2)}<span>${fmt(v.stars[0])} pts</span></li>` +
+    `<li>${stars(3)}<span>${fmt(v.stars[1])} pts</span></li>`;
+  R.bKeys.innerHTML = keyRows(jobKeys(v.ammo.map(a => a.id)));
   R.bAmmo.innerHTML = v.ammo.length
     ? v.ammo
         .map(a => `<li><span class="ord__icon">${WEAPON_ICON[a.id]}</span><span class="ord__name">${esc(a.name)}</span><span class="ord__n">${a.count < 0 ? '∞' : `&times;${a.count}`}</span></li>`)
@@ -623,6 +647,7 @@ let resTimers: number[] = [];
 let resPending: ResultsView | null = null;
 let resFinish: (() => void) | null = null;
 let resHasNext = false;
+let resultsAt = -1e9;
 
 function countUp(el: HTMLElement, to: number, dur: number): void {
   tweens.push({ el, to, t0: performance.now(), dur, last: NaN });
@@ -1176,6 +1201,14 @@ const hc = {
   fps: -1,
 };
 const scoreSpring = spring.create(0);
+
+/** A fresh site: the score starts at 0 instead of counting back from the last job's, and no stale penalty flash. */
+export function resetHud(): void {
+  scoreSpring.value = 0;
+  scoreSpring.velocity = 0;
+  hc.scoreTarget = 0;
+  if (root) R.penalty.textContent = '';
+}
 
 export function updateHud(s: HudState, dt: number): void {
   if (!root) return;

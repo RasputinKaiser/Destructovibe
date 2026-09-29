@@ -54,7 +54,10 @@ node scripts/validate-levels.ts   # check every blueprint for overlaps / floatin
   neighbours, a footprint to bring it down inside (debris outside is fly-tipping), a hard time limit,
   or salvage to carry out first. Each chapter's loadouts are built round a family of tools: machining
   and hot works, wrecking ball, fire and water, wire saw and sequenced charges, excavator, thermite,
-  gravity gun, megabomb. Progress in localStorage.
+  gravity gun, megabomb. The par clock starts at your first move or shot; meeting the target does not
+  end the job — keep going for score and sign off with `Enter` (it signs itself off once the ordnance
+  is spent or the site goes quiet). A failed report says why and gives the foreman's tip. Progress in
+  localStorage.
 - **Free play** — everything unlimited, four sites:
   - *Clearance Zone*: a plumbed-in quarter (high street, terraces, works yard, construction site, canal
     cut) on one site grid — a substation, gas governor and pump hall feed every building by buried

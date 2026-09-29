@@ -7,7 +7,7 @@ import {
   type StepHandlers,
 } from './physics/physics';
 import {
-  initStructures, buildBlueprint, clearStructures, demolitionFraction, totalValue, onHit, onJointBroken,
+  initStructures, buildBlueprint, clearStructures, demolitionFraction, onHit, onJointBroken,
   afterStep, maintain, syncMeshes, setStructureHooks, stats, explode, ignite, live, specVolume, setXrayMode, xrayMode, updateXray,
   setJointStrength, setWind, setFireSpread, setDebrisLimit, startQuake, clearDebris, extinguish, setFrozen, quakeActive,
   spawnPieces, removeConnected, pieceOf, setServiceViewer, setDetailQuality,
@@ -88,11 +88,14 @@ const nextFrame = (): Promise<void> => new Promise(r => {
 });
 let loadSeq = 0;
 
-async function loadLevel(c: Contract, label: string): Promise<boolean> {
+/* `backdrop`: build the site behind whatever menu is showing, without the loading screen (the title's scenery). */
+async function loadLevel(c: Contract, label: string, backdrop = false): Promise<boolean> {
   const seq = ++loadSeq;
-  state = 'loading';
-  ui.showHud(false);
-  ui.showScreen('loading');
+  if (!backdrop) {
+    state = 'loading';
+    ui.showHud(false);
+    ui.showScreen('loading');
+  }
   ui.setLoading(0.15, label);
   await nextFrame();
   if (seq !== loadSeq) return false;
@@ -137,7 +140,7 @@ async function loadLevel(c: Contract, label: string): Promise<boolean> {
   targetMetAt = -1;
   quietT = 0;
   lastDemo = 0;
-  siteValue = goal?.groups ? blueprintValue(bp, goal.groups) : totalValue();
+  siteValue = blueprintValue(bp, goal?.groups);
   [stars2, stars3] = starThresholds(c, siteValue);
   audio.setAmbience(c.env);
   return true;
@@ -146,15 +149,16 @@ async function loadLevel(c: Contract, label: string): Promise<boolean> {
 async function showTitle(): Promise<void> {
   releaseLock();
   const pristine = state === 'contracts' || state === 'settings';
-  if (!pristine) {
-    mode = 'sandbox';
-    if (!await loadLevel(SANDBOX, 'Preparing site')) return;
-  }
   state = 'title';
   ui.showHud(false);
   viewmodel.setVisible(false);
   ui.showScreen('title');
   audio.setPaused(false);
+  /* the menu is usable at once; the Clearance Zone builds behind it (a pick made meanwhile supersedes it) */
+  if (!pristine) {
+    mode = 'sandbox';
+    await loadLevel(SANDBOX, 'Preparing site', true);
+  }
 }
 
 function showContracts(): void {
@@ -348,14 +352,21 @@ function beginPlay(title: string): void {
   ui.showScreen(null);
   ui.showHud(true);
   ui.setHudTitle(title);
+  ui.resetHud();
   viewmodel.setVisible(true);
   viewmodel.setWeapon(loadout.current);
   audio.setPaused(false);
   if (!input.locked) requestLock();
   ui.setPointerHint(!input.locked);
-  flashHint(mode === 'sandbox' ? 'F — fly · R — rebuild site' : `Target ${Math.round(active.target * 100)}% · Enter — call it early`, 5);
+  clockOn = mode === 'sandbox';
+  flashHint(mode === 'sandbox' ? 'F — fly · R — rebuild site' : `Target ${Math.round(active.target * 100)}% · the clock starts when you move or fire · Enter calls it early`, 6);
   ui.toast(title.toUpperCase(), 'info', 1800);
 }
+
+/* The contract clock waits for the crew: looking round from the spawn (and clicking in for the mouse) is free; the first
+   key, click or tool use starts it. */
+let clockOn = true;
+const startClock = (): void => { clockOn = true; };
 
 function restart(): void {
   if (mode === 'campaign') void startContract(contractIdx);
@@ -437,13 +448,23 @@ function finish(won: boolean): void {
     won,
     title: won ? 'Contract complete' : 'Contract failed',
     subtitle: won
-      ? `${c.name} — ${Math.round(pct * 100)}% down in ${fmtTime(scoring.score.elapsed)} · ★★ ${stars2.toLocaleString()} · ★★★ ${stars3.toLocaleString()}`
-      : `${c.name} — ${Math.round(pct * 100)}% of ${Math.round(c.target * 100)}% required`,
+      ? `${c.name} — ${Math.round(pct * 100)}% down in ${fmtTime(scoring.score.elapsed)} (par ${fmtTime(c.par)})\n★★ ${stars2.toLocaleString()} pts · ★★★ ${stars3.toLocaleString()} pts`
+      : `${c.name} — ${Math.round(pct * 100)}% of ${Math.round(c.target * 100)}% required · ${failReason(c)}${(c as Partial<Job>).tip ? `\nForeman: ${(c as Partial<Job>).tip}` : ''}`,
     rows, total, stars, newBest,
     hasNext: won && contractIdx < CONTRACTS.length - 1,
     unlockText: firstClear ? c.unlockText : undefined,
   });
   ui.showScreen('results');
+}
+
+/* Why a job was lost, in the report's words. */
+function failReason(c: Contract): string {
+  const g = goalOf(c);
+  if (scoring.goalExpired(c.target)) return 'out of time';
+  if (g?.salvage && scoring.salvageLost()) return 'salvage lost';
+  if (scoring.objective.frac >= c.target && scoring.salvageOwed() > 0) return 'salvage not carried out';
+  if (rangedAmmoLeft() === 0 && liveOrdnance() === 0) return 'ordnance spent';
+  return 'called early';
 }
 
 /* ---------------- protected property ---------------- */
@@ -500,10 +521,13 @@ function flushDamage(): void {
   dmg.first = -1;
 }
 
+/* What the fee is reckoned on, counted the way demolition is credited (structure.ts credit): loose props and protected
+   pieces earn nothing, so they are not in it. The briefing and the results read the same number. */
 function blueprintValue(bp: Blueprint, groups?: string[]): number {
   let v = 0;
   for (const p of bp.pieces) {
-    if (p.protected || (groups && !(p.group && groups.includes(p.group) && !scoring.belowGrade(p)))) continue;
+    if (p.protected || (p.noWeld && !p.mech && !MATS[p.mat].explosive)) continue;
+    if (groups && !(p.group && groups.includes(p.group) && !scoring.belowGrade(p))) continue;
     v += specVolume(p) * MATS[p.mat].value;
   }
   return v;
@@ -661,6 +685,7 @@ function endReplay(): void {
 }
 
 function handleInput(): void {
+  if (!clockOn && (input.pressed.size || input.clicked || input.buttons)) startClock();
   if (handleDriving()) return;
   if (input.mouseDX || input.mouseDY) applyLook(input.mouseDX, input.mouseDY);
   if (input.pressed.has('KeyQ')) { bank = (bank + 1) % BANK_COUNT; audio.ui('click'); }
@@ -728,10 +753,14 @@ function checkContract(dt: number): void {
     if (targetMetAt < 0) {
       targetMetAt = scoring.score.elapsed;
       audio.ui('target');
-      ui.toast('TARGET MET — keep going for score, Enter to wrap up', 'good', 3500);
+      ui.toast('TARGET MET — keep going for score, Enter to sign off', 'good', 3500);
     }
-    const since = scoring.score.elapsed - targetMetAt;
-    if ((since > 6 && quietT > 2.5 && scoring.score.comboTimer <= 0) || since > 25) finish(true);
+    /* "keep going" means it: the job signs itself off only once there is nothing left to do — the target all down, the
+       ordnance spent, or the site quiet for half a minute with nothing armed */
+    const settled = quietT > 2.5 && scoring.score.comboTimer <= 0;
+    const spent = rangedAmmoLeft() === 0 && liveOrdnance() === 0;
+    if (settled && (pct >= 0.995 || (spent && quietT > 8) || (quietT > 30 && liveOrdnance() === 0))) finish(true);
+    else if (settled) flashHint('Target met — Enter to sign off, or keep going for score', 0.5);
     return;
   }
   if (rangedAmmoLeft() === 0 && liveOrdnance() === 0) {
@@ -846,7 +875,7 @@ function frame(dt: number): void {
       replay.recordStep();
       recMs += performance.now() - tr0;
       playerPostStep();
-      scoring.tickScore(FIXED_DT);
+      if (clockOn) scoring.tickScore(FIXED_DT);
       acc -= FIXED_DT;
       steps++;
     }
@@ -1052,8 +1081,8 @@ if (import.meta.env.DEV) window.__dv = {
   railway: () => startSandbox(RAILWAY),
   get objective() { return { ...scoring.objective, target: active.target, met: scoring.goalMet(active.target), id: active.id }; },
   look: (dx: number, dy: number) => applyLook(dx, dy),
-  fire: () => tryFire(),
-  select: (id: WeaponId) => select(id),
+  fire: () => { startClock(); return tryFire(); },
+  select: (id: WeaponId) => { startClock(); select(id); },
   detonate: () => detonate(),
   setPlaying: () => { if (state === 'paused') { state = 'playing'; ui.showScreen(null); } },
   get perf() { return { phys: +perf.phys.toFixed(2), render: +perf.render.toFixed(2), fx: +perf.fx.toFixed(2), sync: +perf.sync.toFixed(2), rec: +perf.rec.toFixed(3), calls: gfx.renderer.info.render.calls, tris: gfx.renderer.info.render.triangles, ...renderStats() }; },
