@@ -66,8 +66,8 @@ let moveEv: BodyMoveEvent;
 export let threads = 0;
 
 /* Chance in the simulation draws from seeded streams that restart with each world, so the same shot on the same
-   level replays the same collapse. Each system keeps its own stream: soft bodies step by the viewer's distance, and
-   that must not reshuffle how the structure breaks. */
+   level replays the same collapse. Each system keeps its own stream, so how often one system draws (soft bodies,
+   services) never reshuffles how the structure breaks. */
 const streams: { state: mulberry32.Mulberry32; seed: number }[] = [];
 /** A seeded stream; `at(...)` restarts it from a key (a place, a step), so an event draws the same numbers however many
  * other events were handled before it in the step: the order things are listed or visited in stays out of the result. */

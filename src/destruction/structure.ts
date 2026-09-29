@@ -223,6 +223,10 @@ export interface Part extends PartGeo { shape: b3ShapeId }
 
 export const live = new Set<Piece>();
 const dirty: Piece[] = [];
+/* The pieces the last step moved, in the solver's event order. The simulation walks this, never `dirty` (the
+   renderer's list, drained and reordered once a drawn frame): what the joints see must not depend on the frame rate. */
+const movedNow: Piece[] = [];
+let movedAt = -1;
 const welds = new Map<number, Weld>();
 const rebars = new Map<number, Rebar>();
 const ropeJoints = new Map<number, Rope>();
@@ -1425,6 +1429,8 @@ export function clearStructures(): void {
   quakeT = -1;
   for (const k of Object.keys(counters) as (keyof typeof counters)[]) counters[k] = 0;
   dirty.length = 0;
+  movedNow.length = 0;
+  movedAt = -1;
   welds.clear();
   fractureQueue.length = 0;
   shatterQueue.length = 0;
@@ -1539,6 +1545,8 @@ function rubble(p: Piece): void {
 
 function pieceMoved(p: Piece): void {
   if (!p.dirty) { p.dirty = true; dirty.push(p); }
+  if (movedAt !== stepCount) { movedAt = stepCount; movedNow.length = 0; }
+  movedNow.push(p);
   p.sleepT = 0;
   if (p.proxied > 0 && !building) hostMoved(p);
   if (p.demolished || building || p.hinged) return;
@@ -1817,8 +1825,9 @@ function updateYield(): void {
 
 /* Tension and shear aren't Box3D thresholds, so awake joints are checked here against their envelope. */
 function pollJoints(): void {
-  for (const p of dirty) {
-    if (p.movedStep !== stepCount) continue;
+  if (movedAt !== stepCount) return;
+  for (const p of movedNow) {
+    if (p.dead || p.movedStep !== stepCount) continue;
     const dx = p.curPos[0] - p.prevPos[0], dy = p.curPos[1] - p.prevPos[1], dz = p.curPos[2] - p.prevPos[2];
     const moving = dx * dx + dy * dy + dz * dz > MOVING_STEP * MOVING_STEP || Math.abs(quat.dot(p.curRot, p.prevRot)) < MOVING_TURN;
     for (let i = p.welds.length - 1; i >= 0; i--) {
@@ -3361,17 +3370,23 @@ export function afterStep(dt: number): void {
     }
   }
   stepSoft(dt);
+  housekeeping(dt);
 }
 
-export function maintain(dt: number): void {
+/** Once a drawn frame: the shrinking pieces' transforms. Everything that changes the simulation (fades ending, rubble
+    set in place, fallen walls breaking up) runs on the step clock in afterStep, so the frame rate, slow motion or a
+    render budget can never change what happens. */
+export function maintain(_dt: number): void {
+  for (const p of fading) if (!p.dead && !p.dirty) setPieceTransform(p.gfx, p.curPos, p.curRot, fadeScale(p));
+}
+
+function housekeeping(dt: number): void {
   for (let i = fading.length - 1; i >= 0; i--) {
     const p = fading[i];
     p.fade -= dt;
     if (p.fade <= 0 || p.dead) {
       fading.splice(i, 1);
       destroyPiece(p);
-    } else if (!p.dirty) {
-      setPieceTransform(p.gfx, p.curPos, p.curRot, fadeScale(p));
     }
   }
   maintainT -= dt;
@@ -4143,7 +4158,7 @@ function updateWind(dt: number): void {
   const gust = 0.65 + 0.35 * Math.sin(windT * 0.7) * Math.sin(windT * 1.9 + 1.3);
   const speed = windStrength * 38 * gust;
   vec3.set(_wind, speed * 0.92, 0, speed * 0.38);
-  for (const p of dirty) if (!p.dead && p.movedStep === stepCount) {
+  if (movedAt === stepCount) for (const p of movedNow) if (!p.dead && p.movedStep === stepCount) {
     if (p.parts) for (const q of p.parts) b3.b3Shape_ApplyWind(q.shape, _wind, 1, 0.25, 60, false);
     else b3.b3Shape_ApplyWind(p.shape, _wind, 1, 0.25, 60, false);
   }

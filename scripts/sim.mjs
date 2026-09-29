@@ -4,9 +4,11 @@
 //      pieces; TERRAIN=0 skip the soil step (by default the soil steps with the live pieces every step, as the game's
 //      main loop does: falling pieces dent the ground, the buried sweep runs at 10 Hz); WIN=<steps> per-window report
 //      length; VIEWER=x,y,z the player/camera position (services, soft bodies and detail LOD are told it every frame,
-//      as main.ts does); SPF=<n> physics steps per drawn frame (default 1; the renderer's syncMeshes/maintain run once
-//      a frame, as in the game)
+//      as main.ts does; VPART=svc,soft,detail tells only those parts); SPF=<n> physics steps per drawn frame (default
+//      1; the renderer's syncMeshes/maintain run once a frame, as in the game)
 // The run goes through the same per-step and per-frame calls as main.ts, so what it reports is what the player sees.
+// Neither the viewer nor the frame rate may change the outcome (tests/viewer-independence.test.ts): a run with no
+// VIEWER is the player's collapse wherever the player stands.
 // Last stdout line: RESULT {"weldsLost":n,"runaways":n,"awakeAtEnd":n,"fingerprint":"…"} (fingerprint: every live
 // body's position to 1 mm, so two runs that should match can be compared)
 import { createRequire } from 'node:module';
@@ -32,6 +34,7 @@ try {
   const st = await L('/src/destruction/structure.ts');
   const { initFx } = await L('/src/render/fx.ts');
   const svc = await L('/src/destruction/services.ts');
+  const det = await L('/src/destruction/detail.ts');
   const soft = await L('/src/sim/soft.ts');
   const fields = await L('/src/sim/fields/index.ts');
   const an = await L('/src/destruction/analysis.ts');
@@ -93,7 +96,12 @@ try {
     ter?.terrainStep(st.live);
     const d = performance.now();
     if ((i + 1) % SPF === 0) {
-      if (VIEWER) { st.setServiceViewer(VIEWER); soft.setSoftViewer(VIEWER); }
+      if (VIEWER) {
+        const vp = process.env.VPART ?? 'svc,soft,detail';
+        if (vp.includes('svc')) svc.setServiceViewer(VIEWER);
+        if (vp.includes('detail')) det.setDetailCamera(VIEWER);
+        if (vp.includes('soft')) soft.setSoftViewer(VIEWER);
+      }
       st.syncMeshes(1);
       st.maintain(phys.FIXED_DT * SPF);
     }

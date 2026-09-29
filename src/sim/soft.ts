@@ -18,14 +18,13 @@ import {
 
 /* Hybrid bodies: cloth, netting, ropes, foam, grain, gas-filled membranes, board and paper simulated by XPBD beside
    the rigid world. Coupling runs one way per substep (rigid pieces move particles along their step motion) and back
-   once per step: pin, tether and contact reactions become impulses on the pieces. Distant bodies are frame-sliced:
-   they step every second or fourth rigid step, over that much time, with fewer substeps. */
+   once per step: pin, tether and contact reactions become impulses on the pieces. A calm free-hanging body is
+   frame-sliced (two rigid steps at once, fewer substeps); none is sliced or skipped by its distance from the viewer. */
 
 export { SoftBody };
 export const SUB = 4;
 /** particle budget per level; later bodies are built coarser, then skipped */
 export const SOFT_BUDGET = 6000;
-const RANGE = 150;
 const PIN_ALPHA = 1e-8;
 const SLEEP_MOVE = 0.0022;        // m per step (0.13 m/s): a sheet rippling slower than this in a breeze may rest
 const SLEEP_STEPS = 45;
@@ -37,8 +36,6 @@ const chance = randomStream(0x50f7b0d);
 /** loose paper sheets and frayed threads alive at once (oldest go first) */
 const MAX_SHEETS = 24;
 const MAX_THREADS = 40;
-/** sheets within this range of the viewer collide with each other */
-const SELF_RANGE = 25;
 const SELF_CAP = 3000;
 
 export const softOptions = { slicing: true, selfContact: true, ropeContact: true };
@@ -580,25 +577,14 @@ const _wind = new Float64Array(3);
 let AF = new Float64Array(3 * 1024);
 let stampN = 0;
 
-function viewerDist2(b: SoftBody): number {
-  const cx = (b.aabb[0] + b.aabb[3]) / 2 - softViewer[0], cy = (b.aabb[1] + b.aabb[4]) / 2 - softViewer[1], cz = (b.aabb[2] + b.aabb[5]) / 2 - softViewer[2];
-  return cx * cx + cy * cy + cz * cz;
-}
-
-function inRange(b: SoftBody): boolean {
-  return viewerDist2(b) < RANGE * RANGE;
-}
-
-/** how many rigid steps this body takes at once: distant and small bodies are sliced */
+/* Every body is simulated the same way wherever the viewer is: the camera only decides what is drawn (and heard), never
+   how a sheet, rope or bag moves, or it would push on the rigid world differently for a near and a far player.
+   Slicing is by what the body is doing: one resting on nothing and hanging free (a flag, a curtain in a breeze) takes
+   two rigid steps at once; anything touching, tied, pinned under load or holding gas steps every step. */
 function periodFor(b: SoftBody): number {
-  if (!softOptions.slicing || pool.fl[b.p0] & SOLID || b.tied > 0 || b.q0 || (b.gas && (b.gas.hole > b.gas.seal || b.gas.torn > 0))) return 1;
-  const d2 = viewerDist2(b);
-  // a hanging chain converges slowly, and a gas bag is a stiff spring: longer substeps would stretch or pump them
-  if (b.kind === 'rope' || b.kind === 'dome') return d2 > 70 * 70 ? 2 : 1;
-  if (b.gas && !b.gas.open) return 1;
-  if (d2 > 70 * 70) return 4;
-  if (d2 > 30 * 30 || (b.n < 40 && d2 > 12 * 12)) return 2;
-  return 1;
+  if (!softOptions.slicing || pool.fl[b.p0] & SOLID || b.tied > 0 || b.q0 || b.gas || b.bearers.length) return 1;
+  if (b.kind === 'rope' || b.kind === 'dome') return 1;
+  return b.n >= 40 && b.vmax < 1.5 ? 2 : 1;
 }
 
 function bounds(b: SoftBody, margin: number): void {
@@ -746,7 +732,10 @@ function maintainPins(b: SoftBody): void {
       if (np) { pin.piece = np; toLocal(pin.local, np.curPos, np.curRot, x, y, z); }
       else dropPin(b, pin);
       wakeSoft(b);
-    } else if (!b.awake && p.movedStep === stepCount) wakeSoft(b);
+    } else if (!b.awake && p.movedStep === stepCount && Math.hypot(p.curPos[0] - p.prevPos[0], p.curPos[1] - p.prevPos[1], p.curPos[2] - p.prevPos[2]) > 0.002) {
+      // the host really moving takes the pin with it; a host settling by a hair under what the body left on it does not
+      wakeSoft(b);
+    }
   }
 }
 
@@ -932,10 +921,10 @@ function burst(b: SoftBody): void {
 /* Wind keeps a tethered balloon or a pinned net swinging about the same pose for as long as it blows: never still,
    but going nowhere. Out past arm's length that steady sway may rest in its pose; a change in the wind (not its
    gusts), anything moving near or a load coming off wakes it. */
-const SWAY = 0.12, SWAY_STEPS = 180, SWAY_RANGE = 20;
+const SWAY = 0.12, SWAY_STEPS = 180;
 const sway = new WeakMap<SoftBody, { c: Vec3; t: number }>();
 function swaySettled(b: SoftBody, period: number, busy: boolean): boolean {
-  if (busy || b.burning > 0 || !(AERO_KINDS.has(b.kind) || b.tied > 0 || b.pins.length) || viewerDist2(b) < SWAY_RANGE * SWAY_RANGE) {
+  if (busy || b.burning > 0 || !(AERO_KINDS.has(b.kind) || b.tied > 0 || b.pins.length)) {
     sway.delete(b);
     return false;
   }
@@ -1027,7 +1016,7 @@ export function stepSoft(dt: number): void {
   activeList.length = 0;
   let sliced = 0;
   for (const b of softBodies) {
-    if (b.dead || !inRange(b)) continue;
+    if (b.dead) continue;
     if (!b.awake) {
       if (AERO_KINDS.has(b.kind) && Math.abs(baseWind(b) - b.sleepWind) > 1.5) wakeSoft(b);
       if (!b.awake && (stepCount + b.id) % 10 === 0 && movingNear(b)) wakeSoft(b);
@@ -1119,7 +1108,7 @@ function runGroup(list: SoftBody[], dtb: number, sub: number, dt: number, near: 
   let nSheet = 0;
   if (near && softOptions.selfContact) {
     sheetList.length = 0; beds.length = 0;
-    for (const b of list) if (SHEET_KINDS.has(b.kind) && b.selfR > 0 && viewerDist2(b) < SELF_RANGE * SELF_RANGE) sheetList.push(b);
+    for (const b of list) if (SHEET_KINDS.has(b.kind) && b.selfR > 0) sheetList.push(b);
     if (sheetList.length) {
       for (const g of softBodies) {
         if (g.kind !== 'granular' || g.dead) continue;
@@ -1366,7 +1355,7 @@ function fireTick(tick: number): void {
   for (let k = softBodies.length - 1; k >= 0; k--) {
     const b = softBodies[k];
     const f = b.fab;
-    if (b.dead || f.ignite === undefined || !inRange(b)) continue;
+    if (b.dead || f.ignite === undefined) continue;
     // hot and burning pieces around the body heat it
     _src.length = 0;
     const a = b.aabb, m = 0.6;
