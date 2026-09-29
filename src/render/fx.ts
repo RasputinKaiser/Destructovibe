@@ -1768,8 +1768,9 @@ export const fx = {
       const f = i / np;
       pAt(x + rf(-0.3, 0.3) * R, y + R * (0.2 + f * 0.8), z + rf(-0.3, 0.3) * R);
       P.delay = f * 0.9; P.vx = rf(-0.6, 0.6); P.vy = rf(1.5, 3); P.vz = rf(-0.6, 0.6); P.drag = 0.8;
-      P.life = rf(5, 9); P.s0 = R * 0.4; P.s1 = R * rf(1.5, 2.2) * grow; P.rise = 1.2; P.accel = 0.05;
-      pColor(0x2a2a2c, rf(0.8, 1.2)); P.a = 0.6; P.heat = f < 0.3 ? 3 : 0; P.heatDur = 0.4; P.fadeIn = 0.2; P.wind = 1;
+      // burnt insulation and vaporised copper: a brief grey puff that thins as it rises, not a standing black column
+      P.life = rf(2.5, 4.5); P.s0 = R * 0.4; P.s1 = R * rf(1.8, 2.6) * grow; P.rise = 1.2; P.accel = 0.05;
+      pColor(0x55524e, rf(0.85, 1.15)); P.a = 0.35; P.heat = f < 0.3 ? 3 : 0; P.heatDur = 0.4; P.fadeIn = 0.2; P.wind = 1;
       emit();
     }
     const e = claim(arcs);

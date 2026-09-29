@@ -718,7 +718,49 @@ function killWeld(w: Weld, destroyJoint: boolean): void {
     weldNormal(w, _hn);
     if (_hn[1] <= -0.5) queueHang(w.a);
     else if (_hn[1] >= 0.5 && w.b) queueHang(w.b);
+    // a deck's bearings are its edges, whichever way their joints face
+    if (!w.a.dead && isDeck(w.a)) queueHang(w.a);
+    if (w.b && !w.b.dead && isDeck(w.b)) queueHang(w.b);
   }
+}
+
+/* A timber floor, ceiling or roof deck: flat, lying level. It bears on its edges (joists in pockets, plates on the
+   walls), so its joints face sideways; what it cannot do is cantilever. */
+const DECK_MATS = new Set<MaterialId>(['wood', 'plywood', 'roof']);
+const _dmn: Vec3 = [0, 0, 0], _dmx: Vec3 = [0, 0, 0], _dax: Vec3 = [0, 0, 0];
+function deckAxes(p: Piece): number {
+  P.bounds(p.poly, _dmn, _dmx);
+  const d = [_dmx[0] - _dmn[0], _dmx[1] - _dmn[1], _dmx[2] - _dmn[2]];
+  const t = d[0] <= d[1] && d[0] <= d[2] ? 0 : d[1] <= d[2] ? 1 : 2;
+  const o = [d[(t + 1) % 3], d[(t + 2) % 3]];
+  if (d[t] > 0.35 || Math.min(o[0], o[1]) < 1.2) return -1;
+  return t;
+}
+function isDeck(p: Piece): boolean {
+  if (!DECK_MATS.has(p.mat) || p.volume < 0.05) return false;
+  const t = deckAxes(p);
+  if (t < 0) return false;
+  vec3.set(_dax, t === 0 ? 1 : 0, t === 1 ? 1 : 0, t === 2 ? 1 : 0);
+  vec3.transformQuat(_dax, _dax, p.curRot);
+  return Math.abs(_dax[1]) > 0.85;
+}
+/* the joints left on a deck hold it up only from both sides of its centre, along one span or the other */
+const _dw: Vec3 = [0, 0, 0], _du: Vec3 = [0, 0, 0];
+function deckHeld(p: Piece): boolean {
+  const t = deckAxes(p);
+  for (const k of [(t + 1) % 3, (t + 2) % 3]) {
+    const half = (_dmx[k] - _dmn[k]) / 2;
+    vec3.set(_du, k === 0 ? 1 : 0, k === 1 ? 1 : 0, k === 2 ? 1 : 0);
+    vec3.transformQuat(_du, _du, p.curRot);
+    let lo = Infinity, hi = -Infinity;
+    for (const w of p.welds) {
+      weldPos(w, _dw);
+      const s = (_dw[0] - p.curPos[0]) * _du[0] + (_dw[1] - p.curPos[1]) * _du[1] + (_dw[2] - p.curPos[2]) * _du[2];
+      lo = Math.min(lo, s); hi = Math.max(hi, s);
+    }
+    if (lo < -0.25 * half && hi > 0.25 * half) return true;
+  }
+  return false;
 }
 
 /* Brickwork, stone and timber stand on what is below them. A member that has lost every connection beneath it and is
@@ -756,6 +798,7 @@ function checkHanging(): void {
         if ((w.a === p ? _hn[1] : -_hn[1]) <= -0.5) { below = true; break; }
       }
       if (metal) continue;
+      if (isDeck(p)) below = deckHeld(p);
       if (!below) {
         counters.hangs++;
         for (const w of p.welds.slice()) failWeld(w, 'overload', false);
