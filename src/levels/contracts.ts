@@ -19,6 +19,8 @@ import type { Goal } from '../game/scoring.ts';
 export interface Job extends Contract {
   chapter: string;
   goal?: Goal;
+  /** one line of site-foreman advice on the failed-job report: what the job actually turns on */
+  tip?: string;
 }
 
 const bp = (spawn: Vec3, ...parts: PieceSpec[][]): Blueprint => ({ pieces: parts.flat(), spawn: { pos: spawn, yaw: 0 } });
@@ -32,13 +34,15 @@ const ALL_TOOLS: Record<WeaponId, number> = {
   planner: -1, excavator: -1, breaker: -1, hose: -1, splitter: -1, wiresaw: -1,
 };
 
-const ODD_JOBS: Contract[] = [
+const ODD_JOBS: Omit<Job, 'chapter'>[] = [
   {
     id: 'garden-variety',
     name: 'Garden Variety',
     location: '9 Larch Avenue, back garden · 12:05',
     brief: 'The new owners want a lawn, and they want it by teatime: shed, greenhouse, outdoor facilities, the lot — and the back wall. '
-      + 'The hammer is on the house; cannonballs are not, so save them for the brickwork. The greenhouse will not put up a fight.',
+      + 'Twelve cannonballs do the heavy work: the wall is nearly half the job, and a timber shed shrugs off a sledge. '
+      + 'The hammer is on the house for the glass and whatever the cannon has loosened: hold to wind it up, let go to strike.',
+    tip: 'The back wall is nearly half the target and the shed most of the rest: put the cannonballs into them, low. The sledge only chips timber and brick.',
     target: 0.5,
     par: 90,
     stars: [0, 0],
@@ -58,7 +62,9 @@ const ODD_JOBS: Contract[] = [
     name: 'Kerb Appeal',
     location: '14 Orchard Close · 16:50',
     brief: 'One brick bungalow, one tired garden wall, one shed nobody will admit to owning. The developer wants a clean plot for six '
-      + 'executive homes. Knock the corners out and the roof does the rest; roofs are heavy and they know it.',
+      + 'executive homes. Take the walls out from under the eaves — front, sides and back — and the roof does the rest; roofs are '
+      + 'heavy and they know it. Give it a few seconds once it starts to go.',
+    tip: 'Corners alone will not drop it: spread the cannonballs along the walls under the eaves, all four sides, then wait for the roof.',
     target: 0.6,
     par: 150,
     stars: [0, 0],
@@ -76,9 +82,11 @@ const ODD_JOBS: Contract[] = [
     id: 'high-and-dry',
     name: 'High and Dry',
     location: 'Kettle Lane Pumping Station · 11:15',
-    brief: 'The water board has finally noticed the tower has been empty since 1987. Twelve tonnes of tank on four skinny legs — '
-      + 'work out which leg is load-bearing (all of them) and remove one. Rockets are new to you; the pump house is not precious.',
-    target: 0.65,
+    brief: 'The water board has finally noticed the tower has been empty since 1987. Twelve tonnes of tank on four steel legs, and '
+      + 'they are cross-braced, so losing one only makes it lean: take both legs out on the side you want it to go. Rockets are new '
+      + 'to you — put them on the leg, not the air beside it. The pump house is not precious.',
+    tip: 'Rocket both legs on one side, then a cannonball into the lean. The legs are 30 cm of steel: aim at the leg, not next to it.',
+    target: 0.55,
     par: 120,
     stars: [0, 0],
     ammo: { hammer: -1, cannon: 10, rocket: 6 },
@@ -95,25 +103,28 @@ const ODD_JOBS: Contract[] = [
     id: 'four-stacks',
     name: 'Four Stacks, No Scratches',
     location: 'Old Brickworks Yard · 18:40',
-    brief: 'Four boiler stacks, and parked in the middle of them the site office, the foreman\'s van and a surveyor\'s very clean car. '
-      + 'Everything tall comes down; everything with wheels or a kettle stays pristine. Take the base out on the side you want it to fall.',
-    target: 0.7,
+    brief: 'Four boiler stacks round a yard, and parked in the middle of it the site office, the foreman\'s van and a surveyor\'s very '
+      + 'clean car. Everything tall comes down; everything with wheels or a kettle stays pristine. Knock the bottom course out and a '
+      + 'stack sits down; the yard is wide enough for that, not for one that topples in. Rockets punch through brick: never fire one '
+      + 'with the office behind the stack.',
+    tip: 'Cannon the bottom course of each stack from outside the yard. A rocket through a stack keeps going into whatever is behind it.',
+    target: 0.65,
     par: 150,
     stars: [0, 0],
-    ammo: { hammer: -1, cannon: 8, rocket: 5 },
+    ammo: { hammer: -1, cannon: 10, rocket: 4 },
     env: 'dusk',
     protectedNote: 'PROTECTED: site office, van and car — any damage is deducted from your fee.',
     unlockText: 'REMOTE CHARGES UNLOCKED',
     build: () => {
       const r = rng(4);
-      const stacks = ([[-8, -14], [8, -14], [-8, -26], [8, -26]] as const).map(([x, z], i) =>
+      const stacks = ([[-12, -12], [12, -12], [-12, -28], [12, -28]] as const).map(([x, z], i) =>
         brickStack({ x, z, courses: 6 + Math.floor(r() * 3), tint: [0xffffff, TINT.brickPale, 0xf0ddd0, TINT.brickDark][i], group: `stack${i + 1}` }));
       return bp([0, 0, 4],
         ...stacks,
         siteOffice({ x: 0, z: -20 }),
-        van({ x: -2, z: -26.5 }),
-        car({ x: 2.5, z: -13 }),
-        dump({ x: 12.5, z: -20, crates: [2, 2, 2] }),
+        van({ x: -1.5, z: -26 }),
+        car({ x: 1.5, z: -14 }),
+        dump({ x: 17, z: -20, crates: [2, 2, 2] }),
       );
     },
   },
@@ -128,6 +139,8 @@ const ODD_JOBS: Contract[] = [
     stars: [0, 0],
     ammo: { hammer: -1, cannon: 6, rocket: 3, charge: 8 },
     env: 'night',
+    unlockText: 'TOW WINCH ISSUED',
+    tip: 'Charges go on the steel columns, within arm\'s reach; G fires them. The gas in the shed does the rest.',
     build: () => bp([0, 0, 6],
       warehouse({ x: 0, z: -20, stock: true }),
       pumpHouse({ x: -16, z: -9, rot: 1, group: 'gatehouse' }),
@@ -141,7 +154,8 @@ const ODD_JOBS: Contract[] = [
     brief: 'Twenty-six metres of Victorian chimney, a mill that should have closed with the Victorians, and a terrace of cottages '
       + 'whose residents are watching from their front steps. Cut the stack on its east side and it lays itself down across the mill. '
       + 'Cut it anywhere else and we will be having a conversation.',
-    target: 0.8,
+    tip: 'The mill is most of the target: charges on its cast-iron columns bring it down. Keep blasts off the west side of the stack.',
+    target: 0.65,
     par: 210,
     stars: [0, 0],
     ammo: { hammer: -1, cannon: 6, rocket: 4, charge: 8, winch: 2 },
@@ -151,7 +165,7 @@ const ODD_JOBS: Contract[] = [
     build: () => bp([3, 0, 3],
       industrialChimney({ x: -2, z: -24 }),
       mill({ x: 14, z: -24, stock: true }),
-      cottageRow({ x: -19, z: -24, protected: true }),
+      cottageRow({ x: -25, z: -24, protected: true }),
     ),
   },
   {
@@ -160,12 +174,14 @@ const ODD_JOBS: Contract[] = [
     location: 'Junction 9 flyover · 05:30',
     brief: 'The flyover failed its inspection in several languages. We have a two-hour closure, so all four spans on the ground before '
       + 'the rush. Piers first, deck follows; someone also abandoned a lorry-load of fuel up top. The bus shelter is council property.',
-    target: 0.72,
-    par: 180,
+    tip: 'Three pier bents of two columns each: a charge low on every column, then G from well back.',
+    target: 0.8,
+    par: 150,
     stars: [0, 0],
-    ammo: { hammer: -1, cannon: 6, rocket: 4, charge: 8, airstrike: 1 },
+    ammo: { hammer: -1, cannon: 6, rocket: 4, charge: 6, airstrike: 1 },
     env: 'overcast',
     protectedNote: 'PROTECTED: the bus shelter by the east abutment.',
+    unlockText: 'CUTTING CHARGES UNLOCKED',
     build: () => bp([-4, 0, 6],
       overpass({ x: 0, z: -20, traffic: true }),
       busShelter({ x: 22, z: -12 }),
@@ -181,7 +197,8 @@ const ODD_JOBS: Contract[] = [
     target: 0.9,
     par: 240,
     stars: [0, 0],
-    ammo: { hammer: -1, cannon: 6, rocket: 4, charge: 10, airstrike: 2, cutter: 4 },
+    tip: 'Eight charges low on the ground-floor columns, fired together, drop it in its own footprint. Only eight can be armed at once.',
+    ammo: { hammer: -1, cannon: 6, rocket: 4, charge: 8, airstrike: 2, cutter: 4 },
     env: 'night',
     protectedNote: 'PROTECTED: the chip shop and the car outside it. Topple the tower east and you will pay for both.',
     build: () => bp([-6, 0, 4],
@@ -432,7 +449,7 @@ const DOWNTOWN_JOBS: Job[] = [
   },
 ];
 
-const filed = (chapter: string, list: Contract[]): Job[] => list.map((c) => ({ ...c, chapter }));
+const filed = (chapter: string, list: Omit<Job, 'chapter'>[]): Job[] => list.map((c) => ({ ...c, chapter }));
 
 export const CONTRACTS: Job[] = [...filed('Odd Jobs', ODD_JOBS), ...HERITAGE_JOBS, ...RAILWAY_JOBS, ...DOWNTOWN_JOBS];
 
