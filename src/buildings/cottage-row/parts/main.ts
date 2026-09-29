@@ -7,6 +7,7 @@ import { type Placement, TINT } from '../../_shared/base.ts';
 import { put } from '../../_shared/structures-helpers.ts';
 import { bond, brickRun, door, lime, type LimeOpts, PAINT, sash, timberDeck } from '../../_shared/vernacular.ts';
 import { gableCourses, pitchRoof, roofUnits, type RoofStack } from '../../_shared/roofs.ts';
+import { mulTint, shadeTint, vary } from '../../_shared/tints.ts';
 
 /** Byelaw terrace of two-up two-down brick cottages, front +Z (c. 1890). Solid 9-inch (225 mm) walls in Flemish bond
     with darker burnt headers, lime plaster inside, stone lintels and sills, tall two-over-two sashes and four-panel
@@ -17,7 +18,8 @@ import { gableCourses, pitchRoof, roofUnits, type RoofStack } from '../../_share
     the flue-carrying party walls and end gables through the roof (slopes and gables are cut back round them), so a
     stack stands on the wall below it and falls with it. Each front room has a chimney breast bonded into its flue wall;
     boarded floors and lath-and-plaster ceilings. The 'terrace' row is red brick with dark doors and tall red pots; any
-    other row is buff with painted doors and short buff pots. Behind, a single-storey
+    other row has rendered fronts painted a different colour per house over a dark plinth, buff side and back brick,
+    painted doors and short buff pots. Behind, a single-storey
     scullery outrigger per house with a lean-to slate roof, paired against a shared wall that rises above both roofs. */
 /* the joist ends sit in pockets and are nailed to wall plates; a butt-jointed party wall is held to the front wall by
    a few wall ties */
@@ -54,11 +56,24 @@ export function cottageRow(p: Placement & { count?: number; protected?: boolean 
     backs.push({ c: oc, w: 0.8, y0: 0, h: 2.0, glass: false }, { c: bc, w: 1.0, y0: 0.9, h: 1.4 });
     backsUp.push({ c: bc, w: 0.9, y0: 0.8, h: 1.35 }, { c: oc - (dr ? 0.35 : -0.35), w: 0.7, y0: 0.9, h: 1.1 });
   }
+  /* any row but the red 'terrace' has its fronts rendered and painted, each house its own colour over a dark
+     painted plinth (the render units are laid white, then tinted per house) */
+  const paints = [0xf4e9c9, 0xc6dcc0, 0xf4cfb2, 0xc4d3ea, 0xf6e59c, 0xebc6c6];
+  const paint = (q: PieceSpec[]): PieceSpec[] => {
+    if (red) return q;
+    for (const m of q) for (const u of m.detail ?? []) {
+      if (u.mat !== 'concrete' || u.tint === undefined) continue;
+      const house = Math.min(n - 1, Math.max(0, Math.floor((u.pos[0] + X) / bay)));
+      u.tint = u.pos[1] < 0.42 ? shadeTint(vary(0x45423f, u, 0.06, 3), 1) : mulTint(u.tint, paints[(house + seed) % paints.length]);
+    }
+    return q;
+  };
+  const face: LimeOpts = red ? {} : { render: 0xffffff };
   // front and back walls, one run per storey; the meter's service is sleeved through a patch beside each front door
   for (const [s, lo, up] of [[1, fronts, frontsUp], [-1, backs, backsUp]] as const) {
-    const at = s * (Z - t / 2);
-    ps.push(...run({ ...brick, from: -X, to: X, at, t, y0: 0, h: f1, out: s, openings: lo }, s, {}, s > 0 ? meters.map((m) => [m, 1.55] as [number, number]) : []));
-    ps.push(...run({ ...brick, from: -X, to: X, at, t, y0: f1, h: eave - f1, out: s, openings: up }, s));
+    const at = s * (Z - t / 2), f = s > 0 ? face : {};
+    ps.push(...paint(run({ ...brick, from: -X, to: X, at, t, y0: 0, h: f1, out: s, openings: lo }, s, f, s > 0 ? meters.map((m) => [m, 1.55] as [number, number]) : [])));
+    ps.push(...paint(run({ ...brick, from: -X, to: X, at, t, y0: f1, h: eave - f1, out: s, openings: up }, s, f)));
   }
   for (const l of leafs) ps.push(door('x', l.u, [0, 2.45], [Z - t, Z], 1, { tint: l.tint, fan: 0.4 }));
   /* chimney breasts: each house's breast is on the side away from its door, corbelled from that wall; two cheeks and

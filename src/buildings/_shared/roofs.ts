@@ -2,7 +2,7 @@ import type { MaterialId, PieceSpec, Vec3 } from '../../types.ts';
 import { block, cyl, extrude, hull as hullPiece, type PieceOpts, type Range } from '../../levels/kit.ts';
 import { masonry, wallSlab, withDetail, BRICK } from '../../levels/layers.ts';
 import { contains, hullPoly } from '../../destruction/polytope.ts';
-import { shadeTint, vary } from './tints.ts';
+import { hash3, shadeTint, vary } from './tints.ts';
 
 /* Roof coverings and chimney stacks for the Clearance Zone houses and shops.
    roofUnits: the courses a sloped roof slab is built of (rafters, felt, battens, slates or tiles), laid square to the
@@ -120,7 +120,10 @@ export function stackShaft(s: ShaftOpts): PieceSpec[] {
     const T = alongX ? z[1] - z[0] : x[1] - x[0];
     const units = masonry(slab, slab.T, { mat: 'brick', tint: s.tint, unit: [BRICK[0], BRICK[1], T >= 0.18 ? (T - 0.01) / 2 : T], joint: 0.01, kind: T >= 0.18 ? 'english' : 'stretcher' });
     for (const u of units) {
-      const k = u.pos[1] < s.soot ? 1 : Math.max(0.28, 1 - 0.72 * ((u.pos[1] - s.soot) / Math.max(0.5, s.y[1] - s.soot)) ** 1.1);
+      let k = u.pos[1] < s.soot ? 1 : Math.max(0.28, 1 - 0.72 * ((u.pos[1] - s.soot) / Math.max(0.5, s.y[1] - s.soot)) ** 1.1);
+      // soot-laden run-off streaks down from the oversailing course, in a few columns of bricks
+      const col = Math.round((alongX ? u.pos[0] : u.pos[2]) / 0.11), below = s.y[1] - u.pos[1];
+      if (below < 1.1 && hash3(col, 0, alongX ? z[0] : x[0], 41) < 0.3) k *= 0.55 + 0.45 * (below / 1.1) ** 0.7;
       u.tint = shadeTint(vary(s.tint, u, 0.2, 5), k);
     }
     return units;
@@ -131,11 +134,29 @@ export function stackShaft(s: ShaftOpts): PieceSpec[] {
   const shaft = block('brick', s.x, [y0, s.y[1]], s.z, { ...o, joint: { kind: 'nail', n: 4, d: 0.006 } });
   ps.push(withDetail(shaft, courses(s.x, [y0, s.y[1]], s.z)));
   const top = s.y[1];
-  ps.push(block('brick', [s.x[0] - 0.06, s.x[1] + 0.06], [top, top + 0.15], [s.z[0] - 0.06, s.z[1] + 0.06], { ...o, tint: shadeTint(s.tint, 0.55) }));
+  /* the oversailing course, black with soot, under a cement flaunching that weathers the pots in: thin at the
+     edges, swept up round the pot bases, dark and crazed */
+  const cx: Range = [s.x[0] - 0.06, s.x[1] + 0.06], cz: Range = [s.z[0] - 0.06, s.z[1] + 0.06], zc0 = (s.z[0] + s.z[1]) / 2;
+  const capSlab = wallSlab('x', cx, [top, top + 0.075], cz, 1);
+  const cap: PieceSpec[] = masonry(capSlab, capSlab.T, { mat: 'brick', tint: s.tint, unit: [BRICK[0], BRICK[1], (cz[1] - cz[0] - 0.01) / 2], joint: 0.01, kind: 'english' });
+  for (const u of cap) u.tint = shadeTint(vary(s.tint, u, 0.2, 6), 0.42);
+  const potD = s.potD ?? 0.21;
+  const fy = top + 0.077, fe = 0.004, cr = Math.min(potD / 2 + 0.01, (cz[1] - cz[0]) / 2 - 0.03);
+  const fl = hullPiece('concrete', [
+    ...[cz[0] + fe, cz[1] - fe].flatMap((z) => [[cx[0] + fe, fy, z], [cx[1] - fe, fy, z], [cx[0] + fe, fy + 0.01, z], [cx[1] - fe, fy + 0.01, z]] as Vec3[]),
+    ...[zc0 - cr, zc0 + cr].flatMap((z) => [[cx[0] + 0.02, top + 0.148, z], [cx[1] - 0.02, top + 0.148, z]] as Vec3[]),
+  ]);
+  fl.tint = shadeTint(vary(0x5a5650, fl, 0.1, 3), 1);
+  cap.push(fl);
+  ps.push(withDetail(block('brick', cx, [top, top + 0.15], cz, { ...o, tint: shadeTint(s.tint, 0.55) }), cap));
   const w = s.x[1] - s.x[0], zc = (s.z[0] + s.z[1]) / 2;
   for (let i = 0; i < s.pots; i++) {
-    const x = s.x[0] + ((i + 0.5) * w) / s.pots;
-    ps.push(cyl('terracotta', s.potD ?? 0.21, [top + 0.15, top + (s.potH ?? 0.55) + 0.08 * (i % 2)], x, zc, { tint: shadeTint(s.potTint ?? 0xb86a48, 0.5 + 0.08 * (i % 3)), group: s.group }));
+    const x = s.x[0] + ((i + 0.5) * w) / s.pots, y1 = top + (s.potH ?? 0.55) + 0.08 * (i % 2), tint = shadeTint(s.potTint ?? 0xb86a48, 0.5 + 0.08 * (i % 3));
+    // the pot's rim and upper third blackened by the flue gases, a grimy band where it is bedded in the flaunching
+    const soot = y1 - Math.min(0.2, (y1 - top - 0.15) * 0.35), bed = top + 0.21;
+    const pot = cyl('terracotta', potD, [top + 0.15, y1], x, zc, { tint, group: s.group });
+    ps.push(withDetail(pot, [cyl('ceramic', potD, [top + 0.15, bed], x, zc, { tint: 0x4a403a }), cyl('terracotta', potD, [bed, soot], x, zc, { tint }),
+      cyl('ceramic', potD, [soot, y1], x, zc, { tint: 0x2b2522 })]));
   }
   return ps;
 }
