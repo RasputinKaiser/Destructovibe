@@ -37,21 +37,24 @@ const LINER_RIB = 0xa9aeb0;
    reads grey-white there, not cream (the ambient itself is an engine matter, see the loop2 round-3 claims) */
 const ROOF_LINER = 0xb0cbf2, ROOF_RIB = 0x8ea6c8;
 /** units of the sheets covering u0..u1 (1 m cover from u0), as [u, depth band from the outer face, tint, body?] */
-function sheetLayers(u0: number, u1: number, tint: number, liner: [number, number] | null): [Range, Range, number, boolean][] {
+function sheetLayers(u0: number, u1: number, tint: number, liner: [number, number] | null, banded = true): [Range, Range, number, boolean][] {
   const out: [Range, Range, number, boolean][] = [];
+  /* the backing coat is laid in bands, darker under each crown; each band has the steel's own outer face (the sheet's
+     tone) in front of the coat. A struck pan and its crowns go to dust over a region, the bands straddling its edge
+     stay: they now read as torn strips of the sheet, not as pale stripes of backing coat (the "barcode") */
+  const back = (u: Range, coat: number) => { if (banded) out.push([[u[0] + 0.0005, u[1] - 0.0005], PROFILE.backOut, shade(tint, 0.82), false]); out.push([u, PROFILE.back, coat, false]); };
   for (let a = u0; a < u1 - 0.004; a += 1.0) {
     const s1 = Math.min(a + 1.0, u1);
     out.push([[a, s1], PROFILE.pan, tint, true]);
-    /* the steel's own outer face behind the pan, one film across the sheet: if the pan is torn out and its crowns
-       left standing, they read as a ribbed sheet on it, not as a barcode against the pale backing coat */
-    if (liner) out.push([[a + 0.001, s1 - 0.001], PROFILE.backOut, shade(tint, 0.82), false]);
+    // (a roof is only seen stripped from above: one film of the sheet's tone across the sheet does there)
+    if (liner && !banded) out.push([[a + 0.001, s1 - 0.001], PROFILE.backOut, shade(tint, 0.82), false]);
     let cur = a;
     for (let c = a + 0.1665; c + 0.03 < s1 - 0.004; c += 0.333) {
       out.push([[c - 0.03, c - 0.019], PROFILE.web, tint, false], [[c - 0.019, c + 0.019], PROFILE.cap, tint, false], [[c + 0.019, c + 0.03], PROFILE.web, tint, false]);
-      if (liner) { if (c - 0.03 - cur > 0.002) out.push([[cur, c - 0.03], PROFILE.back, liner[0], false]); out.push([[c - 0.03, c + 0.03], PROFILE.back, liner[1], false]); }
+      if (liner) { if (c - 0.03 - cur > 0.002) back([cur, c - 0.03], liner[0]); back([c - 0.03, c + 0.03], liner[1]); }
       cur = c + 0.03;
     }
-    if (liner && s1 - cur > 0.002) out.push([[cur, s1], PROFILE.back, liner[0], false]);
+    if (liner && s1 - cur > 0.002) back([cur, s1], liner[0]);
   }
   return out;
 }
@@ -93,7 +96,7 @@ export function frameDims(X: number, Z: number, H: number, pitchDeg = 6): FrameD
 export const roofY = (f: FrameDims, z: number): number => f.yR - Math.abs(z) * f.tn;
 
 /** One portal column: UB with its base plate and a cap flush under the roof, as one body. `s` is the side (+1 at +Z). */
-export function column(f: FrameDims, x: number, s: 1 | -1, o: PieceOpts): PieceSpec {
+export function column(f: FrameDims, x: number, s: 1 | -1, o: PieceOpts, haunch = true): PieceSpec {
   const { D, B, Z } = f, t = 0.04, bp = 0.04;
   const zo = s * Z, zi = s * (Z - D);
   const zr = (a: number, b: number): Range => [Math.min(a, b), Math.max(a, b)];
@@ -106,7 +109,7 @@ export function column(f: FrameDims, x: number, s: 1 | -1, o: PieceOpts): PieceS
     block('steel', [x - t / 2, x + t / 2], [bp, yTopOut], zr(zo - s * t, zi + s * t), o),
   ];
   // web stiffeners opposite the haunch flange and the rafter's top flange, each side of the web
-  const yh = haunchSoffit(f), zin = zr(zo - s * t, zi + s * t);
+  const g = haunchGeom(f), yh = haunch ? haunchSoffit(f) : g.bot(g.zc - g.t), zin = zr(zo - s * t, zi + s * t);
   for (const y of [yh, yTopOut - 0.06]) for (const xs of [[x - B / 2, x - t / 2], [x + t / 2, x + B / 2]] as Range[]) parts.push(block('steel', xs, [y - 0.02, y + 0.02], zin, o));
   return weldParts(parts, { section: { kind: 'I', t: 0.0177, tw: 0.0105, axis: 1, depth: 2 }, joint: { kind: 'bolt', n: 4, d: 0.024, grade: '8.8', preload: 0.2 } });
 }
@@ -133,9 +136,11 @@ export const spliceZ = (f: FrameDims): number => haunchGeom(f).toe;
     the eaves segment (end plate bolted to the column's inner flange, cut-from-section haunch web and inclined flange,
     splice plate) and the main rafter (splice plate, UB, apex plate bolted to its partner). Plates are the bodies'
     parts; their detail repeats the plates, draws the end plates at their real 25 mm and puts the bolts and nuts on. */
-export function rafter(f: FrameDims, x: number, s: 1 | -1, o: PieceOpts): PieceSpec[] {
+export function rafter(f: FrameDims, x: number, s: 1 | -1, o: PieceOpts, haunch = true): PieceSpec[] {
   const { B, dR } = f;
-  const { t, zc, toe, bot, hb } = haunchGeom(f);
+  const { t, zc, toe, bot, hb: hh } = haunchGeom(f);
+  // a gable frame carries only half a bay of roof: its rafter runs at full depth to the column, no haunch under it
+  const hb = haunch ? hh : bot;
   const top = (z: number) => roofY(f, z);
   const P = (z: number, y: number, xx = x): Vec3 => [xx, y, s * z];
   const mid = (z: number) => (top(z) + bot(z)) / 2;
@@ -181,10 +186,11 @@ export function rafter(f: FrameDims, x: number, s: 1 | -1, o: PieceOpts): PieceS
     if (o.finish) res.finish = o.finish;
     return res;
   };
-  const eParts = [...unpack(eRaf), hull('steel', web), hull('steel', fl), eEnd, eSpl];
+  const hs = haunch ? [hull('steel', web), hull('steel', fl)] : [];
+  const eParts = [...unpack(eRaf), ...hs, eEnd, eSpl];
   const mParts = [...unpack(mRaf), mSpl, mApx];
   const eaves = make(eParts, [
-    ...unpack(eRaf), hull('steel', web), hull('steel', fl), thin(eEnd, zc, -1), thin(eSpl, toe, 1),
+    ...unpack(eRaf), ...hs, thin(eEnd, zc, -1), thin(eSpl, toe, 1),
     ...bolts(zc, -1, rows(zc, hb(zc - t), 5)), ...bolts(toe, 1, rows(toe, bot(toe), 3)),
   ]);
   const main = make(mParts, [
@@ -413,7 +419,7 @@ export function roofSlope(f: FrameDims, xr: Range, s: 1 | -1, o: RoofOpts): Piec
       const lit = lights.has(k);
       // a roof light is a whole GRP sheet, the same profile with no backing coat: pale and opaque (no translucent
       // material exists), weighing as GRP
-      for (const [u, r, tint] of sheetLayers(sa[0], sa[1], lit ? SHED.rooflight : o.tint, lit ? null : [ROOF_LINER, ROOF_RIB])) {
+      for (const [u, r, tint] of sheetLayers(sa[0], sa[1], lit ? SHED.rooflight : o.tint, lit ? null : [ROOF_LINER, ROOF_RIB], false)) {
         unit('metal', u, sb, cb(r), tint, 'paint', lit ? RHO.light : RHO.sheet);
       }
     }
