@@ -1,7 +1,7 @@
 import { CONTRACTS, DOWNTOWN, RAILWAY, SANDBOX, SHOWCASE } from '../src/levels/contracts.ts';
 import { PREFABS, prefabView } from '../src/levels/prefabs.ts';
 import { checkWalkability, validateBlueprint, type Limits } from '../src/levels/validate.ts';
-import type { Contract } from '../src/types.ts';
+import type { Blueprint, Contract } from '../src/types.ts';
 
 declare const process: { argv: string[]; exit(code: number): never };
 
@@ -13,8 +13,9 @@ const notes: string[] = [];
 
 /* contracts cut from a free-play map take that map's bounds and a free-play budget */
 const SITE: Record<string, Limits> = { showcase: { bounds: 45, maxPieces: 3000 }, downtown: { bounds: 80, maxPieces: 5500 }, railway: { bounds: 90, maxPieces: 4800 } };
-const onMap = (c: Contract): Limits => { const h = c.build().terrain?.half; return h ? { bounds: h, maxPieces: h > 80 ? SITE.railway.maxPieces : h > 50 ? SITE.downtown.maxPieces : SITE.showcase.maxPieces } : {}; };
-const levels: [string, Contract, Limits][] = [...CONTRACTS.map((c, i) => [String(i + 1), c, onMap(c)] as [string, Contract, Limits]), ['S', SANDBOX, { bounds: 65, maxPieces: 3200 }], ['H', SHOWCASE, SITE.showcase], ['D', DOWNTOWN, SITE.downtown], ['R', RAILWAY, SITE.railway]];
+/* (from the blueprint the loop builds anyway: a build of a map-cut contract costs as much as the map's) */
+const onMap = (bp: Blueprint): Limits => { const h = bp.terrain?.half; return h ? { bounds: h, maxPieces: h > 80 ? SITE.railway.maxPieces : h > 50 ? SITE.downtown.maxPieces : SITE.showcase.maxPieces } : {}; };
+const levels: [string, Contract, Limits | typeof onMap][] = [...CONTRACTS.map((c, i) => [String(i + 1), c, onMap] as [string, Contract, typeof onMap]), ['S', SANDBOX, { bounds: 65, maxPieces: 3200 }], ['H', SHOWCASE, SITE.showcase], ['D', DOWNTOWN, SITE.downtown], ['R', RAILWAY, SITE.railway]];
 /* free-play sites stand on terrain: walkability, buried services, and a doorway into each building on foot */
 const WALK: Record<string, string[]> = {
   S: ['pub', 'chipshop', 'shop-a', 'terrace', 'cottages', 'semis', 'chapel', 'boilerhouse', 'merchant', 'works', 'pressshop', 'pumping'],
@@ -22,8 +23,9 @@ const WALK: Record<string, string[]> = {
   D: ['tower', 'store', 'skyscraper2', 'office', 'stand', 'carpark', 'flats', 'flats2'],
   R: ['station', 'millworks', 'stadium', 'cottages'],
 };
-for (const [idx, c, limits] of levels) {
+for (const [idx, c, lim] of levels) {
   const bp = c.build();
+  const limits = typeof lim === 'function' ? lim(bp) : lim;
   const { errors, warnings, stats } = validateBlueprint(bp, limits);
   if (WALK[idx]) {
     const w = checkWalkability(bp, { buildings: WALK[idx] });
