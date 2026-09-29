@@ -1166,6 +1166,15 @@ svg {
   scrollbar-width: thin;
 }
 
+.brief__more {
+  margin: 0.5rem 0 0;
+  font-family: var(--f-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
 /* pause */
 
 .screen--pause {
@@ -1266,6 +1275,7 @@ svg {
 
 .report__sub {
   padding: 0.85rem 1.3rem 0;
+  white-space: pre-line;
   font-family: var(--f-mono);
   font-size: 0.78rem;
   line-height: 1.55;
@@ -1425,8 +1435,8 @@ svg {
 
 .report__best {
   position: absolute;
-  right: 1.2rem;
-  top: 4.4rem;
+  right: 1.4rem;
+  bottom: 6.2rem;
   font-size: 1.5rem;
   opacity: 0;
   transform: rotate(-10deg);

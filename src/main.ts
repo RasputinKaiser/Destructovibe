@@ -447,7 +447,7 @@ function finish(won: boolean): void {
     won,
     title: won ? 'Contract complete' : 'Contract failed',
     subtitle: won
-      ? `${c.name} — ${Math.round(pct * 100)}% down in ${fmtTime(scoring.score.elapsed)} · ★★ ${stars2.toLocaleString()} · ★★★ ${stars3.toLocaleString()}`
+      ? `${c.name} — ${Math.round(pct * 100)}% down in ${fmtTime(scoring.score.elapsed)} (par ${fmtTime(c.par)})\n★★ ${stars2.toLocaleString()} pts · ★★★ ${stars3.toLocaleString()} pts`
       : `${c.name} — ${Math.round(pct * 100)}% of ${Math.round(c.target * 100)}% required`,
     rows, total, stars, newBest,
     hasNext: won && contractIdx < CONTRACTS.length - 1,
