@@ -211,12 +211,15 @@ for (const run of runs) {
     else if (!line) errors.push(`${label}: settle produced no RESULT line${tail ? `: ${tail}` : ''}`);
     else {
       console.log(`${label}: ${line}`);
-      let res: { weldsLost: number; runaways: number; awakeAtEnd: number } | undefined;
+      let res: { weldsLost: number; runaways: number; awakeAtEnd: number; awakeOther?: number } | undefined;
       try { res = JSON.parse(line.slice(7)); } catch { errors.push(`${label}: settle RESULT line is not valid JSON: ${line}`); }
       if (res) {
         if (res.weldsLost > 0) errors.push(`${label}: settle lost ${res.weldsLost} welds`);
         if (res.runaways > 0) errors.push(`${label}: settle had ${res.runaways} runaways`);
-        if (res.awakeAtEnd > 0) errors.push(`${label}: settle ended with ${res.awakeAtEnd} bodies still awake`);
+        // machines work all the time, so a building with a working machine never sleeps whole: only the bodies outside
+        // a working machine's island (awakeOther) must be asleep
+        const awake = res.awakeOther ?? res.awakeAtEnd;
+        if (awake > 0) errors.push(`${label}: settle ended with ${awake} bodies still awake (${res.awakeAtEnd - awake} more in working machines)`);
       }
     }
   }

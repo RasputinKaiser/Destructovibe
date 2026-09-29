@@ -107,7 +107,8 @@ interface Break {
   fxT: number;
   auT: number;
   size: number;
-  active: boolean;
+  active: boolean;          // flowing or arcing: fed to the fields, heating, lighting and dousing what it reaches
+  shown: boolean;           // one of the MAX_SHOWN biggest of its kind, drawn and heard
   area: number;             // orifice, m²
   full: boolean;            // full-bore rupture rather than a weep / crack / split
   link: SvcLink | null;     // a leak at a joint that still holds
@@ -152,7 +153,7 @@ export interface Mech {
   upper: number | undefined;
   dir: number;
   running: boolean;
-  active: boolean;          // stepped every physics step (running, coasting or coupled, near the viewer)
+  active: boolean;          // stepped every physics step (running, coasting or coupled)
   roped: boolean;
   brakesFailed: boolean;
   ready: number;
@@ -173,10 +174,9 @@ export interface Mech {
   mass0: b3MassData | null; // part's own mass data before the geared rotor's inertia was added
   tyre: b3ShapeId | null;   // round road-contact shape of a wheel
   cmd?: number;             // operator's lever, -1..1 of the flow-limited speed; undefined = the machine's own cycle
-  near: boolean;            // inside the working range of the viewer (or under an operator)
   hold: boolean;            // a one-way axis at its end stop: valve centred, load held, the part free to sleep
   cyc: Cycle | null;        // the machine's own work cycle for this axis
-  spin: Spin | null;        // out of range: a turning rotor drawn turning while its body sleeps
+  spin: Spin | null;        // a rotor on a parked vehicle, drawn turning while its body sleeps
   trips: number;            // electric: overload trips in the last few minutes (a winding cooked three times burns out)
   burnt: number;            // electric: clock the winding burnt out (smoking), 0 = sound
   load: number;             // digging bucket: spoil aboard, m³
@@ -185,8 +185,8 @@ export interface Mech {
 
 type Cycle = NonNullable<NonNullable<PieceSpec['mech']>['cycle']>;
 
-/* Beyond the working range a rotor keeps turning on screen at its running speed without a body: its pose is the
-   joint's rotation about the pivot from the pose it had when it went to sleep. */
+/* A rotor on a parked vehicle keeps turning on screen at its running speed without a body: its pose is the joint's
+   rotation about the pivot from the pose it had when it went to sleep. */
 interface Spin { w: number; ang: number; pivot: Vec3; axis: Vec3; pos0: Vec3; rot0: Quat; live: boolean }
 
 type DriveKind = 'electric' | 'diesel' | 'hydraulic';
@@ -217,7 +217,7 @@ const IMPLIED: Record<FixtureKind, UtilityKind> = {
 };
 const SOURCE: Partial<Record<FixtureKind, true>> = { transformer: true, generator: true, gasmain: true, watermain: true, boiler: true };
 const TICK = 0.25;
-const MAX_ACTIVE = 16;
+const MAX_SHOWN = 16;
 const BOILER_BLOW = 350;
 const MECH_RANGE = 120;
 /* Box3D tests joint thresholds against per-substep peaks, well above the step-averaged force a
@@ -525,7 +525,7 @@ function addBreak(p: Piece, pos: Vec3, dir: Vec3, area: number, full: boolean): 
   if (!Number.isFinite(ld[0])) vec3.set(ld, 0, 1, 0);
   /* a torn steel or cast-iron main can strike its own spark; a hot pipe lights what it lets out */
   const lit = m.kind === 'gas' && (p.temp > 450 || (full && (p.mat === 'steel' || p.mat === 'castiron') && rnd() < 0.15));
-  const b: Break = { p, kind: m.kind, lp, ld, t0: clock, fxT: rnd() * 0.1, auT: rnd() * 0.25, size: 0, active: false,
+  const b: Break = { p, kind: m.kind, lp, ld, t0: clock, fxT: rnd() * 0.1, auT: rnd() * 0.25, size: 0, active: false, shown: false,
     area, full, link: null, spr: false, lit, q: 0, arcT: m.kind === 'power' && m.on ? 3 : 0, arcing: false,
     contact: 0, chk: -1, enc: undefined, gone: false, ins: false, hv: m.hv, ia: 0, ua: 0, vp: 0.1 + rnd() * 0.2, ec: -1 };
   breaks.push(b);
@@ -836,10 +836,10 @@ export function servicesStep(dt: number): void {
 /** Accumulated per-step machine update time (debug overlay, benchmarks). */
 export const mechCost = { ms: 0, steps: 0 };
 /** every machine axis, for harnesses: where it is, what drives it and what it is doing */
-export function mechSummary(): { id: number; group: string | undefined; pos: Vec3; drive: string | null; cyc: boolean; couple: boolean; near: boolean; running: boolean; active: boolean; spin: boolean; awake: boolean }[] {
+export function mechSummary(): { id: number; group: string | undefined; pos: Vec3; drive: string | null; cyc: boolean; couple: boolean; running: boolean; active: boolean; spin: boolean; awake: boolean }[] {
   return [...mechs.values()].filter((m) => m.alive).map((m) => ({
     id: m.part.id, group: m.part.root.spec.group, pos: [m.part.curPos[0], m.part.curPos[1], m.part.curPos[2]], drive: m.drive?.kind ?? null, cyc: !!m.cyc,
-    couple: !!m.couple, near: m.near, running: m.running, active: m.active, spin: !!m.spin, awake: !m.part.dead && b3.b3Body_IsAwake(m.part.body),
+    couple: !!m.couple, running: m.running, active: m.active, spin: !!m.spin, awake: !m.part.dead && b3.b3Body_IsAwake(m.part.body),
   }));
 }
 
@@ -1324,6 +1324,7 @@ function updateBreaks(): void {
   for (let i = breaks.length - 1; i >= 0; i--) {
     const b = breaks[i], m = b.p.svc!;
     b.active = false;
+    b.shown = false;
     /* the device's own terminals are its load side: dead once it has opened. A weep stays with its joint while the
        network is off, so a strained joint does not open a fresh one every tick; so does an open end, which jets (or
        arcs) again the moment its line is turned back on */
@@ -1359,15 +1360,18 @@ function updateBreaks(): void {
     if (b.kind === 'gas' && !b.lit) igniteCheck(b);
     if (b.size >= 0.1) byKind[b.kind].push(b);
   }
+  /* Every open break acts on the world; only the drawing and the sound are budgeted, to the biggest flows (never the
+     ones nearest the viewer), and the budget decides nothing else: what the fields, fires and joints get is the same
+     whoever watches and however many breaks are open. */
   for (const k of ['power', 'gas', 'water', 'steam'] as const) {
     const list = byKind[k];
-    if (list.length > MAX_ACTIVE) {
-      // the biggest flows, not the ones nearest the viewer: what the fields and fires get cannot depend on the camera
-      list.sort((a, b) => b.q - a.q || b.size - a.size || a.p.id - b.p.id);
-      list.length = MAX_ACTIVE;
-    }
     activeCount[k] = list.length;
     for (const b of list) b.active = true;
+    if (list.length > MAX_SHOWN) {
+      list.sort((a, b) => b.q - a.q || b.size - a.size || a.p.id - b.p.id);
+      list.length = MAX_SHOWN;
+    }
+    for (const b of list) b.shown = true;
   }
 }
 
@@ -1657,23 +1661,26 @@ function stepBreaks(dt: number): void {
     }
     if (b.fxT <= 0) {
       b.fxT += 0.1;
-      if (b.kind === 'gas') { if (b.lit) fx.gasJet(_v, _d, b.size); else fx.gasVent(_v, _d, b.size); }
-      else if (b.kind === 'water') fx.waterSpray(_v, _d, b.spr ? Math.max(b.size, 0.5) : b.size);
-      else fx.steamJet(_v, _d, b.size);
+      if (b.shown) {
+        if (b.kind === 'gas') { if (b.lit) fx.gasJet(_v, _d, b.size); else fx.gasVent(_v, _d, b.size); }
+        else if (b.kind === 'water') fx.waterSpray(_v, _d, b.spr ? Math.max(b.size, 0.5) : b.size);
+        else fx.steamJet(_v, _d, b.size);
+      }
     }
     if (b.auT <= 0) {
       b.auT += 0.25;
-      if (b.kind === 'gas') { if (b.lit) audio.gasJet(_v, b.size); else audio.gasHiss(_v, b.size); }
-      else if (b.kind === 'water') audio.waterSpray(_v, b.size);
-      else audio.steamJet(_v, b.size);
+      if (b.shown) {
+        if (b.kind === 'gas') { if (b.lit) audio.gasJet(_v, b.size); else audio.gasHiss(_v, b.size); }
+        else if (b.kind === 'water') audio.waterSpray(_v, b.size);
+        else audio.steamJet(_v, b.size);
+      }
       jetEffect(b);
     }
   }
 }
 
 function arc(b: Break, strength: number): void {
-  fx.arc(_v, strength);
-  audio.arc(_v, strength);
+  if (b.shown) { fx.arc(_v, strength); audio.arc(_v, strength); }
   fields.spark(_v, 0.3);
   /* molten copper spatter flies a metre or so every way (and the plasma plume climbs): either lights a flammable
      pocket beside the arc that the arc itself is not in */
@@ -1998,7 +2005,7 @@ export function linkMechs(list: Piece[], delay: number): void {
       roped: p.ropes.some((r) => holds(p, r)), brakesFailed: false, ready: clock + delay, alive: true, lastOver: -9, overSteps: 0, rate: 0,
       fric, roll: 0, dragK: hinge ? spec.drag ?? AIR * sz[k] * (R ** 4 - r ** 4) : 0, brake, crr: spec.crr ?? 0, radius: R,
       w: 0, ang: 0, spd: 0, tq: fric + brake, mass0: null, tyre: null,
-      near: false, hold: false, cyc: spec.cycle ?? null, spin: null, trips: 0, burnt: 0, load: 0, evT: -9,
+      hold: false, cyc: spec.cycle ?? null, spin: null, trips: 0, burnt: 0, load: 0, evT: -9,
       qa, groundAt: b3.b3Body_GetLocalPoint([0, 0, 0], ground, spec.at) as Vec3,
       fa: host ? { position: b3.b3Body_GetLocalPoint([0, 0, 0], host.body, spec.at) as Vec3, quaternion: quat.multiply([0, 0, 0, 1], quat.conjugate(_q, host.curRot), qa) as Quat } : null,
       fb: { position: b3.b3Body_GetLocalPoint([0, 0, 0], p.body, spec.at) as Vec3, quaternion: quat.multiply([0, 0, 0, 1], quat.conjugate(_q, p.curRot), qa) as Quat },
@@ -2180,7 +2187,7 @@ function motorLoad(m: Mech): number {
   return Math.abs(m.hinge ? b3.b3RevoluteJoint_GetMotorTorque(m.joint) : b3.b3PrismaticJoint_GetMotorForce(m.joint));
 }
 
-/* One physics step of a machine near the viewer: the drive's torque at the measured speed, less the
+/* One physics step of a working machine: the drive's torque at the measured speed, less the
    losses, is what the solver may apply to reach the drive's free-running speed. */
 function stepMech(m: Mech, dt: number): void {
   if (!m.alive || !b3.b3Joint_IsValid(m.joint)) return;
@@ -2295,10 +2302,12 @@ function idleSpeed(m: Mech): number {
   return vec3.dot(_v, m.axis);
 }
 
-/* A machine is worked by the solver while an operator has it (or its driver is worked): otherwise its drive stands
-   down and the part sleeps with its load held on the valve or brake, and a free rotor keeps turning on screen only
-   (Spin). Where the player stands never decides it: a machine run for real near the viewer and parked far off would
-   meet the same blast differently. A part whose body something wakes is handed back to the solver. */
+/* Every machine on the map works all the time, run by the solver on the step clock: its own cycle (or its operator's
+   lever) whenever its drive can run, wherever it stands and whoever watches. Where the player stands never decides it:
+   a machine run for real near the viewer and parked far off would meet the same blast differently. A drive that cannot
+   run (no supply, tripped, stalled, a cut line) stands down and its part sleeps with its load held on the valve or
+   brake. Only a rotor on a parked vehicle is drawn turning without its body (Spin), and handed back to the solver the
+   moment anything wakes the vehicle. */
 const spinning: Mech[] = [];
 function updateMechs(): void {
   running = 0;
@@ -2307,8 +2316,6 @@ function updateMechs(): void {
   for (const m of mechs.values()) {
     if (!m.alive) continue;
     const d = m.drive;
-    const near = m.cmd !== undefined || (!!m.couple && m.couple.driver.near);
-    m.near = near;
     // a car hung on its rope, an axis whose brake is released by its own lead: once that is gone nothing holds it
     if (m.roped && !m.brakesFailed && !m.part.ropes.some((r) => r.alive && holds(m.part, r))) m.brakesFailed = true;
     let could = !!m.couple && (m.couple.driver.running || !!m.couple.driver.spin?.live);
@@ -2318,7 +2325,7 @@ function updateMechs(): void {
         if (d.tripped && d.heat < TRIP_RESET && !m.burnt) d.tripped = false;
       }
       could = clock >= m.ready && !m.brakesFailed && !d.tripped && !d.cut && clock >= d.downUntil && (!!m.motor!.always || powered(m.host));
-      const want = near && could && !m.spin;
+      const want = could && !m.spin;
       if (want !== m.running) {
         if (want) {
           m.running = true;
@@ -2334,16 +2341,16 @@ function updateMechs(): void {
         fields.addSmoke(m.part.curPos, 8, 0.9, TICK);
       }
     }
-    /* a rotor on a parked vehicle (a mixer's drum) is drawn turning even close by: run for real it keeps the whole
+    /* a rotor on a parked vehicle (a mixer's drum) is drawn turning: run for real it would keep the whole
        vehicle awake; the moment anything wakes the vehicle it is handed back */
-    const standIn = !near || (!!m.host && !m.bound && !m.host.hinged);
+    const standIn = !!m.host && !m.bound && !m.host.hinged;
     if (m.spin) {
       if (!standIn || (m.bound || !m.host ? b3.b3Body_IsAwake(m.part.body) : hostMoving(m))) endSpin(m);
       else m.spin.live = could;
     } else if (standIn && could && spinnable(m)) startSpin(m);
     if (m.cyc && m.running) cycleEvents(m);
-    if (m.crr > 0 && near) rolling(m);
-    const act = near && ((m.running && !m.hold) || !!m.couple || Math.abs(m.active ? m.w : idleSpeed(m)) > 0.02);
+    if (m.crr > 0) rolling(m);
+    const act = (m.running && !m.hold) || !!m.couple || Math.abs(m.active ? m.w : idleSpeed(m)) > 0.02;
     if (act && !m.active) {
       if (m.hinge) m.ang = b3.b3RevoluteJoint_GetAngle(m.joint);
       b3.b3Joint_WakeBodies(m.joint);
@@ -2426,7 +2433,7 @@ function stepSpins(dt: number): void {
   }
 }
 
-/** Draw the out-of-range rotors where they have turned to (render sync, between physics steps by `alpha`). */
+/** Draw the stand-in rotors where they have turned to (render sync, between physics steps by `alpha`). */
 const _dp: Vec3 = [0, 0, 0], _dq2: Quat = [0, 0, 0, 1];
 export function drawStandIns(alpha: number, set: (p: Piece, pos: Vec3, rot: Quat) => void): void {
   for (const m of spinning) {

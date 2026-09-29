@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url';
 /* The same blast must come out the same whoever watches it and however fast frames are drawn: a player 5 m from the
    chapel with a frame every step, one 60 m off drawing a frame every third step, and the headless harness with no
    viewer at all see one collapse. Runs the game's own per-step / per-frame path (scripts/sim.mjs) and compares every
-   body's final position. */
+   body's final position. Every machine on the map is working its cycle throughout, wherever the viewer is. */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-function run(viewer: string | null, spf: number): Promise<{ fingerprint: string; weldsLost: number; line: string }> {
+function run(viewer: string | null, spf: number): Promise<{ fingerprint: string; weldsLost: number; awakeMachine: number; line: string }> {
   return new Promise((resolve, reject) => {
     execFile(process.execPath, [join(ROOT, 'scripts/sim.mjs'), 'S', '200', '-60.5,1.2,-8,5'], {
       cwd: ROOT, env: { ...process.env, VIEWER: viewer ?? '', SPF: String(spf) }, maxBuffer: 64 << 20, timeout: 540_000,
@@ -19,7 +19,7 @@ function run(viewer: string | null, spf: number): Promise<{ fingerprint: string;
       const line = stdout.split('\n').find((l) => l.startsWith('RESULT '));
       if (!line) return reject(new Error('no RESULT line'));
       const r = JSON.parse(line.slice(7));
-      resolve({ fingerprint: r.fingerprint, weldsLost: r.weldsLost, line });
+      resolve({ fingerprint: r.fingerprint, weldsLost: r.weldsLost, awakeMachine: r.awakeMachine, line });
     });
   });
 }
@@ -27,6 +27,7 @@ function run(viewer: string | null, spf: number): Promise<{ fingerprint: string;
 test('a blast plays out identically for a near and a far viewer, at any frame rate', { timeout: 600_000 }, async () => {
   const [near, far, none] = await Promise.all([run('-66.5,1.7,-8', 1), run('-121,1.7,-8', 3), run(null, 4)]);
   assert.ok(near.weldsLost > 0, `the blast broke nothing: ${near.line}`);
+  assert.ok(none.awakeMachine > 0, `no machine was working with no viewer: ${none.line}`);
   assert.equal(far.fingerprint, near.fingerprint, `near ${near.line}\nfar  ${far.line}`);
   assert.equal(none.fingerprint, near.fingerprint, `near ${near.line}\nheadless ${none.line}`);
 });
