@@ -5,7 +5,10 @@
 //      main loop does: falling pieces dent the ground, the buried sweep runs at 10 Hz); WIN=<steps> per-window report
 //      length; VIEWER=x,y,z the player/camera position (services, soft bodies and detail LOD are told it every frame,
 //      as main.ts does; VPART=svc,soft,detail tells only those parts); SPF=<n> physics steps per drawn frame (default
-//      1; the renderer's syncMeshes/maintain run once a frame, as in the game)
+//      1; the renderer's syncMeshes/maintain run once a frame, as in the game); PERF=1 timing mode for the /optimize
+//      loop: adds a `PERF {...}` line before RESULT with per-second (60-step) arrays of phys/after/ter/frame/soft ms per
+//      step, the svc/joints/fields/analysis cost counters, awake bodies and live pieces, and physCpu/afterCpu (process
+//      CPU ms per step, steadier than wall time on a loaded machine) (output only, same run)
 // The run goes through the same per-step and per-frame calls as main.ts, so what it reports is what the player sees.
 // Neither the viewer nor the frame rate may change the outcome (tests/viewer-independence.test.ts): a run with no
 // VIEWER is the player's collapse wherever the player stands.
@@ -90,14 +93,23 @@ try {
   const perWin = [];
   const awake = () => { try { return phys.b3.b3World_GetAwakeBodyCount(phys.world); } catch { return -1; } };
   const cost0 = { svc: svc.svcCost.ms, mech: svc.mechCost.ms, field: fields.fieldCost.ms, joint: st.jointCost.ms, an: an.stats.ms };
+  const PERF = process.env.PERF === '1' ? { phys: [], after: [], ter: [], frame: [], soft: [], physCpu: [], afterCpu: [], svc: [], joints: [], fields: [], analysis: [], awake: [], pieces: [] } : null;
+  const pw = { phys: 0, after: 0, ter: 0, frame: 0, soft: 0, physCpu: 0, afterCpu: 0, c: null };
+  const cpu = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
+  const costNow = () => ({ svc: svc.svcCost.ms, joints: st.jointCost.ms, fields: fields.fieldCost.ms, analysis: an.stats.ms });
+  if (PERF) pw.c = costNow();
   for (let i = 0; i < STEPS; i++) {
     if (BOOM && i === 60) st.explode([BOOM[0], BOOM[1], BOOM[2]], BOOM[3] ?? 5, 90e3, 3200);
+    const ca = PERF ? cpu() : 0;
     const a = performance.now();
     phys.step(handlers);
     const b = performance.now();
+    const cb = PERF ? cpu() : 0;
     st.afterStep(phys.FIXED_DT);
+    const c = PERF ? performance.now() : 0;
     ter?.terrainStep(st.live);
     const d = performance.now();
+    if (PERF) { pw.physCpu += cb - ca; pw.afterCpu += cpu() - cb; }
     if ((i + 1) % SPF === 0) {
       if (VIEWER) {
         const vp = process.env.VPART ?? 'svc,soft,detail';
@@ -107,6 +119,16 @@ try {
       }
       st.syncMeshes(1);
       st.maintain(phys.FIXED_DT * SPF);
+    }
+    if (PERF) {
+      pw.phys += b - a; pw.after += d - b; pw.ter += d - c; pw.frame += performance.now() - d; pw.soft += soft.softPerf.ms;
+      if ((i + 1) % 60 === 0) {
+        const r2 = (x) => +(x / 60).toFixed(3), cn = costNow();
+        for (const k of ['phys', 'after', 'ter', 'frame', 'soft', 'physCpu', 'afterCpu']) { PERF[k].push(r2(pw[k])); pw[k] = 0; }
+        for (const k of ['svc', 'joints', 'fields', 'analysis']) PERF[k].push(r2(cn[k] - pw.c[k]));
+        pw.c = cn;
+        PERF.awake.push(awake()); PERF.pieces.push(st.stats().pieces);
+      }
     }
     physT += b - a; afterT += d - b; maxStep = Math.max(maxStep, d - a);
     softSum += soft.softPerf.ms;
@@ -127,6 +149,7 @@ try {
     avgPhysMs: per(physT), avgAfterMs: per(afterT), avgSoftMs: per(softSum), maxStepMs: +maxStep.toFixed(1),
     breakdownMsPerStep: { svc: per(svc.svcCost.ms - cost0.svc), mech: per(svc.mechCost.ms - cost0.mech), fields: per(fields.fieldCost.ms - cost0.field), joints: per(st.jointCost.ms - cost0.joint), analysis: per(an.stats.ms - cost0.an) },
     machines: mi.groups, runaways: phys.runaways, pumped: phys.pumped, designIssues: st.designIssues.length, softKinds: kinds, perWin }, null, 1));
+  if (PERF) console.log('PERF ' + JSON.stringify({ map: c.name, steps: STEPS, boom: BOOM ?? null, buildMs: Math.round(buildMs), windowSteps: 60, ...PERF }));
   const fp = createHash('sha1');
   for (const p of [...st.live].filter((p) => !p.dead).sort((a, b) => a.id - b.id)) fp.update(`${p.id}:${p.curPos.map((v) => Math.round(v * 1000)).join(',')};`);
   console.log('RESULT ' + JSON.stringify({ weldsLost: Math.max(0, s0.welds - s1.welds), runaways: phys.runaways, awakeAtEnd: awake(), awakeMachine: mi.bodies, awakeOther: awake() - mi.bodies, fingerprint: fp.digest('hex').slice(0, 16) }));

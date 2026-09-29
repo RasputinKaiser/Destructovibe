@@ -1,0 +1,191 @@
+{
+  "schema": "optimize.measure.v2",
+  "thresholds": {},
+  "actual_token_usage": null,
+  "accepted_outcomes": null,
+  "engine": {
+    "measure.py": "926c71f681715295166674036606ac6e04c18a1336f0641e508e7b31e0c21199",
+    "tokens.py": "4a7da53a1f861c14bda3e5675836d9aff7df1097c2293a73cb4a04b788d23da2"
+  },
+  "environment": {
+    "python": "3.14.6 (main, Jun 10 2026, 10:03:53) [Clang 21.0.0 (clang-2100.1.1.101)]",
+    "executable": "~/.homebrew/opt/python@3.14/bin/python3.14",
+    "platform": "macOS-26.6-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "host": "MacBookPro.cable.rcn.com"
+  },
+  "probe_file_sha256": "010cfeaca5b6d93aa53f71600074d08e1002bdea33dadfaca93ff0dbc01e2e04",
+  "timeout_seconds": 1800,
+  "ts": "2026-09-29T21:39:49+00:00",
+  "cwd": "~/Desktop/dv-perf-1",
+  "git": {
+    "rev": "79f5a9e",
+    "dirty": true
+  },
+  "output_estimator": "heuristic-chars/4",
+  "probes": {
+    "types": {
+      "cmd": "npx tsc --noEmit",
+      "evidence": [
+        {
+          "exit": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/8d8460221bf4eb29-0.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/8d8460221bf4eb29-0.stderr.txt"
+        },
+        {
+          "exit": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/8d8460221bf4eb29-1.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/8d8460221bf4eb29-1.stderr.txt"
+        },
+        {
+          "exit": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/8d8460221bf4eb29-2.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/8d8460221bf4eb29-2.stderr.txt"
+        }
+      ],
+      "collected_runs": 3,
+      "runs": 3,
+      "samples_s": [
+        11.13,
+        10.517,
+        7.163
+      ],
+      "median_s": 10.517,
+      "exit": 0,
+      "ok": true,
+      "output_bytes": 0,
+      "output_tokens": 0,
+      "output_tail": null
+    },
+    "test": {
+      "cmd": "npm test",
+      "evidence": [
+        {
+          "exit": 0,
+          "stdout_sha256": "8b0c7621b7bd28ebcecd746b9ed8670db6b25247c37fb6e52e624587844a02a5",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/9f86d081884c7d65-0.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/9f86d081884c7d65-0.stderr.txt"
+        }
+      ],
+      "collected_runs": 1,
+      "runs": 1,
+      "samples_s": [
+        38.657
+      ],
+      "median_s": 38.657,
+      "exit": 0,
+      "ok": true,
+      "output_bytes": 7599,
+      "output_tokens": 1900,
+      "output_tail": null
+    },
+    "build": {
+      "cmd": "npm run build",
+      "evidence": [
+        {
+          "exit": 0,
+          "stdout_sha256": "f6dedb274c0b4c3074c1077eb158938d1e14888bb6eeffd9ab705ba05aac5092",
+          "stderr_sha256": "e47ec75688d4ab6aae2457251c1b442ed70ba5fa28e97cdf04fa533851f3ad51",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/44575cf5b28512d7-0.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/44575cf5b28512d7-0.stderr.txt"
+        },
+        {
+          "exit": 0,
+          "stdout_sha256": "f825f1a40b7ccf31a6cfe667c63659bc42f5881d8633178832e5f15eef00eb1d",
+          "stderr_sha256": "93cdeccde14c76e668905b6dc0f11227a8d2379605505e34ef59b6bf2af500e8",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/44575cf5b28512d7-1.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/44575cf5b28512d7-1.stderr.txt"
+        },
+        {
+          "exit": 0,
+          "stdout_sha256": "66d70df3e4e9abbdc69b4a94161a86be3d80cc86b205282345b5d47882745862",
+          "stderr_sha256": "233a41d24f31b896b0e7fe15f287f2506fc5dccf8481493ef3aa64cbe37efb6c",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/44575cf5b28512d7-2.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/44575cf5b28512d7-2.stderr.txt"
+        }
+      ],
+      "collected_runs": 3,
+      "runs": 3,
+      "samples_s": [
+        12.207,
+        12.531,
+        11.232
+      ],
+      "median_s": 12.207,
+      "exit": 0,
+      "ok": true,
+      "output_bytes": 4249,
+      "output_tokens": 1057,
+      "output_tail": null
+    },
+    "checkbld": {
+      "cmd": "node scripts/check-building.ts cottage-row",
+      "evidence": [
+        {
+          "exit": 0,
+          "stdout_sha256": "3c3636f5c96c7909d5e2a85740444ef49af68a20c4f5a7da26f161e0827a37ee",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/08e22bda27a8be46-0.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/08e22bda27a8be46-0.stderr.txt"
+        },
+        {
+          "exit": 0,
+          "stdout_sha256": "3c3636f5c96c7909d5e2a85740444ef49af68a20c4f5a7da26f161e0827a37ee",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/08e22bda27a8be46-1.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/08e22bda27a8be46-1.stderr.txt"
+        },
+        {
+          "exit": 0,
+          "stdout_sha256": "3c3636f5c96c7909d5e2a85740444ef49af68a20c4f5a7da26f161e0827a37ee",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/08e22bda27a8be46-2.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/08e22bda27a8be46-2.stderr.txt"
+        }
+      ],
+      "collected_runs": 3,
+      "runs": 3,
+      "samples_s": [
+        4.617,
+        4.557,
+        4.419
+      ],
+      "median_s": 4.557,
+      "exit": 0,
+      "ok": true,
+      "output_bytes": 15,
+      "output_tokens": 4,
+      "output_tail": null
+    },
+    "levels": {
+      "cmd": "npm run validate:levels",
+      "evidence": [
+        {
+          "exit": 0,
+          "stdout_sha256": "a7f7b5e6af31e7fd0178e24a8d5ed29b89aaabb7419901eb610751aa055f54cd",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/7d50f20853334a30-0.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-abF-head-devloop.raw/7d50f20853334a30-0.stderr.txt"
+        }
+      ],
+      "collected_runs": 1,
+      "runs": 1,
+      "samples_s": [
+        109.776
+      ],
+      "median_s": 109.776,
+      "exit": 0,
+      "ok": true,
+      "output_bytes": 56315,
+      "output_tokens": 14032,
+      "output_tail": null
+    }
+  }
+}

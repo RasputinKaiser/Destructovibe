@@ -1,7 +1,7 @@
 import type { b3BodyId, b3HeightFieldData, b3ShapeId } from 'box3d.js';
 import type { Vec3 } from '../types';
 import type { Piece } from '../destruction/structure';
-import { b3, world, groundSlab, CAT, ALL, filter, register, stepCount, FIXED_DT, overlapAABB, type PhysEntity } from '../physics/physics';
+import { b3, world, groundSlab, CAT, ALL, filter, register, stepCount, lastMoveStep, FIXED_DT, overlapAABB, type PhysEntity } from '../physics/physics';
 import { fx } from '../render/fx';
 import { SURFACES, TILE_CELLS, type SurfaceId, type TerrainSpec } from './spec';
 import { fieldHeight, groundHeight, isHole, rasterize, surfaceIdAt, type TerrainData } from './raster';
@@ -764,6 +764,8 @@ function surcharge(d: TerrainData, s: SoilState): void {
    (the rest goes into the piece, the bounce and the air); the soil displaced heaves round it. */
 const fall = new WeakMap<Piece, { vy: number; st: number }>();
 function impacts(d: TerrainData, s: SoilState, pieces: Iterable<Piece>): void {
+  // only what moved this step or the last can be landing: with nothing moving, the walk below would skip every piece
+  if (lastMoveStep < stepCount - 1) return;
   let budget = 6;
   for (const p of pieces) {
     if (p.dead || p.movedStep < stepCount - 1) continue;

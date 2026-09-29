@@ -1,0 +1,467 @@
+
+> destructovibe@2.0.0 validate:levels
+> node scripts/validate-levels.ts
+
+ #  contract                   target  par  env       pieces  welds  ground  prot  props  lamps  srcs  mech  ropes  vol m3  top m  err  warn  ammo                                                              
+--  -------------------------  ------  ---  --------  ------  -----  ------  ----  -----  -----  ----  ----  -----  ------  -----  ---  ----  ------------------------------------------------------------------
+ 1  Garden Variety               0.50   90  noon          76    137      25     0      5      0     0     0      0      18    3.1    0     0  ham ∞, can 12                                                     
+ 2  Kerb Appeal                  0.60  150  golden       289    798      43     0     19      2     4     0      0     102    7.5    0     1  ham ∞, can 18                                                     
+ 3  High and Dry                 0.65  120  overcast     137    323      23     0      4      1     3     0      0      43   15.1    0     0  ham ∞, can 10, rkt 6                                              
+ 4  Four Stacks, No Scratches    0.70  150  dusk         134    235      20    91      5      1     1     0      0      96   10.9    0     0  ham ∞, can 8, rkt 5                                               
+ 5  Hot Property                 0.55  150  night        417    918      93     0     73      6     7     0      2     277    7.9    0     6  ham ∞, can 6, rkt 3, chg 8                                        
+ 6  The Tall Order               0.80  210  golden       740   2120     123   268     23      7     8     0      2     576   26.0    0     1  ham ∞, can 6, rkt 4, chg 8, winch 2                               
+ 7  Road Closed                  0.72  180  overcast     149    266      18    11     20      5     5     0      0     282   13.0    0     0  ham ∞, can 6, rkt 4, chg 8, air 1                                 
+ 8  Last Orders                  0.90  240  night        849   2298      65   106     63      7     4     1      1     593   26.1    0     0  ham ∞, can 6, rkt 4, chg 10, air 2, cutter 4                      
+ 9  Hot Works                    0.60  240  noon        2730   8561     236   162    125     19    21     4      5    6430   64.7    0    20  ham ∞, grinder 10, torch 4, plasma 8, shears 3                    
+10  Swing Time                   0.70  240  golden      2730   8561     236   162    125     19    21     4      5    6430   64.7    0    20  ham ∞, wrecker 16, breaker ∞                                      
+11  Slow Burn                    0.65  300  dusk        2730   8561     236   386    125     19    21     4      5    6430   64.7    0    20  ham ∞, incendiary 6, saw 4, hose ∞                                
+12  Sanctuary                    0.70  360  overcast    2730   8561     236   542    125     19    21     4      5    6430   64.7    0    20  ham ∞, drill 6, splitter ∞, wiresaw ∞, planner ∞, chg 12, cutter 6
+13  Half Measures                0.55  300  night       2922   7667     498   216     54     29    17    13      0    7555   60.2    0     7  ham ∞, torch 4, plasma 8, cutter 6, wiresaw ∞                     
+14  Dust to Dust                 0.60  360  noon        2767   7318     494   359     61     33    19    22      4    8855   42.9    0     7  ham ∞, excavator ∞, breaker ∞, hose ∞                             
+15  Final Whistle                0.70  300  overcast    2858   7071     326  1331     54     53    13    13      0   10302   60.2    0     7  ham ∞, thermite 16, torch 4, cutter 4, winch 4                    
+16  Lost Property                0.50  420  golden      2763   7315     492   649     61     33    19    12      4    8843   42.9    0     7  ham ∞, gravgun ∞, chg 12, cutter 6, planner ∞                     
+17  Steel Nerve                  0.65  300  night       2109   4526     524   727    196     28    12     6      3    8613   62.0    0    13  ham ∞, thermite 14, cutter 6, torch 3                             
+18  The Big Finish               0.60  300  dusk        2999   6750     524   999    157     39    19    12      2   19414  149.8    0     6  ham ∞, megabomb 1, air 2, chg 12, planner ∞                       
+ S  Clearance Zone               0.00    0  golden      3128   6986     638     0    200     54    16    84     44    3228   36.0    0    60  every tool ∞                                                      
+ H  The Heritage Yard            0.00    0  golden      2730   8561     236     0    125     19    21     4      5    6430   64.7    0    20  every tool ∞                                                      
+ D  Downtown                     0.00    0  dusk        5489  12981     580     0    338     68    34    13      6   25816  149.8    0    19  every tool ∞                                                      
+ R  Railway Quarter              0.00    0  overcast    4704  12868     544     0     58     69    26    13      4   14674   60.2    0     7  every tool ∞                                                      
+
+120 prefabs
+shed               houses            25 pcs    66 welds   0 lamps  0 mech    3.4 x   2.4 m  
+outhouse           houses             9 pcs    16 welds   0 lamps  0 mech    1.5 x   1.6 m  
+greenhouse         houses            13 pcs    23 welds   0 lamps  0 mech    3.0 x   2.0 m  
+bungalow           houses           243 pcs   712 welds   2 lamps  0 mech   11.0 x   9.3 m   warn 2
+timber-house       houses           705 pcs  3156 welds   1 lamps  0 mech    9.0 x   7.2 m   warn 10
+terrace            houses           609 pcs  2526 welds   4 lamps  0 mech   15.5 x   9.9 m  
+cottages           houses           268 pcs   871 welds   3 lamps  0 mech   14.6 x   9.3 m   warn 2
+cottages-2         houses           184 pcs   592 welds   2 lamps  0 mech    9.8 x   9.3 m   warn 2
+tudor              houses           224 pcs   786 welds   0 lamps  0 mech    8.3 x   5.5 m  
+tudor-scaffold     houses           259 pcs   870 welds   0 lamps  0 mech    8.3 x   6.8 m  
+flats-3            houses           313 pcs   768 welds   3 lamps  0 mech   13.8 x   9.2 m   warn 8
+flats-4            houses           429 pcs  1050 welds   4 lamps  0 mech   13.8 x   9.2 m   warn 12
+flats-6            houses           634 pcs  1597 welds   6 lamps  0 mech   13.8 x   9.2 m   warn 20
+flats-scaffold     houses           400 pcs  1022 welds   3 lamps  0 mech   13.8 x   9.9 m   warn 8
+chipshop           houses            85 pcs   247 welds   1 lamps  0 mech    6.7 x   6.4 m  
+site-office        houses            49 pcs   117 welds   1 lamps  0 mech    8.6 x   3.3 m  
+tower-block-6      towers           741 pcs  2008 welds   6 lamps  1 mech   13.0 x  14.5 m  
+tower-block-4      towers           489 pcs  1324 welds   4 lamps  1 mech   13.0 x  14.5 m  
+office-4           towers           517 pcs  1193 welds   4 lamps  1 mech   12.7 x  14.7 m   warn 2
+office-5           towers           645 pcs  1483 welds   5 lamps  1 mech   12.7 x  14.7 m   warn 2
+skyscraper-18      towers          1372 pcs  3784 welds  18 lamps  2 mech   25.8 x  25.9 m  
+skyscraper-12      towers           976 pcs  2658 welds  12 lamps  2 mech   25.8 x  25.9 m  
+backdrop-tower     towers           221 pcs   524 welds   0 lamps  0 mech   20.0 x  20.0 m  
+water-tower        towers            73 pcs   185 welds   0 lamps  0 mech    5.2 x   5.2 m  
+brick-stack        towers            10 pcs     9 welds   0 lamps  0 mech    2.0 x   2.0 m  
+chimney            towers           100 pcs   284 welds   0 lamps  0 mech    4.6 x   4.6 m  
+pylon              towers            90 pcs   127 welds   0 lamps  0 mech   14.0 x   7.7 m  
+crane              towers            18 pcs    16 welds   1 lamps  5 mech   30.0 x   5.2 m  
+cooling-tower      towers           186 pcs   524 welds   0 lamps  0 mech   42.0 x  30.6 m  
+wind-turbine       towers             8 pcs     6 welds   1 lamps  1 mech   16.0 x   4.4 m  
+warehouse          industrial       339 pcs   846 welds   5 lamps  0 mech   26.5 x  19.0 m   warn 12
+warehouse-stocked  industrial       374 pcs   846 welds   5 lamps  0 mech   26.5 x  19.0 m   warn 12
+mill               industrial       372 pcs   960 welds   4 lamps  0 mech   19.8 x  11.8 m  
+factory            industrial       486 pcs  1249 welds   4 lamps  4 mech   40.4 x  19.3 m  
+factory-plain      industrial       370 pcs   965 welds   4 lamps  4 mech   32.7 x  19.3 m  
+barn               industrial        90 pcs   258 welds   0 lamps  0 mech   13.2 x   8.7 m  
+pump-house         industrial        35 pcs    72 welds   1 lamps  0 mech    4.3 x   3.7 m  
+pipe-rack          industrial        10 pcs    11 welds   0 lamps  0 mech    4.9 x   1.6 m  
+service-gantry     industrial         7 pcs     8 welds   0 lamps  0 mech    4.2 x   1.0 m  
+boiler-house       industrial       105 pcs   225 welds   2 lamps  0 mech   19.1 x  17.6 m  
+press-shop         industrial       122 pcs   246 welds   4 lamps  8 mech   16.5 x  10.5 m  
+hvac-plant         industrial        18 pcs    25 welds   0 lamps  2 mech    8.0 x   5.0 m  
+mill-wheel         industrial         6 pcs     2 welds   0 lamps  1 mech    8.1 x   2.4 m  
+car-park           infrastructure   322 pcs   641 welds   9 lamps  0 mech   21.9 x  16.7 m  
+overpass           infrastructure   118 pcs   254 welds   4 lamps  0 mech   32.4 x   9.2 m  
+truss-bridge       infrastructure   154 pcs   235 welds   2 lamps  0 mech   27.0 x   6.4 m  
+stand              infrastructure   137 pcs   312 welds   8 lamps  0 mech   33.2 x  18.0 m   warn 4
+bus-shelter        infrastructure    11 pcs    12 welds   1 lamps  0 mech    3.4 x   1.4 m  
+garden-wall        infrastructure    16 pcs    20 welds   0 lamps  0 mech   12.4 x   0.4 m  
+substation         infrastructure    49 pcs    53 welds   2 lamps  0 mech   16.0 x  10.1 m  
+pumping-station    infrastructure    79 pcs   187 welds   2 lamps  0 mech    9.2 x   7.5 m  
+pole-line          infrastructure    27 pcs    24 welds   1 lamps  0 mech   38.2 x   0.6 m  
+chapel             heritage         337 pcs   959 welds   2 lamps  0 mech   18.6 x  10.3 m  
+rotunda            heritage          53 pcs   175 welds   0 lamps  0 mech    8.0 x   8.0 m  
+spiral-stair       heritage          16 pcs    29 welds   0 lamps  0 mech    2.6 x   2.6 m  
+arch-bridge        heritage         156 pcs   373 welds   2 lamps  0 mech   19.4 x  18.3 m  
+brick-wall         heritage         127 pcs   346 welds   0 lamps  0 mech    5.4 x   0.3 m  
+cottage-row-5      heritage         445 pcs  1467 welds   5 lamps  0 mech   24.2 x   9.3 m   warn 2
+car                props             21 pcs    43 welds   0 lamps  0 mech    4.3 x   2.5 m  
+van                props             21 pcs    41 welds   0 lamps  0 mech    5.0 x   2.8 m  
+scaffold-tower     props             16 pcs    28 welds   0 lamps  0 mech    2.5 x   1.2 m  
+crate-stack        props              9 pcs     0 welds   0 lamps  0 mech    3.0 x   2.0 m  
+barrels            props              9 pcs     0 welds   0 lamps  0 mech    1.9 x   1.9 m  
+propane            props              6 pcs     0 welds   0 lamps  0 mech    1.6 x   1.0 m  
+tnt-stack          props              5 pcs     0 welds   0 lamps  0 mech    1.3 x   0.4 m  
+mixed-cache        props             11 pcs     0 welds   0 lamps  0 mech    5.9 x   1.3 m  
+crate              props              1 pcs     0 welds   0 lamps  0 mech    1.0 x   1.0 m  
+barrel             props              1 pcs     0 welds   0 lamps  0 mech    0.6 x   0.6 m  
+propane-tank       props              1 pcs     0 welds   0 lamps  0 mech    0.5 x   0.5 m  
+tnt                props              1 pcs     0 welds   0 lamps  0 mech    0.6 x   0.4 m  
+excavator          industrial        14 pcs     3 welds   0 lamps 10 mech    3.0 x   9.2 m  
+bulldozer          industrial        11 pcs     7 welds   0 lamps  3 mech    3.6 x   4.4 m  
+dump-truck         industrial        13 pcs     7 welds   0 lamps  2 mech    6.4 x   2.7 m   warn 2
+mixer-truck        industrial        24 pcs    26 welds   0 lamps  1 mech    7.1 x   2.9 m   warn 2
+mobile-crane       industrial        28 pcs    16 welds   0 lamps 11 mech   14.0 x   5.4 m  
+forklift           industrial        22 pcs    14 welds   0 lamps  4 mech    3.6 x   1.6 m   warn 2
+scissor-lift       industrial         5 pcs     0 welds   0 lamps  4 mech    2.5 x   1.3 m  
+compressor         industrial        11 pcs     7 welds   0 lamps  3 mech    3.1 x   1.7 m  
+generator          industrial         8 pcs     8 welds   0 lamps  1 mech    2.8 x   1.9 m  
+light-tower        industrial        12 pcs    14 welds   4 lamps  0 mech    2.5 x   1.6 m   warn 2
+magnet-crane       industrial        12 pcs    12 welds   0 lamps  3 mech    9.9 x   3.2 m  
+conveyor-line      industrial        34 pcs     9 welds   0 lamps 20 mech    6.0 x   2.2 m  
+rotary-kiln        industrial        12 pcs     7 welds   0 lamps  1 mech    9.0 x   3.0 m  
+bucket-elevator    industrial        11 pcs    10 welds   0 lamps  2 mech    2.0 x   2.0 m  
+fan-bank           industrial        15 pcs    15 welds   0 lamps  3 mech    5.4 x   1.5 m  
+cooling-fan        industrial        10 pcs     8 welds   0 lamps  1 mech    3.2 x   2.4 m  
+press-line         industrial        25 pcs    18 welds   0 lamps  3 mech    8.4 x   1.4 m  
+cnc-gantry         industrial        18 pcs    14 welds   0 lamps  4 mech    5.0 x   3.5 m  
+robot-arm          industrial         6 pcs     2 welds   0 lamps  3 mech    2.1 x   2.4 m  
+goods-lift         industrial        14 pcs    16 welds   0 lamps  1 mech    2.8 x   2.5 m  
+vent-stack         industrial        11 pcs     9 welds   0 lamps  1 mech    3.1 x   3.4 m  
+water-pumps        industrial        16 pcs    16 welds   0 lamps  2 mech    4.5 x   2.1 m  
+fan-cooling-tower  industrial        24 pcs    27 welds   0 lamps  2 mech    7.1 x   3.2 m  
+switchgear         infrastructure     5 pcs     7 welds   0 lamps  0 mech    3.2 x   0.9 m  
+gas-governor       infrastructure    19 pcs    21 welds   0 lamps  0 mech    5.2 x   4.8 m  
+sewage-station     infrastructure    21 pcs    22 welds   0 lamps  1 mech    6.6 x   4.2 m  
+lv-substation      infrastructure    52 pcs    58 welds   2 lamps  0 mech   16.0 x   9.1 m  
+pump-hall          infrastructure    60 pcs   104 welds   1 lamps  2 mech   11.1 x   7.2 m  
+saloon             props             21 pcs    37 welds   0 lamps  0 mech    4.3 x   2.5 m   warn 2
+box-van            props             21 pcs    35 welds   0 lamps  0 mech    5.0 x   2.8 m   warn 2
+bus                props             37 pcs    69 welds   0 lamps  0 mech   11.8 x   2.8 m   warn 2
+lorry              props             25 pcs    30 welds   0 lamps  0 mech    9.2 x   3.0 m   warn 2
+station            heritage        1144 pcs  3265 welds   8 lamps  0 mech   45.9 x  82.6 m  
+cathedral          heritage        1030 pcs  3324 welds   5 lamps  3 mech   27.4 x  50.7 m   warn 2
+cathedral-4        heritage         753 pcs  2432 welds   3 lamps  3 mech   27.4 x  37.7 m   warn 2
+highrise           towers          1293 pcs  3038 welds   3 lamps  5 mech   30.2 x  33.3 m  
+deptstore          towers           922 pcs  2355 welds  17 lamps  2 mech   36.0 x  26.6 m  
+road-bridge        infrastructure   430 pcs   952 welds   4 lamps  0 mech  149.5 x  13.3 m  
+gasholder          industrial       299 pcs   842 welds   0 lamps  0 mech   48.3 x  56.3 m  
+stadium            infrastructure   638 pcs  1604 welds  32 lamps  0 mech   75.0 x 108.8 m  
+millworks          industrial      1313 pcs  3728 welds   4 lamps  1 mech   62.8 x  14.4 m   warn 2
+chapel-lite        heritage         103 pcs   285 welds   2 lamps  0 mech   15.1 x   7.5 m  
+frame-under-construction industrial        29 pcs    57 welds   0 lamps  0 mech   15.5 x  11.4 m  
+high-street-unit   houses           105 pcs   261 welds   1 lamps  0 mech    6.1 x   8.5 m   warn 18
+high-street-pub    houses           159 pcs   440 welds   1 lamps  0 mech    9.1 x  12.1 m   warn 12
+merchant-shed      industrial        67 pcs   201 welds   1 lamps  0 mech   20.6 x  12.8 m   warn 8
+portal-shed        industrial        44 pcs   155 welds   0 lamps  0 mech   14.6 x   8.8 m  
+semi-pair          houses           254 pcs   732 welds   2 lamps  0 mech   11.6 x   9.1 m   warn 30
+site-cabin         props              6 pcs     4 welds   0 lamps  0 mech    6.0 x   3.1 m  
+works-hall         industrial       177 pcs   423 welds   4 lamps  0 mech   26.6 x  14.8 m   warn 12
+
+[2] warn  #238 steel@bungalow [-1.67, 0.80, -19.41]: dimension 0.020 < 0.05
+[5] warn  #298 cardboard@warehouse [-10.18, 2.26, -13.20]: dimension 0.008 < 0.05
+[5] warn  #299 cardboard@warehouse [-8.92, 2.26, -13.20]: dimension 0.008 < 0.05
+[5] warn  #312 cardboard@warehouse [-7.48, 2.26, -13.20]: dimension 0.008 < 0.05
+[5] warn  #313 cardboard@warehouse [-6.22, 2.26, -13.20]: dimension 0.008 < 0.05
+[5] warn  #326 cardboard@warehouse [-4.78, 2.26, -13.20]: dimension 0.008 < 0.05
+[5] warn  #327 cardboard@warehouse [-3.52, 2.26, -13.20]: dimension 0.008 < 0.05
+[6] warn  12 borderline contact(s) at the weld threshold, e.g. #476 brick@cottages [-24.47, 2.71, -20.71] ↔ #506 brick@cottages [-25.59, 4.25, -20.71]; #476 brick@cottages [-24.47, 2.71, -20.71] ↔ #511 brick@cottages [-23.24, 4.25, -20.71]
+[9] warn  2 borderline contact(s) at the weld threshold, e.g. #45 stone@cathedral [-21.82, 4.90, -18.55] ↔ #249 lamp@cathedral [-23.05, 8.11, -19.15]; #1680 steel/cylinder@boilerhouse [-24.34, 2.40, 19.00] ↔ #1694 concrete@boilerhouse [-25.15, -0.30, 19.00]
+[9] warn  floating cluster of 17 (no weld path to ground): #2709 steel@car [-30.00, 0.36, 32.10]; #2710 metal/hull@car [-30.00, 0.54, 33.04]; #2711 metal/hull@car [-30.00, 0.54, 31.16]
+[9] warn  #1054 wood@mill [2.00, 0.23, -24.50]: loose prop is not resting on anything
+[9] warn  #1057 wood@mill [6.20, 0.23, -23.80]: loose prop is not resting on anything
+[9] warn  #1060 wood@mill [10.50, 0.23, -25.80]: loose prop is not resting on anything
+[9] warn  #1161 barrel/cylinder@mill [-1.82, 0.60, -24.82]: loose prop is not resting on anything
+[9] warn  #1162 barrel/cylinder@mill [-1.82, 0.60, -24.18]: loose prop is not resting on anything
+[9] warn  #1163 barrel/cylinder@mill [-1.18, 0.60, -24.82]: loose prop is not resting on anything
+[9] warn  #1164 barrel/cylinder@mill [-1.18, 0.60, -24.18]: loose prop is not resting on anything
+[9] warn  #1165 barrel/cylinder@mill [8.68, 0.60, -28.50]: loose prop is not resting on anything
+[9] warn  #1166 barrel/cylinder@mill [9.32, 0.60, -28.50]: loose prop is not resting on anything
+[9] warn  #1267 crate@barn [25.00, 0.65, -25.00]: loose prop is not resting on anything
+[9] warn  #1268 crate@barn [25.00, 0.65, -24.00]: loose prop is not resting on anything
+[9] warn  #1269 barrel/cylinder@barn [24.68, 0.60, -28.30]: loose prop is not resting on anything
+[9] warn  #1270 barrel/cylinder@barn [25.32, 0.60, -28.30]: loose prop is not resting on anything
+[9] warn  #2565 wood@tudor [32.45, 0.49, 17.00]: loose prop is not resting on anything
+[9] warn  #2566 wood@tudor [33.55, 0.49, 17.00]: loose prop is not resting on anything
+[9] warn  #2568 plywood/hull@tudor [33.00, 0.57, 16.20]: loose prop is not resting on anything
+[9] warn  #2569 plywood/hull@tudor [33.00, 0.57, 17.80]: loose prop is not resting on anything
+[9] warn  #2570 wood@tudor [29.80, 1.05, 15.06]: loose prop is not resting on anything
+[10] warn  2 borderline contact(s) at the weld threshold, e.g. #45 stone@cathedral [-21.82, 4.90, -18.55] ↔ #249 lamp@cathedral [-23.05, 8.11, -19.15]; #1680 steel/cylinder@boilerhouse [-24.34, 2.40, 19.00] ↔ #1694 concrete@boilerhouse [-25.15, -0.30, 19.00]
+[10] warn  floating cluster of 17 (no weld path to ground): #2709 steel@car [-30.00, 0.36, 32.10]; #2710 metal/hull@car [-30.00, 0.54, 33.04]; #2711 metal/hull@car [-30.00, 0.54, 31.16]
+[10] warn  #1054 wood@mill [2.00, 0.23, -24.50]: loose prop is not resting on anything
+[10] warn  #1057 wood@mill [6.20, 0.23, -23.80]: loose prop is not resting on anything
+[10] warn  #1060 wood@mill [10.50, 0.23, -25.80]: loose prop is not resting on anything
+[10] warn  #1161 barrel/cylinder@mill [-1.82, 0.60, -24.82]: loose prop is not resting on anything
+[10] warn  #1162 barrel/cylinder@mill [-1.82, 0.60, -24.18]: loose prop is not resting on anything
+[10] warn  #1163 barrel/cylinder@mill [-1.18, 0.60, -24.82]: loose prop is not resting on anything
+[10] warn  #1164 barrel/cylinder@mill [-1.18, 0.60, -24.18]: loose prop is not resting on anything
+[10] warn  #1165 barrel/cylinder@mill [8.68, 0.60, -28.50]: loose prop is not resting on anything
+[10] warn  #1166 barrel/cylinder@mill [9.32, 0.60, -28.50]: loose prop is not resting on anything
+[10] warn  #1267 crate@barn [25.00, 0.65, -25.00]: loose prop is not resting on anything
+[10] warn  #1268 crate@barn [25.00, 0.65, -24.00]: loose prop is not resting on anything
+[10] warn  #1269 barrel/cylinder@barn [24.68, 0.60, -28.30]: loose prop is not resting on anything
+[10] warn  #1270 barrel/cylinder@barn [25.32, 0.60, -28.30]: loose prop is not resting on anything
+[10] warn  #2565 wood@tudor [32.45, 0.49, 17.00]: loose prop is not resting on anything
+[10] warn  #2566 wood@tudor [33.55, 0.49, 17.00]: loose prop is not resting on anything
+[10] warn  #2568 plywood/hull@tudor [33.00, 0.57, 16.20]: loose prop is not resting on anything
+[10] warn  #2569 plywood/hull@tudor [33.00, 0.57, 17.80]: loose prop is not resting on anything
+[10] warn  #2570 wood@tudor [29.80, 1.05, 15.06]: loose prop is not resting on anything
+[11] warn  2 borderline contact(s) at the weld threshold, e.g. #45 stone@cathedral [-21.82, 4.90, -18.55] ↔ #249 lamp@cathedral [-23.05, 8.11, -19.15]; #1680 steel/cylinder@boilerhouse [-24.34, 2.40, 19.00] ↔ #1694 concrete@boilerhouse [-25.15, -0.30, 19.00]
+[11] warn  floating cluster of 17 (no weld path to ground): #2709 steel@car [-30.00, 0.36, 32.10]; #2710 metal/hull@car [-30.00, 0.54, 33.04]; #2711 metal/hull@car [-30.00, 0.54, 31.16]
+[11] warn  #1054 wood@mill [2.00, 0.23, -24.50]: loose prop is not resting on anything
+[11] warn  #1057 wood@mill [6.20, 0.23, -23.80]: loose prop is not resting on anything
+[11] warn  #1060 wood@mill [10.50, 0.23, -25.80]: loose prop is not resting on anything
+[11] warn  #1161 barrel/cylinder@mill [-1.82, 0.60, -24.82]: loose prop is not resting on anything
+[11] warn  #1162 barrel/cylinder@mill [-1.82, 0.60, -24.18]: loose prop is not resting on anything
+[11] warn  #1163 barrel/cylinder@mill [-1.18, 0.60, -24.82]: loose prop is not resting on anything
+[11] warn  #1164 barrel/cylinder@mill [-1.18, 0.60, -24.18]: loose prop is not resting on anything
+[11] warn  #1165 barrel/cylinder@mill [8.68, 0.60, -28.50]: loose prop is not resting on anything
+[11] warn  #1166 barrel/cylinder@mill [9.32, 0.60, -28.50]: loose prop is not resting on anything
+[11] warn  #1267 crate@barn [25.00, 0.65, -25.00]: loose prop is not resting on anything
+[11] warn  #1268 crate@barn [25.00, 0.65, -24.00]: loose prop is not resting on anything
+[11] warn  #1269 barrel/cylinder@barn [24.68, 0.60, -28.30]: loose prop is not resting on anything
+[11] warn  #1270 barrel/cylinder@barn [25.32, 0.60, -28.30]: loose prop is not resting on anything
+[11] warn  #2565 wood@tudor [32.45, 0.49, 17.00]: loose prop is not resting on anything
+[11] warn  #2566 wood@tudor [33.55, 0.49, 17.00]: loose prop is not resting on anything
+[11] warn  #2568 plywood/hull@tudor [33.00, 0.57, 16.20]: loose prop is not resting on anything
+[11] warn  #2569 plywood/hull@tudor [33.00, 0.57, 17.80]: loose prop is not resting on anything
+[11] warn  #2570 wood@tudor [29.80, 1.05, 15.06]: loose prop is not resting on anything
+[12] warn  2 borderline contact(s) at the weld threshold, e.g. #45 stone@cathedral [-21.82, 4.90, -18.55] ↔ #249 lamp@cathedral [-23.05, 8.11, -19.15]; #1680 steel/cylinder@boilerhouse [-24.34, 2.40, 19.00] ↔ #1694 concrete@boilerhouse [-25.15, -0.30, 19.00]
+[12] warn  floating cluster of 17 (no weld path to ground): #2709 steel@car [-30.00, 0.36, 32.10]; #2710 metal/hull@car [-30.00, 0.54, 33.04]; #2711 metal/hull@car [-30.00, 0.54, 31.16]
+[12] warn  #1054 wood@mill [2.00, 0.23, -24.50]: loose prop is not resting on anything
+[12] warn  #1057 wood@mill [6.20, 0.23, -23.80]: loose prop is not resting on anything
+[12] warn  #1060 wood@mill [10.50, 0.23, -25.80]: loose prop is not resting on anything
+[12] warn  #1161 barrel/cylinder@mill [-1.82, 0.60, -24.82]: loose prop is not resting on anything
+[12] warn  #1162 barrel/cylinder@mill [-1.82, 0.60, -24.18]: loose prop is not resting on anything
+[12] warn  #1163 barrel/cylinder@mill [-1.18, 0.60, -24.82]: loose prop is not resting on anything
+[12] warn  #1164 barrel/cylinder@mill [-1.18, 0.60, -24.18]: loose prop is not resting on anything
+[12] warn  #1165 barrel/cylinder@mill [8.68, 0.60, -28.50]: loose prop is not resting on anything
+[12] warn  #1166 barrel/cylinder@mill [9.32, 0.60, -28.50]: loose prop is not resting on anything
+[12] warn  #1267 crate@barn [25.00, 0.65, -25.00]: loose prop is not resting on anything
+[12] warn  #1268 crate@barn [25.00, 0.65, -24.00]: loose prop is not resting on anything
+[12] warn  #1269 barrel/cylinder@barn [24.68, 0.60, -28.30]: loose prop is not resting on anything
+[12] warn  #1270 barrel/cylinder@barn [25.32, 0.60, -28.30]: loose prop is not resting on anything
+[12] warn  #2565 wood@tudor [32.45, 0.49, 17.00]: loose prop is not resting on anything
+[12] warn  #2566 wood@tudor [33.55, 0.49, 17.00]: loose prop is not resting on anything
+[12] warn  #2568 plywood/hull@tudor [33.00, 0.57, 16.20]: loose prop is not resting on anything
+[12] warn  #2569 plywood/hull@tudor [33.00, 0.57, 17.80]: loose prop is not resting on anything
+[12] warn  #2570 wood@tudor [29.80, 1.05, 15.06]: loose prop is not resting on anything
+[13] warn  104 borderline contact(s) at the weld threshold, e.g. #392 castiron@millworks [49.00, 3.50, -44.32] ↔ #393 castiron@millworks [49.00, 3.50, -40.00]; #485 castiron@millworks [49.00, 7.10, -44.32] ↔ #486 castiron@millworks [49.00, 7.10, -40.00]
+[13] warn  floating cluster of 7 (no weld path to ground): #2199 steel@dumptruck [-28.15, 0.90, -47.00]; #2200 steel@dumptruck [-24.96, 0.95, -47.00]; #2201 metal@dumptruck [-25.85, 1.40, -47.00]
+[13] warn  floating cluster of 17 (no weld path to ground): #2817 steel@car [-60.00, 0.46, 45.00]; #2818 metal/hull@car [-59.06, 0.64, 45.00]; #2819 metal/hull@car [-60.94, 0.64, 45.00]
+[13] warn  floating cluster of 17 (no weld path to ground): #2838 steel@car [-40.00, 0.46, 45.00]; #2839 metal/hull@car [-40.94, 0.64, 45.00]; #2840 metal/hull@car [-39.06, 0.64, 45.00]
+[13] warn  floating cluster of 17 (no weld path to ground): #2859 steel@van [-48.00, 0.51, 44.50]; #2860 metal/hull@van [-46.91, 0.76, 44.50]; #2861 metal/hull@van [-49.09, 0.76, 44.50]
+[13] warn  floating cluster of 17 (no weld path to ground): #2880 steel@car [30.00, 0.36, -25.60]; #2881 metal/hull@car [30.00, 0.54, -26.54]; #2882 metal/hull@car [30.00, 0.54, -24.66]
+[13] warn  floating cluster of 17 (no weld path to ground): #2901 steel@car [70.00, 0.36, -28.40]; #2902 metal/hull@car [70.00, 0.54, -27.46]; #2903 metal/hull@car [70.00, 0.54, -29.34]
+[14] warn  32 borderline contact(s) at the weld threshold, e.g. #1266 brick@cottages-west [-62.13, 2.71, 61.22] ↔ #1307 brick@cottages-west [-61.02, 4.25, 61.22]; #1266 brick@cottages-west [-62.13, 2.71, 61.22] ↔ #1312 brick@cottages-west [-63.36, 4.25, 61.22]
+[14] warn  floating cluster of 7 (no weld path to ground): #2030 steel@dumptruck [-28.15, 0.90, -47.00]; #2031 steel@dumptruck [-24.96, 0.95, -47.00]; #2032 metal@dumptruck [-25.85, 1.40, -47.00]
+[14] warn  floating cluster of 17 (no weld path to ground): #2648 steel@car [-60.00, 0.46, 45.00]; #2649 metal/hull@car [-59.06, 0.64, 45.00]; #2650 metal/hull@car [-60.94, 0.64, 45.00]
+[14] warn  floating cluster of 17 (no weld path to ground): #2669 steel@car [-40.00, 0.46, 45.00]; #2670 metal/hull@car [-40.94, 0.64, 45.00]; #2671 metal/hull@car [-39.06, 0.64, 45.00]
+[14] warn  floating cluster of 17 (no weld path to ground): #2690 steel@van [-48.00, 0.51, 44.50]; #2691 metal/hull@van [-46.91, 0.76, 44.50]; #2692 metal/hull@van [-49.09, 0.76, 44.50]
+[14] warn  floating cluster of 17 (no weld path to ground): #2711 steel@car [30.00, 0.36, -25.60]; #2712 metal/hull@car [30.00, 0.54, -26.54]; #2713 metal/hull@car [30.00, 0.54, -24.66]
+[14] warn  floating cluster of 17 (no weld path to ground): #2732 steel@car [70.00, 0.36, -28.40]; #2733 metal/hull@car [70.00, 0.54, -27.46]; #2734 metal/hull@car [70.00, 0.54, -29.34]
+[15] warn  72 borderline contact(s) at the weld threshold, e.g. #392 castiron@millworks [49.00, 3.50, -44.32] ↔ #393 castiron@millworks [49.00, 3.50, -40.00]; #485 castiron@millworks [49.00, 7.10, -44.32] ↔ #486 castiron@millworks [49.00, 7.10, -40.00]
+[15] warn  floating cluster of 7 (no weld path to ground): #2135 steel@dumptruck [-28.15, 0.90, -47.00]; #2136 steel@dumptruck [-24.96, 0.95, -47.00]; #2137 metal@dumptruck [-25.85, 1.40, -47.00]
+[15] warn  floating cluster of 17 (no weld path to ground): #2753 steel@car [-60.00, 0.46, 45.00]; #2754 metal/hull@car [-59.06, 0.64, 45.00]; #2755 metal/hull@car [-60.94, 0.64, 45.00]
+[15] warn  floating cluster of 17 (no weld path to ground): #2774 steel@car [-40.00, 0.46, 45.00]; #2775 metal/hull@car [-40.94, 0.64, 45.00]; #2776 metal/hull@car [-39.06, 0.64, 45.00]
+[15] warn  floating cluster of 17 (no weld path to ground): #2795 steel@van [-48.00, 0.51, 44.50]; #2796 metal/hull@van [-46.91, 0.76, 44.50]; #2797 metal/hull@van [-49.09, 0.76, 44.50]
+[15] warn  floating cluster of 17 (no weld path to ground): #2816 steel@car [30.00, 0.36, -25.60]; #2817 metal/hull@car [30.00, 0.54, -26.54]; #2818 metal/hull@car [30.00, 0.54, -24.66]
+[15] warn  floating cluster of 17 (no weld path to ground): #2837 steel@car [70.00, 0.36, -28.40]; #2838 metal/hull@car [70.00, 0.54, -27.46]; #2839 metal/hull@car [70.00, 0.54, -29.34]
+[16] warn  32 borderline contact(s) at the weld threshold, e.g. #1266 brick@cottages [-62.13, 2.71, 61.22] ↔ #1307 brick@cottages [-61.02, 4.25, 61.22]; #1266 brick@cottages [-62.13, 2.71, 61.22] ↔ #1312 brick@cottages [-63.36, 4.25, 61.22]
+[16] warn  floating cluster of 7 (no weld path to ground): #2030 steel@dumptruck [-28.15, 0.90, -47.00]; #2031 steel@dumptruck [-24.96, 0.95, -47.00]; #2032 metal@dumptruck [-25.85, 1.40, -47.00]
+[16] warn  floating cluster of 17 (no weld path to ground): #2648 steel@car [-60.00, 0.46, 45.00]; #2649 metal/hull@car [-59.06, 0.64, 45.00]; #2650 metal/hull@car [-60.94, 0.64, 45.00]
+[16] warn  floating cluster of 17 (no weld path to ground): #2669 steel@car [-40.00, 0.46, 45.00]; #2670 metal/hull@car [-40.94, 0.64, 45.00]; #2671 metal/hull@car [-39.06, 0.64, 45.00]
+[16] warn  floating cluster of 17 (no weld path to ground): #2690 steel@van [-48.00, 0.51, 44.50]; #2691 metal/hull@van [-46.91, 0.76, 44.50]; #2692 metal/hull@van [-49.09, 0.76, 44.50]
+[16] warn  floating cluster of 17 (no weld path to ground): #2711 steel@car [30.00, 0.36, -25.60]; #2712 metal/hull@car [30.00, 0.54, -26.54]; #2713 metal/hull@car [30.00, 0.54, -24.66]
+[16] warn  floating cluster of 17 (no weld path to ground): #2732 steel@car [70.00, 0.36, -28.40]; #2733 metal/hull@car [70.00, 0.54, -27.46]; #2734 metal/hull@car [70.00, 0.54, -29.34]
+[17] warn  #1588 wood@flats [15.63, 5.60, -1.32]: dimension 0.040 < 0.05
+[17] warn  #1589 wood@flats [16.38, 5.60, -1.32]: dimension 0.040 < 0.05
+[17] warn  #1590 wood@flats [15.63, 8.60, -1.32]: dimension 0.040 < 0.05
+[17] warn  #1591 wood@flats [16.38, 8.60, -1.32]: dimension 0.040 < 0.05
+[17] warn  #1592 wood@flats [15.63, 11.60, -1.32]: dimension 0.040 < 0.05
+[17] warn  #1593 wood@flats [16.38, 11.60, -1.32]: dimension 0.040 < 0.05
+[17] warn  12 borderline contact(s) at the weld threshold, e.g. #386 steel@office [15.00, 3.33, -58.00] ↔ #398 metal@office [11.97, 3.59, -55.13]; #609 steel@office [15.00, 10.53, -58.00] ↔ #621 metal@office [11.97, 10.79, -55.13]
+[17] warn  floating cluster of 17 (no weld path to ground): #1967 steel@car [-50.00, 0.36, 9.10]; #1968 metal/hull@car [-50.00, 0.54, 10.04]; #1969 metal/hull@car [-50.00, 0.54, 8.16]
+[17] warn  floating cluster of 17 (no weld path to ground): #1988 steel@car [-26.00, 0.36, 9.10]; #1989 metal/hull@car [-26.00, 0.54, 10.04]; #1990 metal/hull@car [-26.00, 0.54, 8.16]
+[17] warn  floating cluster of 17 (no weld path to ground): #2009 steel@car [46.00, 0.36, 9.10]; #2010 metal/hull@car [46.00, 0.54, 10.04]; #2011 metal/hull@car [46.00, 0.54, 8.16]
+[17] warn  floating cluster of 17 (no weld path to ground): #2030 steel@car [45.00, 0.36, 18.90]; #2031 metal/hull@car [45.00, 0.54, 17.96]; #2032 metal/hull@car [45.00, 0.54, 19.84]
+[17] warn  floating cluster of 17 (no weld path to ground): #2051 steel@van [2.00, 0.42, 18.40]; #2052 metal/hull@van [2.00, 0.68, 17.30]; #2053 metal/hull@van [2.00, 0.68, 19.50]
+[17] warn  floating cluster of 33 (no weld path to ground): #2072 steel@bus [-32.10, 0.68, 17.50]; #2073 steel@bus [-32.10, 0.68, 19.10]; #2074 metal/hull@bus [-32.00, 1.05, 18.30]
+[18] warn  floating cluster of 17 (no weld path to ground): #2857 steel@car [-50.00, 0.36, 9.10]; #2858 metal/hull@car [-50.00, 0.54, 10.04]; #2859 metal/hull@car [-50.00, 0.54, 8.16]
+[18] warn  floating cluster of 17 (no weld path to ground): #2878 steel@car [-26.00, 0.36, 9.10]; #2879 metal/hull@car [-26.00, 0.54, 10.04]; #2880 metal/hull@car [-26.00, 0.54, 8.16]
+[18] warn  floating cluster of 17 (no weld path to ground): #2899 steel@car [46.00, 0.36, 9.10]; #2900 metal/hull@car [46.00, 0.54, 10.04]; #2901 metal/hull@car [46.00, 0.54, 8.16]
+[18] warn  floating cluster of 17 (no weld path to ground): #2920 steel@car [45.00, 0.36, 18.90]; #2921 metal/hull@car [45.00, 0.54, 17.96]; #2922 metal/hull@car [45.00, 0.54, 19.84]
+[18] warn  floating cluster of 17 (no weld path to ground): #2941 steel@van [2.00, 0.42, 18.40]; #2942 metal/hull@van [2.00, 0.68, 17.30]; #2943 metal/hull@van [2.00, 0.68, 19.50]
+[18] warn  floating cluster of 33 (no weld path to ground): #2962 steel@bus [-32.10, 0.68, 17.50]; #2963 steel@bus [-32.10, 0.68, 19.10]; #2964 metal/hull@bus [-32.00, 1.05, 18.30]
+[S] warn  #462 steel@works [35.01, 2.46, -38.20]: dimension 0.020 < 0.05
+[S] warn  #463 steel@works [35.01, 4.57, -38.20]: dimension 0.020 < 0.05
+[S] warn  #789 steel@scrap [57.40, 0.02, 12.90]: dimension 0.040 < 0.05
+[S] warn  #791 metal@scrap [57.50, 0.14, 12.80]: dimension 0.040 < 0.05
+[S] warn  #794 steel@scrap [61.40, 0.02, 12.60]: dimension 0.040 < 0.05
+[S] warn  #796 metal@scrap [61.50, 0.14, 12.50]: dimension 0.040 < 0.05
+[S] warn  #942 steel@pub [-13.50, 0.87, -13.34]: dimension 0.020 < 0.05
+[S] warn  #946 steel@pub [-13.25, 0.97, -13.34]: dimension 0.020 < 0.05
+[S] warn  #952 steel@pub [-9.18, 0.81, -13.34]: dimension 0.020 < 0.05
+[S] warn  #1151 steel@shop-a [4.70, 0.87, -10.34]: dimension 0.020 < 0.05
+[S] warn  #1155 steel@shop-a [4.95, 0.97, -10.34]: dimension 0.020 < 0.05
+[S] warn  #1161 steel@shop-a [7.53, 0.81, -10.34]: dimension 0.020 < 0.05
+[S] warn  #1162 cardboard@shop-a [8.60, 0.15, -9.70]: dimension 0.008 < 0.05
+[S] warn  #1163 cardboard@shop-a [9.20, 0.15, -9.70]: dimension 0.008 < 0.05
+[S] warn  #1164 cardboard@shop-a [8.60, 0.15, -9.20]: dimension 0.008 < 0.05
+[S] warn  #1913 steel@semis [23.15, 0.85, 55.14]: dimension 0.020 < 0.05
+[S] warn  #1914 steel@semis [22.97, 0.25, 55.14]: dimension 0.020 < 0.05
+[S] warn  #1915 steel@semis [23.37, 0.25, 47.74]: dimension 0.020 < 0.05
+[S] warn  #1919 steel@semis [23.40, 0.95, 55.14]: dimension 0.020 < 0.05
+[S] warn  #1925 steel@semis [25.23, 0.81, 55.14]: dimension 0.020 < 0.05
+[S] warn  #1946 steel@semis [32.85, 0.85, 55.14]: dimension 0.020 < 0.05
+[S] warn  #1947 steel@semis [33.03, 0.25, 55.14]: dimension 0.020 < 0.05
+[S] warn  #1948 steel@semis [32.63, 0.25, 47.74]: dimension 0.020 < 0.05
+[S] warn  #1952 steel@semis [32.60, 0.95, 55.14]: dimension 0.020 < 0.05
+[S] warn  #1958 steel@semis [30.73, 0.81, 55.14]: dimension 0.020 < 0.05
+[S] warn  #2265 cardboard@merchant [51.90, 0.15, 19.40]: dimension 0.008 < 0.05
+[S] warn  #2266 cardboard@merchant [52.55, 0.15, 19.40]: dimension 0.008 < 0.05
+[S] warn  #2267 cardboard@merchant [53.20, 0.15, 19.40]: dimension 0.008 < 0.05
+[S] warn  #2509 wood@stock [-13.29, 0.11, -62.20]: dimension 0.012 < 0.05
+[S] warn  #2510 wood@stock [-12.65, 0.11, -62.20]: dimension 0.012 < 0.05
+[S] warn  #2511 wood@stock [-12.01, 0.11, -62.20]: dimension 0.012 < 0.05
+[S] warn  #2512 wood@stock [-11.37, 0.11, -62.20]: dimension 0.012 < 0.05
+[S] warn  #2513 wood@stock [-12.97, 0.11, -62.20]: dimension 0.012 < 0.05
+[S] warn  #2514 wood@stock [-12.33, 0.11, -62.20]: dimension 0.012 < 0.05
+[S] warn  #2515 wood@stock [-11.69, 0.11, -62.20]: dimension 0.012 < 0.05
+[S] warn  #2654 plywood@dock [59.73, 1.11, 22.00]: dimension 0.012 < 0.05
+[S] warn  112 borderline contact(s) at the weld threshold, e.g. #421 metal@works [38.15, 3.36, -32.90] ↔ #558 rconcrete@works [35.09, -0.17, -33.27]; #437 metal@works [34.90, 3.36, -35.85] ↔ #558 rconcrete@works [35.09, -0.17, -33.27]
+[S] warn  floating piece (no weld path to ground): #1435 stone@terrace [-12.32, 0.21, 47.25]
+[S] warn  floating piece (no weld path to ground): #1706 stone@cottages [4.18, 0.21, 47.25]
+[S] warn  floating cluster of 7 (no weld path to ground): #2379 steel@dumptruck [10.85, 0.90, -56.00]; #2380 steel@dumptruck [14.04, 0.95, -56.00]; #2381 metal@dumptruck [13.15, 1.40, -56.00]
+[S] warn  floating cluster of 17 (no weld path to ground): #2392 steel@mixer [11.05, 0.73, -36.00]; #2393 steel/hull@mixer [7.58, 0.76, -36.00]; #2394 lamp@mixer [7.42, 0.79, -36.77]
+[S] warn  floating cluster of 17 (no weld path to ground): #2521 steel@car [-9.00, 0.51, 18.00]; #2522 metal/hull@car [-8.06, 0.69, 18.00]; #2523 metal/hull@car [-9.94, 0.69, 18.00]
+[S] warn  floating cluster of 17 (no weld path to ground): #2542 steel@car [6.00, 0.48, 26.00]; #2543 metal/hull@car [5.06, 0.66, 26.00]; #2544 metal/hull@car [6.94, 0.66, 26.00]
+[S] warn  floating cluster of 17 (no weld path to ground): #2563 steel@van [0.00, 0.53, 26.00]; #2564 metal/hull@van [-1.09, 0.78, 26.00]; #2565 metal/hull@van [1.09, 0.78, 26.00]
+[S] warn  floating cluster of 19 (no weld path to ground): #2584 steel@lorry [44.49, 0.74, 16.00]; #2585 steel/hull@lorry [49.04, 0.74, 16.00]; #2586 metal/hull@lorry [48.23, 1.50, 16.00]
+[S] warn  floating cluster of 11 (no weld path to ground): #2609 machine@forklift [54.80, 0.70, 16.00]; #2610 castiron/hull@forklift [55.85, 0.75, 16.00]; #2611 steel@forklift [53.85, 1.30, 15.64]
+[S] warn  floating cluster of 17 (no weld path to ground): #2631 steel@car [38.00, 0.36, 8.30]; #2632 metal/hull@car [38.00, 0.55, 9.24]; #2633 metal/hull@car [38.00, 0.55, 7.36]
+[S] warn  #1162 cardboard@shop-a [8.60, 0.15, -9.70]: loose prop is not resting on anything
+[S] warn  #1163 cardboard@shop-a [9.20, 0.15, -9.70]: loose prop is not resting on anything
+[S] warn  #1164 cardboard@shop-a [8.60, 0.15, -9.20]: loose prop is not resting on anything
+[S] warn  #2265 cardboard@merchant [51.90, 0.15, 19.40]: loose prop is not resting on anything
+[S] warn  #2266 cardboard@merchant [52.55, 0.15, 19.40]: loose prop is not resting on anything
+[S] warn  #2267 cardboard@merchant [53.20, 0.15, 19.40]: loose prop is not resting on anything
+[S] warn  #2538 steel/hull@car [-8.03, 0.34, 19.30]: loose prop is not resting on anything
+[S] warn  #2539 steel/hull@car [-9.97, 0.34, 19.30]: loose prop is not resting on anything
+[S] warn  #2540 steel/hull@car [-8.03, 0.34, 16.70]: loose prop is not resting on anything
+[S] warn  #2541 steel/hull@car [-9.97, 0.34, 16.70]: loose prop is not resting on anything
+[S] warn  #2652 crate@dock [59.00, 1.65, 22.00]: loose prop is not resting on anything
+[S] warn  #2653 crate@dock [60.45, 1.65, 22.00]: loose prop is not resting on anything
+[S] warn  #2654 plywood@dock [59.73, 1.11, 22.00]: loose prop is not resting on anything
+[H] warn  2 borderline contact(s) at the weld threshold, e.g. #45 stone@cathedral [-21.82, 4.90, -18.55] ↔ #249 lamp@cathedral [-23.05, 8.11, -19.15]; #1680 steel/cylinder@boilerhouse [-24.34, 2.40, 19.00] ↔ #1694 concrete@boilerhouse [-25.15, -0.30, 19.00]
+[H] warn  floating cluster of 17 (no weld path to ground): #2709 steel@car [-30.00, 0.36, 32.10]; #2710 metal/hull@car [-30.00, 0.54, 33.04]; #2711 metal/hull@car [-30.00, 0.54, 31.16]
+[H] warn  #1054 wood@mill [2.00, 0.23, -24.50]: loose prop is not resting on anything
+[H] warn  #1057 wood@mill [6.20, 0.23, -23.80]: loose prop is not resting on anything
+[H] warn  #1060 wood@mill [10.50, 0.23, -25.80]: loose prop is not resting on anything
+[H] warn  #1161 barrel/cylinder@mill [-1.82, 0.60, -24.82]: loose prop is not resting on anything
+[H] warn  #1162 barrel/cylinder@mill [-1.82, 0.60, -24.18]: loose prop is not resting on anything
+[H] warn  #1163 barrel/cylinder@mill [-1.18, 0.60, -24.82]: loose prop is not resting on anything
+[H] warn  #1164 barrel/cylinder@mill [-1.18, 0.60, -24.18]: loose prop is not resting on anything
+[H] warn  #1165 barrel/cylinder@mill [8.68, 0.60, -28.50]: loose prop is not resting on anything
+[H] warn  #1166 barrel/cylinder@mill [9.32, 0.60, -28.50]: loose prop is not resting on anything
+[H] warn  #1267 crate@barn [25.00, 0.65, -25.00]: loose prop is not resting on anything
+[H] warn  #1268 crate@barn [25.00, 0.65, -24.00]: loose prop is not resting on anything
+[H] warn  #1269 barrel/cylinder@barn [24.68, 0.60, -28.30]: loose prop is not resting on anything
+[H] warn  #1270 barrel/cylinder@barn [25.32, 0.60, -28.30]: loose prop is not resting on anything
+[H] warn  #2565 wood@tudor [32.45, 0.49, 17.00]: loose prop is not resting on anything
+[H] warn  #2566 wood@tudor [33.55, 0.49, 17.00]: loose prop is not resting on anything
+[H] warn  #2568 plywood/hull@tudor [33.00, 0.57, 16.20]: loose prop is not resting on anything
+[H] warn  #2569 plywood/hull@tudor [33.00, 0.57, 17.80]: loose prop is not resting on anything
+[H] warn  #2570 wood@tudor [29.80, 1.05, 15.06]: loose prop is not resting on anything
+[D] warn  #4269 wood@flats [15.63, 5.60, -1.32]: dimension 0.040 < 0.05
+[D] warn  #4270 wood@flats [16.38, 5.60, -1.32]: dimension 0.040 < 0.05
+[D] warn  #4271 wood@flats [15.63, 8.60, -1.32]: dimension 0.040 < 0.05
+[D] warn  #4272 wood@flats [16.38, 8.60, -1.32]: dimension 0.040 < 0.05
+[D] warn  #4273 wood@flats [15.63, 11.60, -1.32]: dimension 0.040 < 0.05
+[D] warn  #4274 wood@flats [16.38, 11.60, -1.32]: dimension 0.040 < 0.05
+[D] warn  #4693 wood@flats2 [53.63, 5.60, -1.32]: dimension 0.040 < 0.05
+[D] warn  #4694 wood@flats2 [54.38, 5.60, -1.32]: dimension 0.040 < 0.05
+[D] warn  #4695 wood@flats2 [53.63, 8.60, -1.32]: dimension 0.040 < 0.05
+[D] warn  #4696 wood@flats2 [54.38, 8.60, -1.32]: dimension 0.040 < 0.05
+[D] warn  17 borderline contact(s) at the weld threshold, e.g. #1682 steel@office [15.00, 3.33, -58.00] ↔ #1694 metal@office [11.97, 3.59, -55.13]; #1905 steel@office [15.00, 10.53, -58.00] ↔ #1917 metal@office [11.97, 10.79, -55.13]
+[D] warn  floating piece (no weld path to ground): #2476 steel/cylinder@stand [48.50, 20.90, -46.90]
+[D] warn  floating piece (no weld path to ground): #2477 steel/cylinder@stand [63.50, 20.90, -46.90]
+[D] warn  floating cluster of 17 (no weld path to ground): #5347 steel@car [-50.00, 0.36, 9.10]; #5348 metal/hull@car [-50.00, 0.54, 10.04]; #5349 metal/hull@car [-50.00, 0.54, 8.16]
+[D] warn  floating cluster of 17 (no weld path to ground): #5368 steel@car [-26.00, 0.36, 9.10]; #5369 metal/hull@car [-26.00, 0.54, 10.04]; #5370 metal/hull@car [-26.00, 0.54, 8.16]
+[D] warn  floating cluster of 17 (no weld path to ground): #5389 steel@car [46.00, 0.36, 9.10]; #5390 metal/hull@car [46.00, 0.54, 10.04]; #5391 metal/hull@car [46.00, 0.54, 8.16]
+[D] warn  floating cluster of 17 (no weld path to ground): #5410 steel@car [45.00, 0.36, 18.90]; #5411 metal/hull@car [45.00, 0.54, 17.96]; #5412 metal/hull@car [45.00, 0.54, 19.84]
+[D] warn  floating cluster of 17 (no weld path to ground): #5431 steel@van [2.00, 0.42, 18.40]; #5432 metal/hull@van [2.00, 0.68, 17.30]; #5433 metal/hull@van [2.00, 0.68, 19.50]
+[D] warn  floating cluster of 33 (no weld path to ground): #5452 steel@bus [-32.10, 0.68, 17.50]; #5453 steel@bus [-32.10, 0.68, 19.10]; #5454 metal/hull@bus [-32.00, 1.05, 18.30]
+[R] warn  104 borderline contact(s) at the weld threshold, e.g. #1536 castiron@millworks [49.00, 3.50, -44.32] ↔ #1537 castiron@millworks [49.00, 3.50, -40.00]; #1629 castiron@millworks [49.00, 7.10, -44.32] ↔ #1630 castiron@millworks [49.00, 7.10, -40.00]
+[R] warn  floating cluster of 7 (no weld path to ground): #3981 steel@dumptruck [-28.15, 0.90, -47.00]; #3982 steel@dumptruck [-24.96, 0.95, -47.00]; #3983 metal@dumptruck [-25.85, 1.40, -47.00]
+[R] warn  floating cluster of 17 (no weld path to ground): #4599 steel@car [-60.00, 0.46, 45.00]; #4600 metal/hull@car [-59.06, 0.64, 45.00]; #4601 metal/hull@car [-60.94, 0.64, 45.00]
+[R] warn  floating cluster of 17 (no weld path to ground): #4620 steel@car [-40.00, 0.46, 45.00]; #4621 metal/hull@car [-40.94, 0.64, 45.00]; #4622 metal/hull@car [-39.06, 0.64, 45.00]
+[R] warn  floating cluster of 17 (no weld path to ground): #4641 steel@van [-48.00, 0.51, 44.50]; #4642 metal/hull@van [-46.91, 0.76, 44.50]; #4643 metal/hull@van [-49.09, 0.76, 44.50]
+[R] warn  floating cluster of 17 (no weld path to ground): #4662 steel@car [30.00, 0.36, -25.60]; #4663 metal/hull@car [30.00, 0.54, -26.54]; #4664 metal/hull@car [30.00, 0.54, -24.66]
+[R] warn  floating cluster of 17 (no weld path to ground): #4683 steel@car [70.00, 0.36, -28.40]; #4684 metal/hull@car [70.00, 0.54, -27.46]; #4685 metal/hull@car [70.00, 0.54, -29.34]
+[prefab bungalow] warn  #238 steel@bungalow [-1.81, 0.80, -3.97]: dimension 0.020 < 0.05
+[prefab bungalow] warn  #238 steel@bungalow [3.33, 0.80, -2.29]: dimension 0.020 < 0.05
+[prefab timber-house] warn  #701 wood@house [0.93, 2.30, 3.06]: dimension 0.040 < 0.05
+[prefab timber-house] warn  #702 wood@house [1.68, 2.30, 3.06]: dimension 0.040 < 0.05
+[prefab timber-house] warn  #703 wood@house [-0.53, 5.06, 3.06]: dimension 0.040 < 0.05
+[prefab cottages] warn  12 borderline contact(s) at the weld threshold, e.g. #4 brick@cottages [-5.47, 2.71, 4.21] ↔ #34 brick@cottages [-6.58, 4.25, 4.21]; #4 brick@cottages [-5.47, 2.71, 4.21] ↔ #39 brick@cottages [-4.24, 4.25, 4.21]
+[prefab cottages] warn  12 borderline contact(s) at the weld threshold, e.g. #4 brick@cottages [11.52, 2.71, 1.37] ↔ #34 brick@cottages [11.52, 4.25, 2.48]; #4 brick@cottages [11.52, 2.71, 1.37] ↔ #39 brick@cottages [11.52, 4.25, 0.14]
+[prefab cottages-2] warn  8 borderline contact(s) at the weld threshold, e.g. #4 brick@cottages [-3.07, 2.71, 4.21] ↔ #23 brick@cottages [-4.18, 4.25, 4.21]; #4 brick@cottages [-3.07, 2.71, 4.21] ↔ #28 brick@cottages [-1.84, 4.25, 4.21]
+[prefab cottages-2] warn  8 borderline contact(s) at the weld threshold, e.g. #4 brick@cottages [11.52, 2.71, -1.03] ↔ #23 brick@cottages [11.52, 4.25, 0.09]; #4 brick@cottages [11.52, 2.71, -1.03] ↔ #28 brick@cottages [11.52, 4.25, -2.26]
+[prefab flats-3] warn  #309 wood@flats [-0.81, 5.45, 3.25]: dimension 0.040 < 0.05
+[prefab flats-3] warn  #310 wood@flats [-0.07, 5.45, 3.25]: dimension 0.040 < 0.05
+[prefab flats-3] warn  #311 wood@flats [-0.81, 8.45, 3.25]: dimension 0.040 < 0.05
+[prefab flats-4] warn  #423 wood@flats [-0.81, 5.45, 3.25]: dimension 0.040 < 0.05
+[prefab flats-4] warn  #424 wood@flats [-0.07, 5.45, 3.25]: dimension 0.040 < 0.05
+[prefab flats-4] warn  #425 wood@flats [-0.81, 8.45, 3.25]: dimension 0.040 < 0.05
+[prefab flats-6] warn  #624 wood@flats [-0.81, 5.45, 3.25]: dimension 0.040 < 0.05
+[prefab flats-6] warn  #625 wood@flats [-0.07, 5.45, 3.25]: dimension 0.040 < 0.05
+[prefab flats-6] warn  #626 wood@flats [-0.81, 8.45, 3.25]: dimension 0.040 < 0.05
+[prefab flats-scaffold] warn  #396 wood@flats [-0.81, 5.45, 2.90]: dimension 0.040 < 0.05
+[prefab flats-scaffold] warn  #397 wood@flats [-0.07, 5.45, 2.90]: dimension 0.040 < 0.05
+[prefab flats-scaffold] warn  #398 wood@flats [-0.81, 8.45, 2.90]: dimension 0.040 < 0.05
+[prefab office-4] warn  4 borderline contact(s) at the weld threshold, e.g. #10 steel@office [-3.00, 3.17, -6.70] ↔ #22 metal@office [-6.03, 3.44, -3.83]; #233 steel@office [-3.00, 10.38, -6.70] ↔ #245 metal@office [-6.03, 10.64, -3.83]
+[prefab office-4] warn  4 borderline contact(s) at the weld threshold, e.g. #10 steel@office [0.60, 3.17, -1.10] ↔ #22 metal@office [3.48, 3.44, 1.93]; #233 steel@office [0.60, 10.38, -1.10] ↔ #245 metal@office [3.48, 10.64, 1.93]
+[prefab office-5] warn  6 borderline contact(s) at the weld threshold, e.g. #10 steel@office [-3.00, 3.17, -6.70] ↔ #22 metal@office [-6.03, 3.44, -3.83]; #233 steel@office [-3.00, 10.38, -6.70] ↔ #245 metal@office [-6.03, 10.64, -3.83]
+[prefab office-5] warn  6 borderline contact(s) at the weld threshold, e.g. #10 steel@office [0.60, 3.17, -1.10] ↔ #22 metal@office [3.48, 3.44, 1.93]; #233 steel@office [0.60, 10.38, -1.10] ↔ #245 metal@office [3.48, 10.64, 1.93]
+[prefab warehouse] warn  #298 cardboard@warehouse [-10.43, 2.26, 6.50]: dimension 0.008 < 0.05
+[prefab warehouse] warn  #299 cardboard@warehouse [-9.17, 2.26, 6.50]: dimension 0.008 < 0.05
+[prefab warehouse] warn  #312 cardboard@warehouse [-7.73, 2.26, 6.50]: dimension 0.008 < 0.05
+[prefab warehouse-stocked] warn  #298 cardboard@warehouse [-10.43, 2.26, 6.50]: dimension 0.008 < 0.05
+[prefab warehouse-stocked] warn  #299 cardboard@warehouse [-9.17, 2.26, 6.50]: dimension 0.008 < 0.05
+[prefab warehouse-stocked] warn  #312 cardboard@warehouse [-7.73, 2.26, 6.50]: dimension 0.008 < 0.05
+[prefab stand] warn  floating piece (no weld path to ground): #131 steel/cylinder@stand [-7.50, 20.75, 0.40]
+[prefab stand] warn  floating piece (no weld path to ground): #132 steel/cylinder@stand [7.50, 20.75, 0.40]
+[prefab stand] warn  floating piece (no weld path to ground): #131 steel/cylinder@stand [7.70, 20.75, 3.40]
+[prefab cottage-row-5] warn  20 borderline contact(s) at the weld threshold, e.g. #4 brick@cottages [-10.27, 2.71, 4.21] ↔ #56 brick@cottages [-11.38, 4.25, 4.21]; #4 brick@cottages [-10.27, 2.71, 4.21] ↔ #61 brick@cottages [-9.04, 4.25, 4.21]
+[prefab cottage-row-5] warn  20 borderline contact(s) at the weld threshold, e.g. #4 brick@cottages [11.52, 2.71, 6.17] ↔ #56 brick@cottages [11.52, 4.25, 7.29]; #4 brick@cottages [11.52, 2.71, 6.17] ↔ #61 brick@cottages [11.52, 4.25, 4.94]
+[prefab dump-truck] warn  floating cluster of 7 (no weld path to ground): #0 steel@dumptruck [-0.04, 0.90, 0.00]; #1 steel@dumptruck [3.15, 0.95, 0.00]; #2 metal@dumptruck [2.26, 1.40, 0.00]
+[prefab dump-truck] warn  floating cluster of 7 (no weld path to ground): #0 steel@dumptruck [7.30, 0.90, -4.06]; #1 steel@dumptruck [7.30, 0.95, -7.25]; #2 metal@dumptruck [7.30, 1.40, -6.36]
+[prefab mixer-truck] warn  floating cluster of 17 (no weld path to ground): #0 steel@mixer [-0.13, 0.73, 0.00]; #1 steel/hull@mixer [3.35, 0.76, 0.00]; #2 lamp@mixer [3.50, 0.79, 0.78]
+[prefab mixer-truck] warn  floating cluster of 17 (no weld path to ground): #0 steel@mixer [7.30, 0.73, -3.98]; #1 steel/hull@mixer [7.30, 0.76, -7.45]; #2 lamp@mixer [8.07, 0.79, -7.60]
+[prefab forklift] warn  floating cluster of 11 (no weld path to ground): #0 machine@forklift [-0.60, 0.70, 0.00]; #1 castiron/hull@forklift [-1.65, 0.75, 0.00]; #2 steel@forklift [0.35, 1.30, 0.36]
+[prefab forklift] warn  floating cluster of 11 (no weld path to ground): #0 machine@forklift [7.30, 0.70, -3.50]; #1 castiron/hull@forklift [7.30, 0.75, -2.45]; #2 steel@forklift [7.66, 1.30, -4.45]
+[prefab light-tower] warn  2 borderline contact(s) at the weld threshold, e.g. #6 steel/cylinder@lighttower [0.75, 6.17, 0.00] ↔ #9 lamp@lighttower [0.60, 8.05, 0.20]; #6 steel/cylinder@lighttower [0.75, 6.17, 0.00] ↔ #10 lamp@lighttower [0.90, 8.05, 0.20]
+[prefab light-tower] warn  2 borderline contact(s) at the weld threshold, e.g. #6 steel/cylinder@lighttower [7.30, 6.17, -4.85] ↔ #9 lamp@lighttower [7.50, 8.05, -4.70]; #6 steel/cylinder@lighttower [7.30, 6.17, -4.85] ↔ #10 lamp@lighttower [7.50, 8.05, -5.00]
+[prefab saloon] warn  floating cluster of 17 (no weld path to ground): #0 steel@car [-0.04, 0.46, 0.00]; #1 metal/hull@car [-0.04, 0.64, 0.94]; #2 metal/hull@car [-0.04, 0.64, -0.94]
+[prefab saloon] warn  floating cluster of 17 (no weld path to ground): #0 steel@car [7.30, 0.46, -4.07]; #1 metal/hull@car [8.24, 0.64, -4.07]; #2 metal/hull@car [6.36, 0.64, -4.07]
+[prefab box-van] warn  floating cluster of 17 (no weld path to ground): #0 steel@van [0.04, 0.51, 0.00]; #1 metal/hull@van [0.04, 0.76, 1.09]; #2 metal/hull@van [0.04, 0.76, -1.09]
+[prefab box-van] warn  floating cluster of 17 (no weld path to ground): #0 steel@van [7.30, 0.51, -4.14]; #1 metal/hull@van [8.39, 0.76, -4.14]; #2 metal/hull@van [6.21, 0.76, -4.14]
+[prefab bus] warn  floating cluster of 33 (no weld path to ground): #0 steel@bus [-0.03, 0.74, 0.80]; #1 steel@bus [-0.03, 0.74, -0.80]; #2 metal/hull@bus [-0.13, 1.11, 0.00]
+[prefab bus] warn  floating cluster of 33 (no weld path to ground): #0 steel@bus [8.10, 0.74, -4.08]; #1 steel@bus [6.50, 0.74, -4.08]; #2 metal/hull@bus [7.30, 1.11, -3.98]
+[prefab lorry] warn  floating cluster of 19 (no weld path to ground): #0 steel@lorry [-0.28, 0.74, 0.00]; #1 steel/hull@lorry [4.26, 0.74, 0.00]; #2 metal/hull@lorry [3.45, 1.50, 0.00]
+[prefab lorry] warn  floating cluster of 19 (no weld path to ground): #0 steel@lorry [7.30, 0.74, -3.81]; #1 steel/hull@lorry [7.30, 0.74, -8.37]; #2 metal/hull@lorry [7.30, 1.50, -7.55]
+[prefab cathedral] warn  1 borderline contact(s) at the weld threshold, e.g. #59 stone@cathedral [-11.05, 4.75, 9.61] ↔ #333 lamp@cathedral [-10.45, 7.96, 8.38]
+[prefab cathedral] warn  1 borderline contact(s) at the weld threshold, e.g. #59 stone@cathedral [16.91, 4.75, 6.95] ↔ #333 lamp@cathedral [15.69, 7.96, 6.35]
+[prefab cathedral-4] warn  1 borderline contact(s) at the weld threshold, e.g. #45 stone@cathedral [-11.05, 4.75, 3.11] ↔ #249 lamp@cathedral [-10.45, 7.96, 1.89]
+[prefab cathedral-4] warn  1 borderline contact(s) at the weld threshold, e.g. #45 stone@cathedral [10.41, 4.75, 6.95] ↔ #249 lamp@cathedral [9.19, 7.96, 6.35]
+[prefab millworks] warn  72 borderline contact(s) at the weld threshold, e.g. #310 castiron@millworks [0.30, 3.35, -4.32] ↔ #311 castiron@millworks [0.30, 3.35, 0.00]; #403 castiron@millworks [0.30, 6.95, -4.32] ↔ #404 castiron@millworks [0.30, 6.95, 0.00]
+[prefab millworks] warn  72 borderline contact(s) at the weld threshold, e.g. #310 castiron@millworks [2.98, 3.35, -4.40] ↔ #311 castiron@millworks [7.30, 3.35, -4.40]; #403 castiron@millworks [2.98, 6.95, -4.40] ↔ #404 castiron@millworks [7.30, 6.95, -4.40]
+[prefab high-street-unit] warn  #90 steel@shop [-2.50, 0.72, -3.85]: dimension 0.020 < 0.05
+[prefab high-street-unit] warn  #94 steel@shop [-2.25, 0.82, -3.85]: dimension 0.020 < 0.05
+[prefab high-street-unit] warn  #95 steel@shop [-1.85, 0.30, -3.85]: dimension 0.020 < 0.05
+[prefab high-street-pub] warn  #145 steel@pub [-4.00, 0.72, -5.66]: dimension 0.020 < 0.05
+[prefab high-street-pub] warn  #149 steel@pub [-3.75, 0.82, -5.66]: dimension 0.020 < 0.05
+[prefab high-street-pub] warn  #150 steel@pub [-3.35, 0.30, -5.66]: dimension 0.020 < 0.05
+[prefab merchant-shed] warn  #64 cardboard@merchant [4.90, 0.00, -4.60]: dimension 0.008 < 0.05
+[prefab merchant-shed] warn  #65 cardboard@merchant [5.55, 0.00, -4.60]: dimension 0.008 < 0.05
+[prefab merchant-shed] warn  #66 cardboard@merchant [6.20, 0.00, -4.60]: dimension 0.008 < 0.05
+[prefab semi-pair] warn  #206 steel@semis [4.85, 0.70, -3.98]: dimension 0.020 < 0.05
+[prefab semi-pair] warn  #207 steel@semis [5.03, 0.10, -3.98]: dimension 0.020 < 0.05
+[prefab semi-pair] warn  #208 steel@semis [4.63, 0.10, 3.42]: dimension 0.020 < 0.05
+[prefab works-hall] warn  #84 steel@works [-12.99, 2.31, 1.80]: dimension 0.020 < 0.05
+[prefab works-hall] warn  #85 steel@works [-12.99, 4.42, 1.80]: dimension 0.020 < 0.05
+[prefab works-hall] warn  orphaned lamp/lamp/lamp/lamp reaches no power source: #74 lamp@works [-9.75, 5.39, -6.43]; #75 lamp@works [-3.25, 5.39, -6.43]
+
+all levels and prefabs valid

@@ -1,0 +1,90 @@
+{
+  "schema": "optimize.measure.v2",
+  "thresholds": {},
+  "actual_token_usage": null,
+  "accepted_outcomes": null,
+  "engine": {
+    "measure.py": "926c71f681715295166674036606ac6e04c18a1336f0641e508e7b31e0c21199",
+    "tokens.py": "4a7da53a1f861c14bda3e5675836d9aff7df1097c2293a73cb4a04b788d23da2"
+  },
+  "environment": {
+    "python": "3.14.6 (main, Jun 10 2026, 10:03:53) [Clang 21.0.0 (clang-2100.1.1.101)]",
+    "executable": "~/.homebrew/opt/python@3.14/bin/python3.14",
+    "platform": "macOS-26.6-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "host": "MacBookPro.cable.rcn.com"
+  },
+  "probe_file_sha256": "010cfeaca5b6d93aa53f71600074d08e1002bdea33dadfaca93ff0dbc01e2e04",
+  "timeout_seconds": 1800,
+  "ts": "2026-09-29T20:47:14+00:00",
+  "cwd": "~/Desktop/dv-perf-1",
+  "git": {
+    "rev": "73c6480",
+    "dirty": true
+  },
+  "output_estimator": "heuristic-chars/4",
+  "probes": {
+    "checkbld": {
+      "cmd": "node scripts/check-building.ts cottage-row",
+      "evidence": [
+        {
+          "exit": 0,
+          "stdout_sha256": "3c3636f5c96c7909d5e2a85740444ef49af68a20c4f5a7da26f161e0827a37ee",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-ab1-base.raw/08e22bda27a8be46-0.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-ab1-base.raw/08e22bda27a8be46-0.stderr.txt"
+        },
+        {
+          "exit": 0,
+          "stdout_sha256": "3c3636f5c96c7909d5e2a85740444ef49af68a20c4f5a7da26f161e0827a37ee",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-ab1-base.raw/08e22bda27a8be46-1.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-ab1-base.raw/08e22bda27a8be46-1.stderr.txt"
+        },
+        {
+          "exit": 0,
+          "stdout_sha256": "3c3636f5c96c7909d5e2a85740444ef49af68a20c4f5a7da26f161e0827a37ee",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-ab1-base.raw/08e22bda27a8be46-2.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-ab1-base.raw/08e22bda27a8be46-2.stderr.txt"
+        }
+      ],
+      "collected_runs": 3,
+      "runs": 3,
+      "samples_s": [
+        3.955,
+        4.024,
+        3.953
+      ],
+      "median_s": 3.955,
+      "exit": 0,
+      "ok": true,
+      "output_bytes": 15,
+      "output_tokens": 4,
+      "output_tail": null
+    },
+    "levels": {
+      "cmd": "npm run validate:levels",
+      "evidence": [
+        {
+          "exit": 0,
+          "stdout_sha256": "a7f7b5e6af31e7fd0178e24a8d5ed29b89aaabb7419901eb610751aa055f54cd",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-ab1-base.raw/7d50f20853334a30-0.stdout.txt",
+          "stderr_path": "~/Desktop/dv-perf-1/.optimize/runs/20260929T-ab1-base.raw/7d50f20853334a30-0.stderr.txt"
+        }
+      ],
+      "collected_runs": 1,
+      "runs": 1,
+      "samples_s": [
+        108.35
+      ],
+      "median_s": 108.35,
+      "exit": 0,
+      "ok": true,
+      "output_bytes": 56315,
+      "output_tokens": 14032,
+      "output_tail": null
+    }
+  }
+}

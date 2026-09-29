@@ -1,0 +1,106 @@
+[runtime] idle_S ...
+[runtime] idle_S: {"ok": true, "wall_s": 12.5, "buildMs": 6044, "result": {"weldsLost": 0, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "ff6aa73781e99dcc"}, "after_ms": 0.601, "phys_ms": 0.014, "frame_ms": 0.11, "soft_ms": 0.065, "joints_ms": 0.045, "svc_ms": 0.039, "ter_ms": 0.141, "after_cpu": 0.71, "awake_end": 0}
+[runtime] idle_D ...
+[runtime] idle_D: {"ok": true, "wall_s": 12.8, "buildMs": 7656, "result": {"weldsLost": 0, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "57dce26087cace8c"}, "after_ms": 1.761, "phys_ms": 0.027, "frame_ms": 0.169, "soft_ms": 0.904, "joints_ms": 0.145, "svc_ms": 0.03, "ter_ms": 0.393, "after_cpu": 1.907, "awake_end": 0}
+[runtime] tower_D ...
+[runtime] tower_D: {"ok": true, "wall_s": 86.0, "buildMs": 7336, "result": {"weldsLost": 6819, "runaways": 13, "awakeAtEnd": 4825, "fingerprint": "41596f8c56bcd6e8"}, "collapse_phys_ms": 32.14, "collapse_after_ms": 18.809, "collapse_total_ms": 53.34, "collapse_worst_s_ms": 83.31, "collapse_fields_ms": 1.704, "collapse_analysis_ms": 4.427, "collapse_joints_ms": 0.249, "collapse_svc_ms": 0.89, "aftermath_phys_ms": 51.533, "aftermath_after_ms": 12.619, "aftermath_total_ms": 68.969, "collapse_phys_cpu": 35.228, "collapse_after_cpu": 25.726, "aftermath_phys_cpu": 47.681, "aftermath_after_cpu": 13.217, "awake_at_16s": 3771, "awake_end": 4825, "pieces_created": 1313}
+[runtime] terrace_S ...
+[runtime] terrace_S: {"ok": true, "wall_s": 43.1, "buildMs": 5929, "result": {"weldsLost": 1213, "runaways": 0, "awakeAtEnd": 1743, "fingerprint": "eb642f2d6871591b"}, "collapse_phys_ms": 18.606, "collapse_after_ms": 10.239, "collapse_total_ms": 30.508, "collapse_worst_s_ms": 44.27, "collapse_fields_ms": 2.287, "collapse_analysis_ms": 1.397, "collapse_joints_ms": 0.143, "collapse_svc_ms": 0.256, "aftermath_phys_ms": 15.904, "aftermath_after_ms": 5.719, "aftermath_total_ms": 23.088, "collapse_phys_cpu": 19.963, "collapse_after_cpu": 13.773, "aftermath_phys_cpu": 14.491, "aftermath_after_cpu": 5.391, "awake_at_16s": 1762, "awake_end": 1743, "pieces_created": 2079}
+[runtime] chapel_S ...
+[runtime] chapel_S: {"ok": true, "wall_s": 28.5, "buildMs": 6201, "result": {"weldsLost": 341, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "05192b3d073739bc"}, "settle_s": 17, "t10_20_phys_ms": 6.544, "t10_20_after_ms": 3.096, "t10_20_phys_cpu": 5.96, "t10_20_after_cpu": 2.844, "collapse_total_ms": 16.141, "awake_end": 0}
+idle_S {"ok": true, "wall_s": 12.5, "buildMs": 6044, "result": {"weldsLost": 0, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "ff6aa73781e99dcc"}, "after_ms": 0.601, "phys_ms": 0.014, "frame_ms": 0.11, "soft_ms": 0.065, "joints_ms": 0.045, "svc_ms": 0.039, "ter_ms": 0.141, "after_cpu": 0.71, "awake_end": 0}
+idle_D {"ok": true, "wall_s": 12.8, "buildMs": 7656, "result": {"weldsLost": 0, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "57dce26087cace8c"}, "after_ms": 1.761, "phys_ms": 0.027, "frame_ms": 0.169, "soft_ms": 0.904, "joints_ms": 0.145, "svc_ms": 0.03, "ter_ms": 0.393, "after_cpu": 1.907, "awake_end": 0}
+tower_D {"ok": true, "wall_s": 86.0, "buildMs": 7336, "result": {"weldsLost": 6819, "runaways": 13, "awakeAtEnd": 4825, "fingerprint": "41596f8c56bcd6e8"}, "collapse_phys_ms": 32.14, "collapse_after_ms": 18.809, "collapse_total_ms": 53.34, "collapse_worst_s_ms": 83.31, "collapse_fields_ms": 1.704, "collapse_analysis_ms": 4.427, "collapse_joints_ms": 0.249, "collapse_svc_ms": 0.89, "aftermath_phys_ms": 51.533, "aftermath_after_ms": 12.619, "aftermath_total_ms": 68.969, "collapse_phys_cpu": 35.228, "collapse_after_cpu": 25.726, "aftermath_phys_cpu": 47.681, "aftermath_after_cpu": 13.217, "awake_at_16s": 3771, "awake_end": 4825, "pieces_created": 1313}
+terrace_S {"ok": true, "wall_s": 43.1, "buildMs": 5929, "result": {"weldsLost": 1213, "runaways": 0, "awakeAtEnd": 1743, "fingerprint": "eb642f2d6871591b"}, "collapse_phys_ms": 18.606, "collapse_after_ms": 10.239, "collapse_total_ms": 30.508, "collapse_worst_s_ms": 44.27, "collapse_fields_ms": 2.287, "collapse_analysis_ms": 1.397, "collapse_joints_ms": 0.143, "collapse_svc_ms": 0.256, "aftermath_phys_ms": 15.904, "aftermath_after_ms": 5.719, "aftermath_total_ms": 23.088, "collapse_phys_cpu": 19.963, "collapse_after_cpu": 13.773, "aftermath_phys_cpu": 14.491, "aftermath_after_cpu": 5.391, "awake_at_16s": 1762, "awake_end": 1743, "pieces_created": 2079}
+chapel_S {"ok": true, "wall_s": 28.5, "buildMs": 6201, "result": {"weldsLost": 341, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "05192b3d073739bc"}, "settle_s": 17, "t10_20_phys_ms": 6.544, "t10_20_after_ms": 3.096, "t10_20_phys_cpu": 5.96, "t10_20_after_cpu": 2.844, "collapse_total_ms": 16.141, "awake_end": 0}
+ src/destruction/structure.ts | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+[runtime] idle_S ...
+[runtime] idle_S: {"ok": true, "wall_s": 12.5, "buildMs": 6024, "result": {"weldsLost": 0, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "ff6aa73781e99dcc"}, "after_ms": 0.56, "phys_ms": 0.017, "frame_ms": 0.109, "soft_ms": 0.055, "joints_ms": 0.044, "svc_ms": 0.039, "ter_ms": 0.124, "after_cpu": 0.664, "awake_end": 0}
+[runtime] idle_D ...
+[runtime] idle_D: {"ok": true, "wall_s": 12.3, "buildMs": 7281, "result": {"weldsLost": 0, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "57dce26087cace8c"}, "after_ms": 1.719, "phys_ms": 0.023, "frame_ms": 0.155, "soft_ms": 0.897, "joints_ms": 0.131, "svc_ms": 0.028, "ter_ms": 0.372, "after_cpu": 1.849, "awake_end": 0}
+[runtime] tower_D ...
+[runtime] tower_D: {"ok": true, "wall_s": 86.7, "buildMs": 7231, "result": {"weldsLost": 6818, "runaways": 10, "awakeAtEnd": 4676, "fingerprint": "507eea120d40820e"}, "collapse_phys_ms": 32.931, "collapse_after_ms": 18.577, "collapse_total_ms": 53.944, "collapse_worst_s_ms": 90.19, "collapse_fields_ms": 1.624, "collapse_analysis_ms": 4.566, "collapse_joints_ms": 0.23, "collapse_svc_ms": 0.859, "aftermath_phys_ms": 51.515, "aftermath_after_ms": 13.245, "aftermath_total_ms": 70.124, "collapse_phys_cpu": 37.152, "collapse_after_cpu": 26.064, "aftermath_phys_cpu": 48.713, "aftermath_after_cpu": 14.114, "awake_at_16s": 3912, "awake_end": 4676, "pieces_created": 1428}
+[runtime] terrace_S ...
+[runtime] terrace_S: {"ok": true, "wall_s": 45.5, "buildMs": 5971, "result": {"weldsLost": 1229, "runaways": 0, "awakeAtEnd": 1735, "fingerprint": "e7536aa458670c6d"}, "collapse_phys_ms": 18.999, "collapse_after_ms": 10.564, "collapse_total_ms": 31.285, "collapse_worst_s_ms": 51.19, "collapse_fields_ms": 2.416, "collapse_analysis_ms": 1.44, "collapse_joints_ms": 0.153, "collapse_svc_ms": 0.271, "aftermath_phys_ms": 18.894, "aftermath_after_ms": 8.434, "aftermath_total_ms": 29.118, "collapse_phys_cpu": 20.247, "collapse_after_cpu": 14.138, "aftermath_phys_cpu": 16.993, "aftermath_after_cpu": 8.264, "awake_at_16s": 1816, "awake_end": 1735, "pieces_created": 2118}
+[runtime] chapel_S ...
+[runtime] chapel_S: {"ok": true, "wall_s": 26.1, "buildMs": 5961, "result": {"weldsLost": 342, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "f7a2ff9a4913723f"}, "settle_s": 12, "t10_20_phys_ms": 2.588, "t10_20_after_ms": 2.852, "t10_20_phys_cpu": 2.4, "t10_20_after_cpu": 2.979, "collapse_total_ms": 16.632, "awake_end": 0}
+scenario.metric                                  before      after    delta
+idle_S.wall_s                                      12.5       12.5      +0%
+idle_S.buildMs                                     6044       6024      -0%
+idle_S.after_ms                                   0.601       0.56      -7%
+idle_S.phys_ms                                    0.014      0.017     +21%
+idle_S.frame_ms                                    0.11      0.109      -1%
+idle_S.soft_ms                                    0.065      0.055     -15%
+idle_S.joints_ms                                  0.045      0.044      -2%
+idle_S.svc_ms                                     0.039      0.039      +0%
+idle_S.ter_ms                                     0.141      0.124     -12%
+idle_S.after_cpu                                   0.71      0.664      -6%
+idle_S.awake_end                                      0          0         
+idle_S.result                                SAME
+idle_D.wall_s                                      12.8       12.3      -4%
+idle_D.buildMs                                     7656       7281      -5%
+idle_D.after_ms                                   1.761      1.719      -2%
+idle_D.phys_ms                                    0.027      0.023     -15%
+idle_D.frame_ms                                   0.169      0.155      -8%
+idle_D.soft_ms                                    0.904      0.897      -1%
+idle_D.joints_ms                                  0.145      0.131     -10%
+idle_D.svc_ms                                      0.03      0.028      -7%
+idle_D.ter_ms                                     0.393      0.372      -5%
+idle_D.after_cpu                                  1.907      1.849      -3%
+idle_D.awake_end                                      0          0         
+idle_D.result                                SAME
+tower_D.wall_s                                     86.0       86.7      +1%
+tower_D.buildMs                                    7336       7231      -1%
+tower_D.collapse_phys_ms                          32.14     32.931      +2%
+tower_D.collapse_after_ms                        18.809     18.577      -1%
+tower_D.collapse_total_ms                         53.34     53.944      +1%
+tower_D.collapse_worst_s_ms                       83.31      90.19      +8%
+tower_D.collapse_fields_ms                        1.704      1.624      -5%
+tower_D.collapse_analysis_ms                      4.427      4.566      +3%
+tower_D.collapse_joints_ms                        0.249       0.23      -8%
+tower_D.collapse_svc_ms                            0.89      0.859      -3%
+tower_D.aftermath_phys_ms                        51.533     51.515      -0%
+tower_D.aftermath_after_ms                       12.619     13.245      +5%
+tower_D.aftermath_total_ms                       68.969     70.124      +2%
+tower_D.collapse_phys_cpu                        35.228     37.152      +5%
+tower_D.collapse_after_cpu                       25.726     26.064      +1%
+tower_D.aftermath_phys_cpu                       47.681     48.713      +2%
+tower_D.aftermath_after_cpu                      13.217     14.114      +7%
+tower_D.awake_at_16s                               3771       3912      +4%
+tower_D.awake_end                                  4825       4676      -3%
+tower_D.pieces_created                             1313       1428      +9%
+tower_D.result                               CHANGED: {"weldsLost": 6819, "runaways": 13, "awakeAtEnd": 4825, "fingerprint": "41596f8c56bcd6e8"} -> {"weldsLost": 6818, "runaways": 10, "awakeAtEnd": 4676, "fingerprint": "507eea120d40820e"}
+terrace_S.wall_s                                   43.1       45.5      +6%
+terrace_S.buildMs                                  5929       5971      +1%
+terrace_S.collapse_phys_ms                       18.606     18.999      +2%
+terrace_S.collapse_after_ms                      10.239     10.564      +3%
+terrace_S.collapse_total_ms                      30.508     31.285      +3%
+terrace_S.collapse_worst_s_ms                     44.27      51.19     +16%
+terrace_S.collapse_fields_ms                      2.287      2.416      +6%
+terrace_S.collapse_analysis_ms                    1.397       1.44      +3%
+terrace_S.collapse_joints_ms                      0.143      0.153      +7%
+terrace_S.collapse_svc_ms                         0.256      0.271      +6%
+terrace_S.aftermath_phys_ms                      15.904     18.894     +19%
+terrace_S.aftermath_after_ms                      5.719      8.434     +47%
+terrace_S.aftermath_total_ms                     23.088     29.118     +26%
+terrace_S.collapse_phys_cpu                      19.963     20.247      +1%
+terrace_S.collapse_after_cpu                     13.773     14.138      +3%
+terrace_S.aftermath_phys_cpu                     14.491     16.993     +17%
+terrace_S.aftermath_after_cpu                     5.391      8.264     +53%
+terrace_S.awake_at_16s                             1762       1816      +3%
+terrace_S.awake_end                                1743       1735      -0%
+terrace_S.pieces_created                           2079       2118      +2%
+terrace_S.result                             CHANGED: {"weldsLost": 1213, "runaways": 0, "awakeAtEnd": 1743, "fingerprint": "eb642f2d6871591b"} -> {"weldsLost": 1229, "runaways": 0, "awakeAtEnd": 1735, "fingerprint": "e7536aa458670c6d"}
+chapel_S.wall_s                                    28.5       26.1      -8%
+chapel_S.buildMs                                   6201       5961      -4%
+chapel_S.settle_s                                    17         12     -29%
+chapel_S.t10_20_phys_ms                           6.544      2.588     -60%
+chapel_S.t10_20_after_ms                          3.096      2.852      -8%
+chapel_S.t10_20_phys_cpu                           5.96        2.4     -60%
+chapel_S.t10_20_after_cpu                         2.844      2.979      +5%
+chapel_S.collapse_total_ms                       16.141     16.632      +3%
+chapel_S.awake_end                                    0          0         
+chapel_S.result                              CHANGED: {"weldsLost": 341, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "05192b3d073739bc"} -> {"weldsLost": 342, "runaways": 0, "awakeAtEnd": 0, "fingerprint": "f7a2ff9a4913723f"}
+AB2_DONE
+EXIT=0

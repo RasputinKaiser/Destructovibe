@@ -3645,6 +3645,7 @@ function housekeeping(dt: number): void {
     if (p.curPos[1] < -15) { if (!p.demolished) markDemolished(p); doomed.push(p); continue; }
     if (p.depth === 0 && !p.welds.length && p.demolished && !shattering.has(p) && BREAKUP_MATS.has(p.mat)) fallen(p);
     if (p.welds.length && p.demolished && !p.dead) looseCluster(p);
+    if (!p.dead && p.movedStep >= stepCount - 1) creep(p);
     if (p.fade > 0 || !p.demolished || p.depth === 0 || p.rebars.length || frozenSet.has(p)) continue;
     if (p.movedStep < stepCount - 2) p.sleepT += 0.5;
     if (p.volume < 0.012 && p.sleepT > 30) { if (canFreeze(p) && onRubble(p)) freezeRubble(p); else startFade(p); }
@@ -3688,6 +3689,32 @@ function looseCluster(p: Piece): void {
   for (const q of seen) { b3.b3Body_GetLinearVelocity(_lcv, q.body); if (vec3.squaredLength(_lcv) > 1) return; }
   for (const q of seen) for (const w of q.welds.slice()) killWeld(w, true);
   for (const q of seen) rubble(q);
+}
+
+/* Box3D sleeps a whole solver island or none of it, and a rubble pile is one island: a single fragment the contacts keep
+   creeping or rocking (a panel inching down the heap, a brick spinning in a crevice) keeps every body in the pile awake
+   and solved, long after the collapse is over (a terrace blast: 1735 awake bodies held by 2 creepers, ~40 ms a step).
+   A loose piece that has spent CREEP_T seconds awake and slower than CREEP_V is taken to be at rest, as a real heap's
+   friction would have it, and allowed to sleep at that speed; a knock that sets it moving faster gives it back its own
+   threshold (loose props on a tilted floor too). Welded, rigged and machine pieces are left to the solver (a sagging member
+   is not rubble). */
+const CREEP_V = 0.4, CREEP_T = 3;
+const creeping = new WeakMap<Piece, { t: number; thr0: number }>();
+const _cw: Vec3 = [0, 0, 0];
+function creep(p: Piece): void {
+  if (p.welds.length || p.rebars.length || p.ropes.length || p.mechs || p.hinged || p.fade > 0 || frozenSet.has(p)) return;
+  b3.b3Body_GetLinearVelocity(_v, p.body);
+  b3.b3Body_GetAngularVelocity(_cw, p.body);
+  const v = Math.max(vec3.length(_v), vec3.length(_cw) * 0.6 * Math.cbrt(p.volume));
+  let c = creeping.get(p);
+  if (v > CREEP_V) {
+    if (c && c.t >= CREEP_T) b3.b3Body_SetSleepThreshold(p.body, c.thr0);
+    if (c) c.t = 0;
+    return;
+  }
+  if (!c) creeping.set(p, c = { t: 0, thr0: b3.b3Body_GetSleepThreshold(p.body) });
+  c.t += 0.5;
+  if (c.t === CREEP_T) b3.b3Body_SetSleepThreshold(p.body, Math.max(c.thr0, CREEP_V));
 }
 
 /* Settled rubble: a static body where it came to rest, still drawn and still solid underfoot, but no longer solved
