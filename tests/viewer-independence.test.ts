@@ -5,14 +5,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /* The same blast must come out the same whoever watches it and however fast frames are drawn: a player 5 m from the
-   chapel with a frame every step, and one 60 m off drawing a frame every third step, see one collapse. Runs the game's
-   own per-step / per-frame path headless (scripts/sim.mjs) and compares every body's final position. */
+   chapel with a frame every step, one 60 m off drawing a frame every third step, and the headless harness with no
+   viewer at all see one collapse. Runs the game's own per-step / per-frame path (scripts/sim.mjs) and compares every
+   body's final position. */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-function run(viewer: string, spf: number): Promise<{ fingerprint: string; weldsLost: number; line: string }> {
+function run(viewer: string | null, spf: number): Promise<{ fingerprint: string; weldsLost: number; line: string }> {
   return new Promise((resolve, reject) => {
     execFile(process.execPath, [join(ROOT, 'scripts/sim.mjs'), 'S', '200', '-60.5,1.2,-8,5'], {
-      cwd: ROOT, env: { ...process.env, VIEWER: viewer, SPF: String(spf) }, maxBuffer: 64 << 20, timeout: 540_000,
+      cwd: ROOT, env: { ...process.env, VIEWER: viewer ?? '', SPF: String(spf) }, maxBuffer: 64 << 20, timeout: 540_000,
     }, (err, stdout) => {
       if (err) return reject(err);
       const line = stdout.split('\n').find((l) => l.startsWith('RESULT '));
@@ -23,11 +24,9 @@ function run(viewer: string, spf: number): Promise<{ fingerprint: string; weldsL
   });
 }
 
-test('a blast plays out identically for a near and a far viewer, at any frame rate', {
-  timeout: 600_000,
-  todo: 'known bug E10: detail LOD / frame slicing still feed the simulation (near and far viewers diverge)',
-}, async () => {
-  const [near, far] = await Promise.all([run('-66.5,1.7,-8', 1), run('-121,1.7,-8', 3)]);
+test('a blast plays out identically for a near and a far viewer, at any frame rate', { timeout: 600_000 }, async () => {
+  const [near, far, none] = await Promise.all([run('-66.5,1.7,-8', 1), run('-121,1.7,-8', 3), run(null, 4)]);
   assert.ok(near.weldsLost > 0, `the blast broke nothing: ${near.line}`);
   assert.equal(far.fingerprint, near.fingerprint, `near ${near.line}\nfar  ${far.line}`);
+  assert.equal(none.fingerprint, near.fingerprint, `near ${near.line}\nheadless ${none.line}`);
 });

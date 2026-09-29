@@ -66,8 +66,8 @@ let moveEv: BodyMoveEvent;
 export let threads = 0;
 
 /* Chance in the simulation draws from seeded streams that restart with each world, so the same shot on the same
-   level replays the same collapse. Each system keeps its own stream: soft bodies step by the viewer's distance, and
-   that must not reshuffle how the structure breaks. */
+   level replays the same collapse. Each system keeps its own stream, so how often one system draws (soft bodies,
+   services) never reshuffles how the structure breaks. */
 const streams: { state: mulberry32.Mulberry32; seed: number }[] = [];
 /** A seeded stream; `at(...)` restarts it from a key (a place, a step), so an event draws the same numbers however many
  * other events were handled before it in the step: the order things are listed or visited in stays out of the result. */
@@ -199,7 +199,7 @@ export function step(h: StepHandlers): void {
     copy3(e.prevPos, e.curPos); copy4(e.prevRot, e.curRot);
     copy3(e.curPos, moveEv.position);
     copy4(e.curRot, moveEv.rotation);
-    if (runaway(e) || (e.kind === 'piece' && e.mass >= GOV_MASS && governed(e))) continue;
+    if (runaway(e) || (e.kind === 'piece' && (e.mass >= GOV_MASS ? governed(e) : overspeed(e)))) continue;
     e.movedStep = stepCount;
     e.onMove?.();
   }
@@ -278,6 +278,14 @@ function inBlast(p: Vec3): boolean {
     if (dx * dx + dy * dy + dz * dz < b.r2) return true;
   }
   return false;
+}
+
+/* A light body (a wheel off a parked bus, a fragment wedged in a joint cluster) past GOV_MAX with no blast about and
+   nothing driving it is the solver spitting it out, not a throw: nothing on a site flings a wheel at 125 m/s. */
+function overspeed(e: PhysEntity): boolean {
+  const dx = e.curPos[0] - e.prevPos[0], dy = e.curPos[1] - e.prevPos[1], dz = e.curPos[2] - e.prevPos[2];
+  if (dx * dx + dy * dy + dz * dz <= (GOV_MAX * FIXED_DT) ** 2 || stepCount - (e.drivenStep ?? -99) < 30 || (blasts.length && inBlast(e.curPos))) return false;
+  return runaway(e, true);
 }
 
 function governed(e: PhysEntity): boolean {

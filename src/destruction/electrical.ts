@@ -7,7 +7,7 @@ import { lighting } from '../render/shared';
 import { live, heat, ignite, damagePiece, explode, type Piece } from './structure';
 import { flammable } from './materials';
 import * as fields from '../sim/fields/index';
-import { svcSurge, svcViewerPos } from './services';
+import { svcSurge } from './services';
 
 const dice = randomStream(0xe1ec7);
 
@@ -195,7 +195,8 @@ export function dirtOf(p: Piece): number {
 
 const weather = { storm: false, rain: 0, next: 0, strikes: 0 };
 
-/** Sandbox storm: rain on the gear (tracking, corona) and a strike every few seconds near the viewer. */
+/** Sandbox storm: rain on the gear (tracking, corona) and a strike every few seconds somewhere over the site (where it
+    lands is the storm's, not the camera's: what a strike breaks must not depend on where the player stands). */
 export function setStorm(on: boolean): void {
   weather.storm = on;
   weather.rain = on ? 0.85 : 0;
@@ -213,12 +214,12 @@ export function stepWeather(dt: number): void {
   weather.next -= dt;
   if (weather.next > 0) return;
   weather.next = 5 + dice() * 15;
-  const v = svcViewerPos;
-  lightningStrike({ at: [v[0], v[1], v[2]], spread: 160 });
+  lightningStrike({ at: [0, 0, 0], spread: 160 });
 }
 
 /* ---------------- lightning ---------------- */
 
+const SITE: Vec3 = [0, 0, 0];
 export const STRIKE_R = 45;            // rolling-sphere radius, m (BS EN 62305 class III)
 const CONDUCT = new Set<MaterialId>(['steel', 'castiron', 'copper', 'metal', 'machine', 'aluminum']);
 const DOWN = new Set<MaterialId>([...CONDUCT, 'rconcrete']);
@@ -251,7 +252,7 @@ function strokeKA(): number {
     into every power network near it. */
 export function lightningStrike(o: { at?: Vec3; spread?: number; kA?: number } = {}): Strike {
   const t0 = performance.now();
-  const at = o.at ?? svcViewerPos, spread = o.spread ?? 60;
+  const at = o.at ?? SITE, spread = o.spread ?? 60;
   const a = dice() * 2 * Math.PI, rr = spread * Math.sqrt(dice());
   const lx = at[0] + Math.cos(a) * rr, lz = at[2] + Math.sin(a) * rr;
   const kA = o.kA ?? strokeKA();

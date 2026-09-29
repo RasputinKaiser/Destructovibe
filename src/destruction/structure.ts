@@ -4,7 +4,7 @@ import type { b3ShapeId, b3JointId } from 'box3d.js';
 import type { Blueprint, MaterialId, PieceSpec, Vec3, Quat } from '../types';
 import {
   b3, world, ground, CAT, ALL, filter, register, unregister, stepCount, overlapAABB, explodeImpulse,
-  entityOfShape, copy3, copy4, step as physicsStep, runawayQueue, randomStream, type PhysEntity, type StepHandlers,
+  entityOfShape, copy3, copy4, step as physicsStep, runawayQueue, randomStream, raycast, type PhysEntity, type StepHandlers,
 } from '../physics/physics';
 import { MATS, pieceHp, flammable, strengthAt, grainShare, charTime, rebarTie, effectiveDensity, autoSectionInertia, REAL_SCALE, type PhysMat } from './materials';
 import * as P from './polytope';
@@ -17,7 +17,7 @@ export { sectionParts, sectionProps, specParts, specDensity } from './compound';
 import {
   initBatches, addPieceGfx, pieceFinish, setPieceTransform, setPieceColor, setPieceHeat, removePieceGfx, clearBatches, setBatchesXray, type PieceGfx,
 } from './batches';
-import { fx } from '../render/fx';
+import { fx, setFxFloor } from '../render/fx';
 import { rebar as rebarGfx } from '../render/rebar';
 import { initRopes, ropes as ropeGfx } from '../render/ropes';
 import { xrayDots, stressColor, thermalColor } from '../render/xray';
@@ -34,7 +34,7 @@ import {
 } from './services';
 import {
   setDetailHost, attachDetail, detachDetail, clearDetail, syncDetail, detailDamage, detailFracture, detailSever, detailCrack, detailHeat,
-  hasDetail, setDetailCamera, detailShatter, detailUnits,
+  hasDetail, setDetailCamera, detailShatter, detailUnits, detailDropOut, detailCarveDeferred,
 } from './detail';
 import { setServiceViewer as svcViewer } from './services';
 import { linkVehicles, stepVehicles, clearVehicles, pieceDamaged } from '../vehicles/vehicle';
@@ -96,6 +96,8 @@ export interface Root {
   demolishedVol: number;
   penalized: boolean;
   density: number;          // kg/m³ the body is built with: spec.density, else the section's real kg/m over the modelled area
+  /** the member this body was carved or released from: what comes down of it counts toward that member too */
+  parent?: Root;
 }
 
 interface Caps { comp: number; ten: number; shear: number; torque: number }
@@ -223,6 +225,10 @@ export interface Part extends PartGeo { shape: b3ShapeId }
 
 export const live = new Set<Piece>();
 const dirty: Piece[] = [];
+/* The pieces the last step moved, in the solver's event order. The simulation walks this, never `dirty` (the
+   renderer's list, drained and reordered once a drawn frame): what the joints see must not depend on the frame rate. */
+const movedNow: Piece[] = [];
+let movedAt = -1;
 const welds = new Map<number, Weld>();
 const rebars = new Map<number, Rebar>();
 const ropeJoints = new Map<number, Rope>();
@@ -261,7 +267,7 @@ let xrayCursor = 0;
 
 export const counters = {
   explosions: 0, fractures: 0, snaps: 0, props: 0, eventSnaps: 0, yields: 0, rebars: 0, spalls: 0, cracks: 0, buckles: 0,
-  slips: 0, fatigue: 0, creepFails: 0, melts: 0, delams: 0, crushes: 0, frozen: 0,
+  slips: 0, fatigue: 0, creepFails: 0, melts: 0, delams: 0, crushes: 0, frozen: 0, hangs: 0, relieved: 0,
 };
 
 export let onExplosion: (pos: Vec3, radius: number) => void = () => {};
@@ -272,6 +278,7 @@ export function setStructureHooks(explosion: typeof onExplosion, protectedHit: t
 }
 
 export function initStructures(s: THREE.Scene): void {
+  setFxFloor((x, y, z) => { const h = raycast([x, y, z], [0, -40, 0], CAT.ground | CAT.structure | CAT.debris); return h ? h.point[1] : 0; });
   initBatches(s);
   initRopes(s);
   initSoftGfx(s);
@@ -415,6 +422,7 @@ function createPiece(o: NewPiece): Piece | null {
     svc: memberFor(o.root.spec, !!o.frag), mechs: null, hinged: false, proxied: 0, debris: !building,
   };
   if (p.debris) debrisCount++;
+  if (o.frag && lateBlasts.length) latePending.push(p);
   p.onMove = () => pieceMoved(p);
   register(p);
   if (fast) bullets.add(p);
@@ -705,6 +713,139 @@ function killWeld(w: Weld, destroyJoint: boolean): void {
   if (!w.a.welds.length) { freeSection(w.a); rubble(w.a); }
   if (destroyJoint && b3.b3Joint_IsValid(w.joint)) b3.b3DestroyJoint(w.joint, true);
   if (!w.b && !w.a.dead) groundLost(w.a);
+  // the member that lost what it stood on: is it left hanging off its sides?
+  if (!building) {
+    weldNormal(w, _hn);
+    if (_hn[1] <= -0.5) queueHang(w.a);
+    else if (_hn[1] >= 0.5 && w.b) queueHang(w.b);
+    // a deck's bearings are its edges, whichever way their joints face
+    if (!w.a.dead && isDeck(w.a)) queueHang(w.a);
+    if (w.b && !w.b.dead && isDeck(w.b)) queueHang(w.b);
+  }
+}
+
+/* A timber floor, ceiling or roof deck: flat, lying level. It bears on its edges (joists in pockets, plates on the
+   walls), so its joints face sideways; what it cannot do is cantilever. */
+const DECK_MATS = new Set<MaterialId>(['wood', 'plywood', 'roof']);
+const _dmn: Vec3 = [0, 0, 0], _dmx: Vec3 = [0, 0, 0], _dax: Vec3 = [0, 0, 0];
+function deckAxes(p: Piece): number {
+  P.bounds(p.poly, _dmn, _dmx);
+  const d = [_dmx[0] - _dmn[0], _dmx[1] - _dmn[1], _dmx[2] - _dmn[2]];
+  const t = d[0] <= d[1] && d[0] <= d[2] ? 0 : d[1] <= d[2] ? 1 : 2;
+  const o = [d[(t + 1) % 3], d[(t + 2) % 3]];
+  if (d[t] > 0.35 || Math.min(o[0], o[1]) < 1.2) return -1;
+  return t;
+}
+function isDeck(p: Piece): boolean {
+  if (!DECK_MATS.has(p.mat) || p.volume < 0.05) return false;
+  const t = deckAxes(p);
+  if (t < 0) return false;
+  vec3.set(_dax, t === 0 ? 1 : 0, t === 1 ? 1 : 0, t === 2 ? 1 : 0);
+  vec3.transformQuat(_dax, _dax, p.curRot);
+  return Math.abs(_dax[1]) > 0.85;
+}
+/* the joints left on a deck hold it up only from both sides of its centre, along one span or the other */
+const _dw: Vec3 = [0, 0, 0], _du: Vec3 = [0, 0, 0];
+function deckHeld(p: Piece): boolean {
+  const t = deckAxes(p);
+  for (const k of [(t + 1) % 3, (t + 2) % 3]) {
+    const half = (_dmx[k] - _dmn[k]) / 2;
+    vec3.set(_du, k === 0 ? 1 : 0, k === 1 ? 1 : 0, k === 2 ? 1 : 0);
+    vec3.transformQuat(_du, _du, p.curRot);
+    let lo = Infinity, hi = -Infinity;
+    for (const w of p.welds) {
+      weldPos(w, _dw);
+      const s = (_dw[0] - p.curPos[0]) * _du[0] + (_dw[1] - p.curPos[1]) * _du[1] + (_dw[2] - p.curPos[2]) * _du[2];
+      lo = Math.min(lo, s); hi = Math.max(hi, s);
+    }
+    if (lo < -0.25 * half && hi > 0.25 * half) return true;
+  }
+  return false;
+}
+
+/* Brickwork, stone and timber stand on what is below them. A member that has lost every connection beneath it and is
+   left held only by its sides or from above (a wall lift over a blown-out storey, a floor whose far bearing went, a
+   window frame over a lost sill) is hanging on mortar in shear and nails in withdrawal: it does not hang for seconds,
+   it shears off and drops. Steel and reinforced members can hang off their connections and are left to them. */
+/* what bears on what is below it: masonry, and timber floors, joists and roofs (glazing, cladding, fittings and
+   steel hang off their fixings by design) */
+const HANG_MATS = new Set<MaterialId>(['brick', 'stone', 'sandstone', 'cinderblock', 'adobe', 'terracotta', 'wood', 'plywood', 'roof']);
+const hangQueue = new Map<Piece, number>();   // piece -> the step to look at it
+const hangLooks = new WeakMap<Piece, number>();
+const HANG_PER_STEP = 24, HANG_RELOOK = 15, HANG_LOOKS = 4;
+const _hn: Vec3 = [0, 0, 0], _hb: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
+function queueHang(p: Piece, at = stepCount): void {
+  if (p.dead || building) return;
+  const due = hangQueue.get(p);
+  if (due === undefined || due > at) hangQueue.set(p, at);
+}
+function checkHanging(): void {
+  let n = 0;
+  for (const [p, due] of hangQueue) {
+    if (due > stepCount) continue;
+    if (++n > HANG_PER_STEP) break;
+    hangQueue.delete(p);
+    if (p.dead || !HANG_MATS.has(p.mat) || p.root.prop || p.mechs || p.ropes.length || p.hinged) continue;
+    // what it stood on may still be falling away when its joints go: look again a few times
+    const looks = (hangLooks.get(p) ?? 0) + 1;
+    hangLooks.set(p, looks);
+    if (looks < HANG_LOOKS && hasDetail(p)) queueHang(p, stepCount + HANG_RELOOK);
+    if (p.welds.length) {
+      let below = false, metal = false;
+      for (const w of p.welds) {
+        if (w.metal) { metal = true; break; }
+        weldNormal(w, _hn);
+        if ((w.a === p ? _hn[1] : -_hn[1]) <= -0.5) { below = true; break; }
+      }
+      if (metal) continue;
+      if (isDeck(p)) below = deckHeld(p);
+      if (!below) {
+        counters.hangs++;
+        for (const w of p.welds.slice()) failWeld(w, 'overload', false);
+      }
+    }
+    if (!p.dead && hasDetail(p) && ARCH_MATS.has(p.mat)) relieve(p);
+  }
+}
+
+/* Masonry over a lost support does not bridge it as a rigid beam: the units over the gap, inside the relieving arch
+   (a half-disc on the gap), fall out, and what is left stands as an arch on the supports either side - or, with too
+   little left to arch, comes down. Supports are whatever lies under the member's bed, found by overlap. */
+const ARCH_MATS = new Set<MaterialId>(['brick', 'stone', 'sandstone', 'cinderblock', 'adobe']);
+const ARCH_GAP = 0.35;
+function relieve(p: Piece): void {
+  b3.b3Body_ComputeAABB(_hb, p.body);
+  const y0 = _hb[1];
+  if (y0 < 0.1) return;
+  b3.b3Body_GetLinearVelocity(_v, p.body);
+  if (vec3.squaredLength(_v) > 0.25) return;
+  const ax = _hb[3] - _hb[0] >= _hb[5] - _hb[2] ? 0 : 2, lo = _hb[ax], hi = _hb[ax + 3];
+  if (hi - lo < 2 * ARCH_GAP) return;
+  const cover: [number, number][] = [];
+  const bb: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
+  overlapAABB([_hb[0] + 0.02, y0 - 0.1, _hb[2] + 0.02], [_hb[3] - 0.02, y0 + 0.06, _hb[5] - 0.02], CAT.structure | CAT.debris | CAT.prop, shape => {
+    const e = entityOfShape(shape);
+    if (!e || e === p || e.kind !== 'piece' || (e as Piece).dead) return;
+    b3.b3Shape_GetAABB(bb, shape);
+    if (bb[4] < y0 - 0.1 || bb[4] > y0 + 0.12) return;
+    const a = Math.max(lo, bb[ax]), b = Math.min(hi, bb[ax + 3]);
+    if (b - a > 0.02) cover.push([a, b]);
+  });
+  if (!cover.length) return;
+  cover.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const gaps: [number, number][] = [];
+  let at = lo;
+  for (const [a, b] of cover) { if (a - at >= ARCH_GAP) gaps.push([at, a]); at = Math.max(at, b); }
+  if (hi - at >= ARCH_GAP) gaps.push([at, hi]);
+  const c: Vec3 = [(_hb[0] + _hb[3]) / 2, y0, (_hb[2] + _hb[5]) / 2];
+  for (const [a, b] of gaps) {
+    // a gap at the member's end is an overhang: what is over it drops, out to the width of the overhang
+    const end = a <= lo + 1e-6 || b >= hi - 1e-6;
+    const r = end ? b - a : (b - a) / 2;
+    c[ax] = end ? (a <= lo + 1e-6 ? a : b) : (a + b) / 2;
+    if (detailDropOut(p, [c[0], c[1], c[2]], Math.min(r, 2.4))) counters.relieved++;
+    if (p.dead) return;
+  }
 }
 
 export function weldPos(w: Weld, out: Vec3): Vec3 {
@@ -1425,11 +1566,16 @@ export function clearStructures(): void {
   quakeT = -1;
   for (const k of Object.keys(counters) as (keyof typeof counters)[]) counters[k] = 0;
   dirty.length = 0;
+  movedNow.length = 0;
+  movedAt = -1;
   welds.clear();
   fractureQueue.length = 0;
   shatterQueue.length = 0;
+  lateBlasts.length = 0;
+  latePending.length = 0;
   fusing.length = 0;
   fading.length = 0;
+  hangQueue.clear();
   frozenList.length = 0;
   roots = [];
   totalVol = 0; totalValueSum = 0; demolishedVol = 0; clock = 0;
@@ -1512,6 +1658,7 @@ export function stats(): { pieces: number; welds: number; ropes: number; queued:
 function credit(root: Root, vol: number, pos: Vec3): void {
   if (vol <= 0 || building || (root.prop && !root.protected)) return;
   root.demolishedVol += vol;
+  for (let r = root.parent; r; r = r.parent) r.demolishedVol += vol;
   if (root.protected) {
     if (!root.penalized) {
       root.penalized = true;
@@ -1539,6 +1686,8 @@ function rubble(p: Piece): void {
 
 function pieceMoved(p: Piece): void {
   if (!p.dirty) { p.dirty = true; dirty.push(p); }
+  if (movedAt !== stepCount) { movedAt = stepCount; movedNow.length = 0; }
+  movedNow.push(p);
   p.sleepT = 0;
   if (p.proxied > 0 && !building) hostMoved(p);
   if (p.demolished || building || p.hinged) return;
@@ -1817,8 +1966,9 @@ function updateYield(): void {
 
 /* Tension and shear aren't Box3D thresholds, so awake joints are checked here against their envelope. */
 function pollJoints(): void {
-  for (const p of dirty) {
-    if (p.movedStep !== stepCount) continue;
+  if (movedAt !== stepCount) return;
+  for (const p of movedNow) {
+    if (p.dead || p.movedStep !== stepCount) continue;
     const dx = p.curPos[0] - p.prevPos[0], dy = p.curPos[1] - p.prevPos[1], dz = p.curPos[2] - p.prevPos[2];
     const moving = dx * dx + dy * dy + dz * dz > MOVING_STEP * MOVING_STEP || Math.abs(quat.dot(p.curRot, p.prevRot)) < MOVING_TURN;
     for (let i = p.welds.length - 1; i >= 0; i--) {
@@ -2337,12 +2487,66 @@ function strainWelds(p: Piece, point: Vec3, radius: number, amount: number): voi
   }
 }
 
+/* A brick or a stone that lands hard breaks across, into a bat and a half with rough faces and a puff of its own grit,
+   instead of vanishing: brick rubble is whole bricks, bats and halves in a bed of crushed mortar and fines. */
+const UNIT_MATS = new Set<MaterialId>(['brick', 'stone', 'sandstone', 'cinderblock', 'terracotta', 'adobe', 'concrete']);
+function snapUnit(p: Piece, point: Vec3): boolean {
+  const pos: Vec3 = [0, 0, 0], rot: Quat = [0, 0, 0, 1], lin: Vec3 = [0, 0, 0], ang: Vec3 = [0, 0, 0];
+  b3.b3Body_GetTransform(pos, rot, p.body);
+  b3.b3Body_GetLinearVelocity(lin, p.body);
+  b3.b3Body_GetAngularVelocity(ang, p.body);
+  const bmin: Vec3 = [0, 0, 0], bmax: Vec3 = [0, 0, 0];
+  P.bounds(p.poly, bmin, bmax);
+  const d: Vec3 = [bmax[0] - bmin[0], bmax[1] - bmin[1], bmax[2] - bmin[2]];
+  const k = d[0] >= d[1] && d[0] >= d[2] ? 0 : d[1] >= d[2] ? 1 : 2;
+  if (d[k] < 0.08) return false;
+  // where it breaks: toward the struck end, a third to a half along (fixed per body, so a replay breaks it the same way)
+  const h = Math.sin(p.id * 78.233) * 43758.5453, u = h - Math.floor(h);
+  const li = toLocal([0, 0, 0], pos, rot, point);
+  const fromLo = li[k] - bmin[k] < bmax[k] - li[k];
+  const f = 0.33 + 0.17 * u, at = fromLo ? bmin[k] + f * d[k] : bmax[k] - f * d[k];
+  const n: Vec3 = [0, 0, 0];
+  n[k] = 1;
+  const nt = tilted(n, 0.5);
+  const c: Vec3 = [(bmin[0] + bmax[0]) / 2, (bmin[1] + bmax[1]) / 2, (bmin[2] + bmax[2]) / 2];
+  c[k] = at;
+  const off = vec3.dot(nt, c);
+  const A = P.clip(p.poly, nt, off - 0.002, -2), B = P.clip(p.poly, [-nt[0], -nt[1], -nt[2]], -(off + 0.002), -2);
+  if (A.faces.length < 4 || B.faces.length < 4 || P.minWidth(A) < 0.02 || P.minWidth(B) < 0.02) return false;
+  if (!p.demolished) credit(p.root, p.volume, p.curPos);
+  destroyPiece(p);
+  counters.fractures++;
+  for (const [poly, sg] of [[A, -1], [B, 1]] as const) {
+    const cc: Vec3 = [0, 0, 0];
+    const vol = P.volumeCentroid(poly, cc);
+    const r: Vec3 = [0, 0, 0], wc: Vec3 = [0, 0, 0];
+    vec3.transformQuat(r, cc, rot);
+    vec3.add(wc, pos, r);
+    const v: Vec3 = [lin[0] + ang[1] * r[2] - ang[2] * r[1], lin[1] + ang[2] * r[0] - ang[0] * r[2], lin[2] + ang[0] * r[1] - ang[1] * r[0]];
+    const nw: Vec3 = [0, 0, 0];
+    vec3.transformQuat(nw, nt, rot);
+    vec3.scaleAndAdd(v, v, nw, sg * 0.35);
+    createPiece({
+      mat: p.mat, tint: p.tint, poly: P.translate(poly, [-cc[0], -cc[1], -cc[2]]), cyl: null,
+      pos: wc, rot: [...rot], lin: v, ang: [ang[0] + sg * 0.8, ang[1], ang[2] - sg * 0.8],
+      uvOrigin: [p.uvOrigin[0] + cc[0], p.uvOrigin[1] + cc[1], p.uvOrigin[2] + cc[2]],
+      depth: Math.min(MAX_DEPTH, p.depth + 1), root: p.root, demolished: true, awake: true, volume: vol,
+      char: p.char, burning: p.burning, temp: p.temp, frag: true,
+    });
+  }
+  fx.dust(point, 0.35, p.pm.dust);
+  fx.debris(point, 6, p.pm.chips, 1.8);
+  fx.fines(point, p.volume * 0.15, p.pm.dust, 0.35);
+  return true;
+}
+
 function pulverize(p: Piece, point: Vec3): void {
   if (!p.demolished) credit(p.root, p.volume, p.curPos);
   p.demolished = true;
   destroyPiece(p);
   fx.debris(point, 10, p.pm.chips, 3);
   fx.dust(point, 0.8, p.pm.dust);
+  if (UNIT_MATS.has(p.mat)) fx.fines(point, p.volume, p.pm.dust, 0.45);
 }
 
 function fracture(p: Piece, point: Vec3, intensity: number, blast: boolean): void {
@@ -2355,6 +2559,8 @@ function fracture(p: Piece, point: Vec3, intensity: number, blast: boolean): voi
   if (detailFracture(p, point, intensity, blast)) return;
   if (p.parts) { splitCompound(p, point, intensity, blast); return; }
   if (p.svc) svcHarm(p, true);
+  // a unit landing hard snaps into a bat and a half while there is room for the bodies (a blast's shattering reduces it)
+  if (p.volume < MIN_FRACTURE_VOL && p.volume > 4e-4 && p.depth < MAX_DEPTH && UNIT_MATS.has(p.mat) && intensity < 4 && debrisCount < BUDGET * 1.1 && snapUnit(p, point)) return;
   if (p.volume < MIN_FRACTURE_VOL || p.depth >= MAX_DEPTH || (debrisCount > BUDGET * 0.85 && p.depth >= 1)) {
     if (p.volume < 0.06) pulverize(p, point);
     else p.damage = p.hp * 0.5;
@@ -2949,6 +3155,45 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
   fields.fieldsBlast(pos, radius, power, bl);
   explodeImpulse(pos, radius, impulse, CAT.player | CAT.projectile);
   pushFree(pos, radius, impulse);
+  lateBlasts.push({ pos: [pos[0], pos[1], pos[2]], radius, impulse, step: stepCount });
+}
+
+/* The wave is past in milliseconds, but much of what it broke only comes free over the next steps (queued fractures,
+   units knocked out of a member, panels breaking up in flight). Each such body still gets the push the wave gives a
+   free body where it is - at least that speed away from the charge - instead of dropping in place at the speed of the
+   member it came out of and propping up whatever stood on it. */
+const LATE_STEPS = 12;
+const lateBlasts: { pos: Vec3; radius: number; impulse: number; step: number }[] = [];
+const latePending: Piece[] = [];
+const _lc: Vec3 = [0, 0, 0], _ld: Vec3 = [0, 0, 0], _lv: Vec3 = [0, 0, 0];
+function lateBlastPush(): void {
+  while (lateBlasts.length && stepCount - lateBlasts[0].step > LATE_STEPS) lateBlasts.shift();
+  if (!latePending.length) return;
+  const list = latePending.splice(0);
+  for (const p of list) {
+    if (p.dead || p.welds.length || p.rebars.length) continue;
+    for (const b of lateBlasts) {
+      b3.b3Body_GetWorldCenterOfMass(_lc, p.body);
+      vec3.sub(_ld, _lc, b.pos);
+      const d = vec3.length(_ld);
+      const k = 1 - d / b.radius;
+      if (k <= 0) continue;
+      if (d > 1e-4) vec3.scale(_ld, _ld, 1 / d); else vec3.set(_ld, 0, 1, 0);
+      _ld[1] += 0.35;
+      vec3.normalize(_ld, _ld);
+      // the speed pushFree gives a free body of this size here
+      const want = Math.min(b.impulse * Math.cbrt(p.volume) ** 2 * k, p.mass * 22) / p.mass;
+      b3.b3Body_GetLinearVelocity(_lv, p.body);
+      const along = vec3.dot(_lv, _ld);
+      if (along >= want) continue;
+      const j = (want - along) * p.mass;
+      b3.b3Body_ApplyLinearImpulseToCenter(p.body, [_ld[0] * j, _ld[1] * j, _ld[2] * j], true);
+      if (want > BULLET_SPEED) makeBullet(p);
+      // a tumble about an axis across the throw (fixed per body, so a replay throws it the same way)
+      const a = j * Math.cbrt(p.volume) * 0.2, h = Math.sin(p.id * 12.9898) * 43758.5453, u = h - Math.floor(h);
+      b3.b3Body_ApplyAngularImpulse(p.body, [(u - 0.5) * a, (0.5 - u) * a * 0.5, ((u * 2) % 1 - 0.5) * a], true);
+    }
+  }
 }
 
 /* ---------------- blast on wall panels ----------------
@@ -2962,7 +3207,7 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
    goes loses every connection, takes the momentum the load left over, and breaks up along its joints in flight. */
 const PANEL_MATS = new Set<MaterialId>(['brick', 'cinderblock', 'stone', 'sandstone', 'adobe', 'plaster', 'concrete']);
 const MAX_PANELS = 40, SHATTER_PER_STEP = 4;
-const shatterQueue: { p: Piece; at: Vec3; step: number; blast: boolean }[] = [];
+const shatterQueue: { p: Piece; at: Vec3; step: number; blast: boolean; kick?: Vec3 }[] = [];
 const _pn: Vec3 = [0, 0, 0], _pu: Vec3 = [0, 0, 0], _pc: Vec3 = [0, 0, 0];
 /** last blast's panel verdicts (harness / tests) */
 export const panelLog: { id: number; mat: MaterialId; P: number; I: number; R: number; I0: number; gas: boolean; failed: boolean; v: number }[] = [];
@@ -3032,13 +3277,14 @@ function blastPanels(bl: Survey, pos: Vec3): void {
       const lin: Vec3 = [0, 0, 0];
       b3.b3Body_GetLinearVelocity(lin, p.body);
       const up = Math.min(vel * 0.25, 3);
-      b3.b3Body_SetLinearVelocity(p.body, [lin[0] + _pn[0] * side * vel, lin[1] + up, lin[2] + _pn[2] * side * vel]);
+      const kick: Vec3 = [_pn[0] * side * vel, up, _pn[2] * side * vel];
+      b3.b3Body_SetLinearVelocity(p.body, [lin[0] + kick[0], lin[1] + kick[1], lin[2] + kick[2]]);
       // it hinges out about its base: the top leads
       const spin = vel / Math.max(1, h);
       b3.b3Body_SetAngularVelocity(p.body, [_pn[2] * side * spin * (chance() - 0.3), (chance() - 0.5) * 0.4, -_pn[0] * side * spin * (chance() - 0.3)]);
       b3.b3Body_SetAwake(p.body, true);
       shattering.add(p);
-      shatterQueue.push({ p, at: [_pc[0], _pc[1], _pc[2]], step: stepCount + 2 + Math.floor(chance() * 6), blast: true });
+      shatterQueue.push({ p, at: [_pc[0], _pc[1], _pc[2]], step: stepCount + 2 + Math.floor(chance() * 6), blast: true, kick });
     } else {
       // cracked bed joints: what is left stands on weakened mortar
       const k = Math.min(ld.I / I0, ld.P / Math.max(R, 1));
@@ -3053,8 +3299,12 @@ function blastPanels(bl: Survey, pos: Vec3): void {
    bigger than a few units comes apart where it lands, into clumps, and a clump into its bricks. */
 const LAND_J_PER_KG = 3;
 const shattering = new WeakSet<Piece>();
+/* a slate or tile roof slab lands as slates, battens and rafters, a timber floor as its boards and joists (nailed
+   timber takes a harder landing than a mortar joint to come apart) */
+const BREAKUP_MATS = new Set<MaterialId>([...PANEL_MATS, 'roof', 'terracotta', 'wood', 'plywood']);
+const landJ = (p: Piece): number => (p.mat === 'wood' || p.mat === 'plywood' ? 12 : LAND_J_PER_KG) * p.mass;
 function landing(p: Piece, at: Vec3, e: number): void {
-  if (p.dead || p.welds.length || shattering.has(p) || !PANEL_MATS.has(p.mat) || e < LAND_J_PER_KG * p.mass || detailUnits(p) < 6) return;
+  if (p.dead || p.welds.length || shattering.has(p) || !BREAKUP_MATS.has(p.mat) || e < landJ(p) || detailUnits(p) < 6) return;
   if (clock - p.born < 0.15) return;
   shattering.add(p);
   shatterQueue.push({ p, at: [at[0], at[1], at[2]], step: stepCount, blast: false });
@@ -3086,7 +3336,7 @@ function processShatter(): void {
     if (e.step > stepCount) { i++; continue; }
     shatterQueue.splice(i, 1);
     n++;
-    if (hasDetail(e.p)) { if (detailShatter(e.p, e.at) || !e.blast) continue; }
+    if (hasDetail(e.p)) { if (detailShatter(e.p, e.at, e.kick) || !e.blast) continue; }
     if (e.blast && !e.p.dead && !e.p.queued) damagePiece(e.p, e.p.curPos, e.p.hp * 2.5, true);
   }
 }
@@ -3315,6 +3565,7 @@ export function afterStep(dt: number): void {
     if (p.mechs) for (const m of p.mechs.slice()) killMech(m, true);
   }
   checkTies();
+  if (hangQueue.size) checkHanging();
   if (bearings.size && stepCount % 10 === 3) checkBearings();
   if (settling.length && stepCount % 15 === 5) watchSettling();
   groanT -= dt;
@@ -3324,6 +3575,8 @@ export function afterStep(dt: number): void {
   if (stepCount % YIELD_EVERY === 1) updateYield();
   processFractures(FRACTURE_PER_STEP);
   if (shatterQueue.length) processShatter();
+  detailCarveDeferred();
+  lateBlastPush();
   stepAnalysis(ANALYSIS_WORK);
   /* Only overstressed paths are revisited each step; a snapped column redistributes weight
      to surviving connections and can start a cascade even when the solver island is asleep.
@@ -3361,17 +3614,23 @@ export function afterStep(dt: number): void {
     }
   }
   stepSoft(dt);
+  housekeeping(dt);
 }
 
-export function maintain(dt: number): void {
+/** Once a drawn frame: the shrinking pieces' transforms. Everything that changes the simulation (fades ending, rubble
+    set in place, fallen walls breaking up) runs on the step clock in afterStep, so the frame rate, slow motion or a
+    render budget can never change what happens. */
+export function maintain(_dt: number): void {
+  for (const p of fading) if (!p.dead && !p.dirty) setPieceTransform(p.gfx, p.curPos, p.curRot, fadeScale(p));
+}
+
+function housekeeping(dt: number): void {
   for (let i = fading.length - 1; i >= 0; i--) {
     const p = fading[i];
     p.fade -= dt;
     if (p.fade <= 0 || p.dead) {
       fading.splice(i, 1);
       destroyPiece(p);
-    } else if (!p.dirty) {
-      setPieceTransform(p.gfx, p.curPos, p.curRot, fadeScale(p));
     }
   }
   maintainT -= dt;
@@ -3384,7 +3643,8 @@ export function maintain(dt: number): void {
   const doomed: Piece[] = [];
   for (const p of live) {
     if (p.curPos[1] < -15) { if (!p.demolished) markDemolished(p); doomed.push(p); continue; }
-    if (p.depth === 0 && !p.welds.length && p.demolished && !shattering.has(p) && PANEL_MATS.has(p.mat)) fallen(p);
+    if (p.depth === 0 && !p.welds.length && p.demolished && !shattering.has(p) && BREAKUP_MATS.has(p.mat)) fallen(p);
+    if (p.welds.length && p.demolished && !p.dead) looseCluster(p);
     if (p.fade > 0 || !p.demolished || p.depth === 0 || p.rebars.length || frozenSet.has(p)) continue;
     if (p.movedStep < stepCount - 2) p.sleepT += 0.5;
     if (p.volume < 0.012 && p.sleepT > 30) { if (canFreeze(p) && onRubble(p)) freezeRubble(p); else startFade(p); }
@@ -3404,6 +3664,30 @@ export function maintain(dt: number): void {
     excess = debrisCount - Math.floor(BUDGET * 1.25);
     for (let i = 0; i < cands.length && excess > 0; i++) if (!cands[i].still && cands[i].p.fade <= 0) { startFade(cands[i].p); excess--; }
   }
+}
+
+/* Members that came down still joined to each other (a door frame on its lump of wall, two lifts of a pier) and lie
+   free of everything standing are rubble: the joints between them hold nothing up any more, and a light member
+   jointed to a heavy one rocks on the heap for as long as the solver runs, keeping the whole pile awake. Once the
+   cluster has slowed, its joints go and each piece settles on its own. */
+const LOOSE_MAX = 8;
+const _lcv: Vec3 = [0, 0, 0];
+function looseCluster(p: Piece): void {
+  const seen = new Set<Piece>([p]), stack = [p];
+  while (stack.length) {
+    const q = stack.pop()!;
+    if (q.rebars.length || q.ropes.length || q.mechs || q.hinged) return;
+    for (const w of q.welds) {
+      if (!w.b) return;
+      const o = w.a === q ? w.b : w.a;
+      if (seen.has(o)) continue;
+      if (!o.demolished || o.dead || seen.size >= LOOSE_MAX) return;
+      seen.add(o); stack.push(o);
+    }
+  }
+  for (const q of seen) { b3.b3Body_GetLinearVelocity(_lcv, q.body); if (vec3.squaredLength(_lcv) > 1) return; }
+  for (const q of seen) for (const w of q.welds.slice()) killWeld(w, true);
+  for (const q of seen) rubble(q);
 }
 
 /* Settled rubble: a static body where it came to rest, still drawn and still solid underfoot, but no longer solved
@@ -4143,7 +4427,7 @@ function updateWind(dt: number): void {
   const gust = 0.65 + 0.35 * Math.sin(windT * 0.7) * Math.sin(windT * 1.9 + 1.3);
   const speed = windStrength * 38 * gust;
   vec3.set(_wind, speed * 0.92, 0, speed * 0.38);
-  for (const p of dirty) if (!p.dead && p.movedStep === stepCount) {
+  if (movedAt === stepCount) for (const p of movedNow) if (!p.dead && p.movedStep === stepCount) {
     if (p.parts) for (const q of p.parts) b3.b3Shape_ApplyWind(q.shape, _wind, 1, 0.25, 60, false);
     else b3.b3Shape_ApplyWind(p.shape, _wind, 1, 0.25, 60, false);
   }

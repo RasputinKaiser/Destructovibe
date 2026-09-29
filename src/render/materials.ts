@@ -115,6 +115,20 @@ const HEAT_EMIT = /* glsl */`
 #ifdef USE_COLOR_ALPHA
   if ( vColor.a > 1.001 ) totalEmissiveRadiance += dvBlackbody( vColor.a - 1.0 );
 #endif`;
+/* Burning timber is not lit from inside: the surface chars black and the glow sits in the checks and cracks of the
+   char (alligatoring), brightest where the char has split, with a faint bloom over the rest. */
+const EMBER_EMIT = /* glsl */`
+#ifdef USE_COLOR_ALPHA
+  if ( vColor.a > 1.001 ) {
+    float dvH = vColor.a - 1.0;
+    vec2 dvC = vDvW.xz * 1.7 + vec2( vDvW.y * 2.3, - vDvW.y * 1.1 );
+    float dvK = texture2D( uDvNoise, dvC * 0.21 ).r * 0.55 + texture2D( uDvNoise, dvC * 0.57 + 0.37 ).g * 0.45;
+    float dvCrack = smoothstep( 0.56, 0.7, dvK ) * ( 1.0 - smoothstep( 0.78, 0.9, dvK ) * 0.5 );
+    diffuseColor.rgb *= 1.0 - 0.8 * smoothstep( 0.03, 0.35, dvH );
+    totalEmissiveRadiance += dvBlackbody( dvH ) * ( 0.08 + 1.25 * dvCrack );
+  }
+#endif`;
+const EMBER_MATS = new Set<MaterialId>(['wood', 'plywood', 'cardboard']);
 
 /* Lamps: the heat channel is the lamp's power (0..1) and the instance tint is the light colour. The
    unlit glass only takes a hint of the tint so a dead fitting reads as dark glass, and the wire guard
@@ -215,9 +229,9 @@ let dvNoise: THREE.DataTexture | null = null;
 const sharedNoise = (): THREE.DataTexture => (dvNoise ??= noiseTex());
 
 /** shared by every piece material: per-instance heat glow, plus object-space label UVs for props */
-function patchPiece(m: THREE.MeshStandardMaterial, kind?: 'cyl' | 'box', shade?: Shade, detail?: 'ext' | 'int'): void {
+function patchPiece(m: THREE.MeshStandardMaterial, kind?: 'cyl' | 'box', shade?: Shade, detail?: 'ext' | 'int', ember = false): void {
   const rgb = shade === 'lamp' ? LAMP_RGB : shade === 'machine' ? '' : COLOR_RGB;
-  const emit = shade === 'lamp' ? LAMP_EMIT : shade === 'machine' ? `${MACHINE_RGB}\n${HEAT_EMIT}` : HEAT_EMIT;
+  const emit = shade === 'lamp' ? LAMP_EMIT : shade === 'machine' ? `${MACHINE_RGB}\n${HEAT_EMIT}` : ember && detail ? EMBER_EMIT : HEAT_EMIT;
   m.onBeforeCompile = (sh) => {
     if (kind) sh.vertexShader = sh.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>\n${kind === 'cyl' ? CYL_UV : BOX_UV}\n${DECAL_APPLY}`);
     let pre = '', post = '';
@@ -237,7 +251,7 @@ function patchPiece(m: THREE.MeshStandardMaterial, kind?: 'cyl' | 'box', shade?:
       .replace('#include <color_fragment>', `${pre}\n${rgb}\n${post}`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${emit}`);
   };
-  m.customProgramCacheKey = () => `dv-piece-${kind ?? 'plain'}-${shade ?? 'std'}-${detail ?? 'none'}`;
+  m.customProgramCacheKey = () => `dv-piece-${kind ?? 'plain'}-${shade ?? 'std'}-${detail ?? 'none'}${ember && detail ? '-ember' : ''}`;
 }
 
 const _white = new THREE.Color(1, 1, 1);
@@ -407,7 +421,7 @@ function interior(mat: MaterialId): THREE.Material {
     if (mat === 'glass' || mat === 'tempered') m = glass(undefined, true, mat === 'tempered');
     else {
       const s = SPEC[mat], im = pbr(texSet(s.int), s.intMetal);
-      patchPiece(im, undefined, s.shade === 'lamp' ? 'lamp' : undefined, s.shade === 'lamp' ? undefined : 'int');
+      patchPiece(im, undefined, s.shade === 'lamp' ? 'lamp' : undefined, s.shade === 'lamp' ? undefined : 'int', EMBER_MATS.has(mat));
       m = im;
     }
     interiors.set(mat, m);
@@ -427,7 +441,7 @@ export function getPieceMaterials(mat: MaterialId, tint?: number): Pair {
     const m = pbr(texSet(s.ext), s.metal, s.normal ?? 1);
     if (tint !== undefined) m.color.setHex(tint);
     if (s.shade === 'lamp') m.envMapIntensity = 1.4;
-    patchPiece(m, s.decal, s.shade, s.shade === 'lamp' ? undefined : 'ext');
+    patchPiece(m, s.decal, s.shade, s.shade === 'lamp' ? undefined : 'ext', EMBER_MATS.has(mat));
     ext = m;
   }
   p = [ext, interior(mat)] as const;
@@ -605,7 +619,7 @@ function patchFinish(m: THREE.MeshStandardMaterial, f: SurfaceFinish): void {
       .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>\n${FIN_RM}`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${FIN_NORMAL}`)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n${FIN_COAT}`)
-      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${HEAT_EMIT}`);
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${f === 'joinery' ? EMBER_EMIT : HEAT_EMIT}`);
   };
   m.customProgramCacheKey = () => `dv-finish-${f}`;
 }

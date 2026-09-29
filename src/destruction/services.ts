@@ -835,6 +835,13 @@ export function servicesStep(dt: number): void {
 
 /** Accumulated per-step machine update time (debug overlay, benchmarks). */
 export const mechCost = { ms: 0, steps: 0 };
+/** every machine axis, for harnesses: where it is, what drives it and what it is doing */
+export function mechSummary(): { id: number; group: string | undefined; pos: Vec3; drive: string | null; cyc: boolean; couple: boolean; near: boolean; running: boolean; active: boolean; spin: boolean; awake: boolean }[] {
+  return [...mechs.values()].filter((m) => m.alive).map((m) => ({
+    id: m.part.id, group: m.part.root.spec.group, pos: [m.part.curPos[0], m.part.curPos[1], m.part.curPos[2]], drive: m.drive?.kind ?? null, cyc: !!m.cyc,
+    couple: !!m.couple, near: m.near, running: m.running, active: m.active, spin: !!m.spin, awake: !m.part.dead && b3.b3Body_IsAwake(m.part.body),
+  }));
+}
 
 function tick(): void {
   for (const s of sources) {
@@ -1355,7 +1362,8 @@ function updateBreaks(): void {
   for (const k of ['power', 'gas', 'water', 'steam'] as const) {
     const list = byKind[k];
     if (list.length > MAX_ACTIVE) {
-      list.sort((a, b) => vec3.squaredDistance(a.p.curPos, viewer) - vec3.squaredDistance(b.p.curPos, viewer));
+      // the biggest flows, not the ones nearest the viewer: what the fields and fires get cannot depend on the camera
+      list.sort((a, b) => b.q - a.q || b.size - a.size || a.p.id - b.p.id);
       list.length = MAX_ACTIVE;
     }
     activeCount[k] = list.length;
@@ -2287,10 +2295,10 @@ function idleSpeed(m: Mech): number {
   return vec3.dot(_v, m.axis);
 }
 
-/* Machines work inside WORK_IN m of the viewer (or while an operator has them) and stand down past WORK_OUT: the drive
-   stops and the part sleeps with its load held on the valve or brake. A rotor out there keeps turning on screen only
-   (Spin). A part whose body something wakes is handed back to the solver where it is drawn. */
-const WORK_IN = 40, WORK_OUT = 48;
+/* A machine is worked by the solver while an operator has it (or its driver is worked): otherwise its drive stands
+   down and the part sleeps with its load held on the valve or brake, and a free rotor keeps turning on screen only
+   (Spin). Where the player stands never decides it: a machine run for real near the viewer and parked far off would
+   meet the same blast differently. A part whose body something wakes is handed back to the solver. */
 const spinning: Mech[] = [];
 function updateMechs(): void {
   running = 0;
@@ -2299,8 +2307,7 @@ function updateMechs(): void {
   for (const m of mechs.values()) {
     if (!m.alive) continue;
     const d = m.drive;
-    const r = m.near ? WORK_OUT : WORK_IN;
-    const near = m.cmd !== undefined || (m.couple ? m.couple.driver.near : vec3.squaredDistance(m.part.curPos, viewer) < r * r);
+    const near = m.cmd !== undefined || (!!m.couple && m.couple.driver.near);
     m.near = near;
     // a car hung on its rope, an axis whose brake is released by its own lead: once that is gone nothing holds it
     if (m.roped && !m.brakesFailed && !m.part.ropes.some((r) => r.alive && holds(m.part, r))) m.brakesFailed = true;

@@ -168,15 +168,17 @@ void main() {
   float r2 = dot( vQ, vQ );
   if ( r2 >= 1.0 ) discard;
   vec4 tx = texture2D( uTex, vUv );
-  float dens = tx.r;
+  // thin, ragged margins and a less even core: dust is a haze with structure, not a ball of wool
+  float dens = tx.r * mix( 0.7, 1.15, tx.g ) * ( 1.0 - 0.45 * smoothstep( 0.35, 1.0, r2 ) );
   float ground = smoothstep( 0.0, 0.35, vY );
   float soft = 1.0;
   if ( uSoft > 0.5 ) soft = clamp( ( texture2D( uDepth, gl_FragCoord.xy / uRes ).r - vViewZ ) / vSoftR, 0.0, 1.0 );
   float a = clamp( dens * vCol.a, 0.0, 1.0 ) * ground * soft;
   vec3 emit = vEmit * dens * ground * soft;
   if ( a < 0.002 && dot( emit, emit ) < 1e-6 ) discard;
-  vec3 n = normalize( vec3( vQ, sqrt( 1.0 - r2 ) + 0.3 ) );
-  float wrap = clamp( dot( n, vSunV ) * 0.55 + 0.45, 0.0, 1.0 );
+  // a flattened normal: the puff is lit as a patch of a larger cloud, not shaded as a sphere
+  vec3 n = normalize( vec3( vQ * 0.45, sqrt( 1.0 - r2 ) + 0.9 ) );
+  float wrap = clamp( dot( n, vSunV ) * 0.45 + 0.55, 0.0, 1.0 );
   // forward scatter with the sun behind the puff is strongest through thin edges (the silver lining)
   float fwd = pow( max( -vSunV.z, 0.0 ), 4.0 ) * ( 1.15 - dens );
   vec3 amb = mix( uAmbBot, uAmbTop, n.y * 0.5 + 0.5 ) * mix( 0.45, 1.0, vOcc );
@@ -425,7 +427,11 @@ function fxMaterial(uniforms: Record<string, THREE.IUniform>, vs: string, fs: st
 
 /* ---------------- CPU chips ---------------- */
 
-const CS = 16; // px py pz vx vy vz qx qy qz qw wx wy wz scale age life
+const CS = 17; // px py pz vx vy vz qx qy qz qw wx wy wz scale age life floor
+
+/* the height of whatever lies under a point (set by the structure layer; a render query, it changes nothing) */
+let floorAt: (x: number, y: number, z: number) => number = () => 0;
+export function setFxFloor(f: (x: number, y: number, z: number) => number): void { floorAt = f; }
 
 class Chips {
   readonly mesh: THREE.InstancedMesh;
@@ -450,7 +456,7 @@ class Chips {
     this.mesh.frustumCulled = false;
     this.mesh.receiveShadow = true;
   }
-  spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number, scale: number, life: number, c: THREE.Color): void {
+  spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number, scale: number, life: number, c: THREE.Color, floor = 0): void {
     const i = this.n < this.cap ? this.n++ : Math.floor(rng() * this.cap);
     const s = this.s, o = i * CS;
     s[o] = x; s[o + 1] = y; s[o + 2] = z;
@@ -460,7 +466,7 @@ class Chips {
     qx *= ql; qy *= ql; qz *= ql; qw *= ql;
     s[o + 6] = qx; s[o + 7] = qy; s[o + 8] = qz; s[o + 9] = qw;
     s[o + 10] = rf(-14, 14); s[o + 11] = rf(-14, 14); s[o + 12] = rf(-14, 14);
-    s[o + 13] = scale; s[o + 14] = 0; s[o + 15] = life;
+    s[o + 13] = scale; s[o + 14] = 0; s[o + 15] = life; s[o + 16] = floor;
     this.settled[i] = 0;
     const k = rf(0.85, 1.12);
     this.col[i * 3] = c.r * k; this.col[i * 3 + 1] = c.g * k; this.col[i * 3 + 2] = c.b * k;
@@ -481,7 +487,7 @@ class Chips {
         let vx = s[o + 3] * damp, vy = (s[o + 4] - 9.81 * dt) * damp, vz = s[o + 5] * damp;
         let px = s[o] + vx * dt, py = s[o + 1] + vy * dt, pz = s[o + 2] + vz * dt;
         let wx = s[o + 10], wy = s[o + 11], wz = s[o + 12];
-        const floor = sc * this.rest;
+        const floor = s[o + 16] + sc * this.rest;
         if (py < floor) {
           py = floor;
           if (vy < 0) {
@@ -591,7 +597,7 @@ let puffLoad = 0;
 let puffs: Ring, dustR: Ring, sparksR: Ring, scorches: Ring, rings: Ring;
 let dustAlive = 0;
 let puffU: Record<string, THREE.IUniform>, sparkU: Record<string, THREE.IUniform>, scorchU: Record<string, THREE.IUniform>, ringU: Record<string, THREE.IUniform>;
-let chips: Chips, splinterChips: Chips, shardChips: Chips, diceChips: Chips;
+let chips: Chips, splinterChips: Chips, shardChips: Chips, diceChips: Chips, fineChips: Chips;
 
 interface Flash { light: THREE.PointLight; t: number; dur: number; peak: number; prio: number; owner: number }
 const flashes: Flash[] = [];
@@ -910,7 +916,7 @@ function spawnBillow(c: Cloud, R: number, life: number): void {
     P.rise = rf(0.2, 0.6); P.accel = -0.003; P.s0 = ps * rf(0.5, 0.8); P.s1 = ps * rf(1.6, 2.6);
   }
   const k = rf(0.86, 1.08);
-  _cc.setRGB(c.r, c.g, c.b).lerp(_cg, 0.25);
+  _cc.setRGB(c.r, c.g, c.b).lerp(_cg, 0.45);
   P.r = _cc.r * k; P.g = _cc.g * k; P.b = _cc.b * k;
   P.life = life * rf(0.55, 1); P.a = rf(0.5, 0.68); P.fadeIn = rf(0.8, 2.2);
   P.wind = rf(0.8, 1.1); P.spin = rf(-0.12, 0.12); P.curl = rf(0.35, 0.6);
@@ -1072,6 +1078,9 @@ export function initFx(scene: THREE.Scene, camera: THREE.Camera): void {
   splinterChips = new Chips(splinterGeometry(), new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0, flatShading: true }), 650, 0.06);
   shardChips = new Chips(shardGeometry(), new THREE.MeshStandardMaterial({ roughness: 0.07, metalness: 0.4, envMapIntensity: 2.4, flatShading: true }), 450, 0.03);
   diceChips = new Chips(new THREE.BoxGeometry(1, 0.8, 0.9), new THREE.MeshStandardMaterial({ roughness: 0.06, metalness: 0.5, envMapIntensity: 2.6, flatShading: true }), 1000, 0.4);
+  // crushed mortar, brick and stone grit that stays where rubble lands (render only: it costs the solver nothing)
+  fineChips = new Chips(chipGeometry(), new THREE.MeshStandardMaterial({ roughness: 0.97, metalness: 0, flatShading: true }), 7000, 0.25);
+  fineChips.mesh.castShadow = false;
 
   for (let i = 0; i < 3; i++) {
     const light = new THREE.PointLight(0xffa050, 0, 20, 2);
@@ -1081,7 +1090,7 @@ export function initFx(scene: THREE.Scene, camera: THREE.Camera): void {
   }
   for (const m of [dustMesh, puffMesh]) m.layers.set(FX_SOFT_LAYER);
   for (const m of [sparkMesh, ringMesh]) m.layers.set(FX_LAYER);
-  root.add(scorchMesh, chips.mesh, splinterChips.mesh, shardChips.mesh, diceChips.mesh, ringMesh, dustMesh, puffMesh, sparkMesh);
+  root.add(scorchMesh, chips.mesh, splinterChips.mesh, shardChips.mesh, diceChips.mesh, fineChips.mesh, ringMesh, dustMesh, puffMesh, sparkMesh);
   scene.add(root);
   ready = true;
   applyLighting();
@@ -1110,19 +1119,20 @@ export const fx = {
       const sp = R * rf(1.4, 3.2);
       pAt(x + _v.x * R * 0.25, y + _v.y * R * 0.2, z + _v.z * R * 0.25);
       P.vx = _v.x * sp; P.vy = _v.y * sp; P.vz = _v.z * sp; P.drag = 3.5;
-      P.life = rf(0.9, 1.9); P.s0 = R * 0.35; P.s1 = R * rf(0.9, 1.3) * grow;
-      pColor(0x2e2924, rf(0.8, 1.2)); P.a = 0.9; P.heat = rf(9, 14); P.heatDur = rf(0.2, 0.45);
+      P.life = rf(0.7, 1.3); P.s0 = R * 0.35; P.s1 = R * rf(0.9, 1.3) * grow;
+      pColor(0x3a342d, rf(0.8, 1.2)); P.a = 0.8; P.heat = rf(9, 14); P.heatDur = rf(0.2, 0.45);
       P.rise = 1.5; P.accel = 0.4; P.wind = 0.3; P.fadeIn = 0.02; P.spin = rf(-1.5, 1.5);
       emit();
     }
     const ns = Math.round((8 + R * 2) * b);
     for (let i = 0; i < ns; i++) {
       const f = i / ns;
-      pAt(x + rf(-0.4, 0.4) * R, y + R * (0.3 + f * 0.6), z + rf(-0.4, 0.4) * R);
-      P.delay = f * 0.8; P.vx = rf(-1, 1); P.vy = rf(2, 4); P.vz = rf(-1, 1); P.drag = 0.8;
-      P.rise = 1.1 + R * 0.15; P.accel = -0.02; P.life = rf(6, 11); P.s0 = R * 0.5; P.s1 = R * rf(1.8, 2.6) * grow;
-      // the column is mostly lofted dust and pulverised mortar, grey-tan; only the fireball's own soot is dark
-      pColor(0x7a7064, rf(0.8, 1.12)); P.a = 0.5; P.heat = 2; P.heatDur = 0.3; P.fadeIn = 0.35; P.curl = 0.25;
+      pAt(x + rf(-0.6, 0.6) * R, y + R * (0.3 + f * 0.6), z + rf(-0.6, 0.6) * R);
+      P.delay = f * 0.8; P.vx = rf(-1.4, 1.4); P.vy = rf(1.5, 3.2); P.vz = rf(-1.4, 1.4); P.drag = 0.8;
+      P.rise = 0.7 + R * 0.1; P.accel = -0.02; P.life = rf(5, 9); P.s0 = R * 0.5; P.s1 = R * rf(2.0, 2.9) * grow;
+      // the column is mostly lofted dust and pulverised mortar, grey-tan and thinning as it spreads, not a dark ball
+      // floating off: only the fireball's own soot is dark
+      pColor(0x9b9283, rf(0.85, 1.1)); P.a = 0.34; P.heat = 2; P.heatDur = 0.3; P.fadeIn = 0.35; P.curl = 0.4;
       emit();
     }
     // debris-laden ejecta: dark, fast, narrow, falling back under drag
@@ -1196,7 +1206,9 @@ export const fx = {
       P.vx = rf(-0.6, 0.6); P.vy = rf(0.2, 0.6); P.vz = rf(-0.6, 0.6); P.drag = 1.2;
       P.rise = rf(0.15, 0.35); P.life = rf(4, 6) + sz * rf(0.3, 0.6);
       P.s0 = sz * rf(0.35, 0.6); P.s1 = sz * rf(1.0, 1.7) * grow;
-      pColor(color, rf(0.9, 1.06)); P.a = clamp(0.62 - sz * 0.03, 0.35, 0.58); P.fadeIn = rf(0.15, 0.4); P.delay = (i / n) * 0.25; P.curl = 0.2;
+      // what hangs in the air reads grey-tan whatever it came off: the fine fraction is mostly mortar and grit
+      _cc.setHex(color).lerp(_cg, 0.35); const k = rf(0.9, 1.06); P.r = _cc.r * k; P.g = _cc.g * k; P.b = _cc.b * k;
+      P.a = clamp(0.5 - sz * 0.03, 0.28, 0.46); P.fadeIn = rf(0.25, 0.6); P.delay = (i / n) * 0.35; P.curl = 0.35;
       emit();
     }
     feedCloud(pos[0], pos[1], pos[2], sz * sz * sz * 0.5, color);
@@ -1223,6 +1235,23 @@ export const fx = {
       const sp = speed * rf(0.4, 1.2), sc = rf(0.02, 0.05) + rng() * rng() * 0.08;
       chips.spawn(pos[0], pos[1], pos[2], _v.x * sp, _v.y * sp, _v.z * sp, sc, rf(5, 7), _c);
     }
+  },
+
+  /** Fines where masonry lands or breaks: crushed mortar, grit and brick crumbs (a few cm) settle over `radius` m round
+   *  the point at its height and stay there, with a dusting on the ground round it. `vol` is the m³ that broke up. */
+  fines(pos: Vec3, vol: number, color: number, radius = 0.6): void {
+    if (!ready || !(vol > 0)) return;
+    // they come to rest on whatever is under the point: the heap, a floor, the ground
+    const floor = Math.max(0, Math.min(pos[1] - 0.05, floorAt(pos[0], pos[1] + 0.1, pos[2])));
+    const n = clamp(Math.round(Math.cbrt(vol) * 60), 3, 40);
+    const base = _c.setHex(color).lerp(_mortar, 0.45);
+    for (let i = 0; i < n; i++) {
+      const a = rf(0, 6.283), r = radius * Math.sqrt(rng());
+      const sc = 0.012 + rng() * rng() * 0.07;
+      _cc.copy(base).multiplyScalar(rf(0.78, 1.1));
+      fineChips.spawn(pos[0] + Math.cos(a) * r, pos[1] + rf(0.05, 0.3), pos[2] + Math.sin(a) * r, rf(-0.4, 0.4), rf(0, 0.8), rf(-0.4, 0.4), sc, rf(150, 240), _cc, floor);
+    }
+    splatCover(pos[0], pos[2], radius * 1.6 + Math.cbrt(vol), clamp(0.05 + vol * 0.4, 0.05, 0.3), base.r, base.g, base.b);
   },
 
   sparks(pos: Vec3, normal: Vec3, count: number): void {
@@ -1455,7 +1484,8 @@ export const fx = {
     if (rng() < 0.35 * b) {
       pAt(pos[0] + rf(-0.2, 0.2) * sz, pos[1] + sz * 0.7, pos[2] + rf(-0.2, 0.2) * sz);
       P.vx = rf(-0.3, 0.3); P.vy = rf(1, 1.8); P.vz = rf(-0.3, 0.3); P.drag = 0.6; P.rise = 0.9;
-      P.life = rf(3, 5.5); P.s0 = sz * 0.5; P.s1 = sz * rf(2, 3); pColor(0x1a1612, rf(0.8, 1.2)); P.a = 0.42;
+      // timber burning in the open smokes grey-brown; soot-black is a fuel-rich fire's, not a building's
+      P.life = rf(3, 5.5); P.s0 = sz * 0.5; P.s1 = sz * rf(2.2, 3.2); pColor(0x4a4440, rf(0.85, 1.15)); P.a = 0.3;
       P.wind = 1.2; P.fadeIn = 0.4; P.heat = 1.2; P.heatDur = 0.3;
       emit();
     }
@@ -1738,8 +1768,9 @@ export const fx = {
       const f = i / np;
       pAt(x + rf(-0.3, 0.3) * R, y + R * (0.2 + f * 0.8), z + rf(-0.3, 0.3) * R);
       P.delay = f * 0.9; P.vx = rf(-0.6, 0.6); P.vy = rf(1.5, 3); P.vz = rf(-0.6, 0.6); P.drag = 0.8;
-      P.life = rf(5, 9); P.s0 = R * 0.4; P.s1 = R * rf(1.5, 2.2) * grow; P.rise = 1.2; P.accel = 0.05;
-      pColor(0x2a2a2c, rf(0.8, 1.2)); P.a = 0.6; P.heat = f < 0.3 ? 3 : 0; P.heatDur = 0.4; P.fadeIn = 0.2; P.wind = 1;
+      // burnt insulation and vaporised copper: a brief grey puff that thins as it rises, not a standing black column
+      P.life = rf(2.5, 4.5); P.s0 = R * 0.4; P.s1 = R * rf(1.8, 2.6) * grow; P.rise = 1.2; P.accel = 0.05;
+      pColor(0x55524e, rf(0.85, 1.15)); P.a = 0.35; P.heat = f < 0.3 ? 3 : 0; P.heatDur = 0.4; P.fadeIn = 0.2; P.wind = 1;
       emit();
     }
     const e = claim(arcs);
@@ -1842,7 +1873,8 @@ export const fx = {
     if (rng() < 0.5 * b) {
       pAt(x + dx * 1.4 * sz, y + dy * 1.4 * sz + 0.3 * sz, z + dz * 1.4 * sz);
       P.vx = dx * 1.5; P.vy = dy * 1.5 + 1; P.vz = dz * 1.5; P.drag = 0.8; P.rise = 0.9;
-      P.life = rf(2, 4); P.s0 = 0.3 * sz; P.s1 = rf(1.2, 1.8) * sz; pColor(0x1c1814, rf(0.8, 1.2)); P.a = 0.3;
+      // natural gas burns clean: a thin haze over the jet, not a smoke column
+      P.life = rf(2, 4); P.s0 = 0.3 * sz; P.s1 = rf(1.4, 2) * sz; pColor(0x5c5751, rf(0.85, 1.15)); P.a = 0.14;
       P.wind = 1.2; P.fadeIn = 0.3; P.heat = 1.5; P.heatDur = 0.3;
       emit();
     }
@@ -1923,6 +1955,7 @@ export const fx = {
     splinterChips.update(dt);
     shardChips.update(dt);
     diceChips.update(dt);
+    fineChips.update(dt);
     puffU.uTime.value = clock;
     sparkU.uTime.value = clock;
     sparkU.uAspect.value = view.width / Math.max(1, view.height);
@@ -1949,7 +1982,7 @@ export const fx = {
     coverage.data.fill(0);
     coverage.tex.needsUpdate = true;
     coverage.dirty = false;
-    chips.clear(); splinterChips.clear(); shardChips.clear(); diceChips.clear();
+    chips.clear(); splinterChips.clear(); shardChips.clear(); diceChips.clear(); fineChips.clear();
     for (const f of fires) f.on = false;
     for (const e of beacons) e.on = false;
     for (const e of arcs) e.on = false;
@@ -2323,8 +2356,9 @@ export const fx = {
     if (!ready || budget() < 0.35) return;
     pAt(pos[0], pos[1], pos[2]);
     P.vx = vel[0] * 0.8 + rf(-0.15, 0.15); P.vy = vel[1] * 0.8 + rf(0, 0.2); P.vz = vel[2] * 0.8 + rf(-0.15, 0.15); P.drag = 0.8;
-    P.rise = 0.15; P.life = rf(2.5, 4); P.s0 = size * 0.6; P.s1 = size * rf(1.3, 1.8);
-    pColor(color, rf(0.92, 1.06)); P.a = alpha; P.fadeIn = 0.5; P.wind = 0.6; P.curl = 0.3; P.spin = rf(-0.3, 0.3);
+    // many thin billows that spread as they rise: a plume, not a string of opaque balls
+    P.rise = 0.15; P.life = rf(3, 5); P.s0 = size * 0.7; P.s1 = size * rf(2, 2.8);
+    pColor(color, rf(0.92, 1.06)); P.a = alpha * 0.55; P.fadeIn = 0.8; P.wind = 0.7; P.curl = 0.5; P.spin = rf(-0.3, 0.3);
     emit();
   },
 };
@@ -2408,7 +2442,7 @@ function updateFire(e: Emitter, dt: number, b: number): void {
     e.b -= 1;
     pAt(e.x + rf(-0.2, 0.2) * sz, e.y + sz * 0.9, e.z + rf(-0.2, 0.2) * sz);
     P.vx = rf(-0.3, 0.3); P.vy = rf(1.2, 2); P.vz = rf(-0.3, 0.3); P.drag = 0.6; P.rise = 0.9;
-    P.life = rf(6, 10); P.s0 = sz * 0.6; P.s1 = sz * rf(2.8, 4); pColor(0x16130f, rf(0.8, 1.2)); P.a = 0.62;
+    P.life = rf(5, 8); P.s0 = sz * 0.6; P.s1 = sz * rf(3, 4.4); pColor(0x4b4540, rf(0.85, 1.15)); P.a = 0.4;
     P.wind = 1.2; P.fadeIn = 0.4; P.heat = 1.5; P.heatDur = 0.3; P.curl = 0.3;
     emit();
   }
