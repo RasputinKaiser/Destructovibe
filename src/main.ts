@@ -739,10 +739,14 @@ function checkContract(dt: number): void {
     if (targetMetAt < 0) {
       targetMetAt = scoring.score.elapsed;
       audio.ui('target');
-      ui.toast('TARGET MET — keep going for score, Enter to wrap up', 'good', 3500);
+      ui.toast('TARGET MET — keep going for score, Enter to sign off', 'good', 3500);
     }
-    const since = scoring.score.elapsed - targetMetAt;
-    if ((since > 6 && quietT > 2.5 && scoring.score.comboTimer <= 0) || since > 25) finish(true);
+    /* "keep going" means it: the job signs itself off only once there is nothing left to do — the target all down, the
+       ordnance spent, or the site quiet for half a minute with nothing armed */
+    const settled = quietT > 2.5 && scoring.score.comboTimer <= 0;
+    const spent = rangedAmmoLeft() === 0 && liveOrdnance() === 0;
+    if (settled && (pct >= 0.995 || (spent && quietT > 8) || (quietT > 30 && liveOrdnance() === 0))) finish(true);
+    else if (settled) flashHint('Target met — Enter to sign off, or keep going for score', 0.5);
     return;
   }
   if (rangedAmmoLeft() === 0 && liveOrdnance() === 0) {
