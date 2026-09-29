@@ -56,6 +56,8 @@ export function drive(e: PhysEntity): void { e.drivenStep = stepCount; }
 
 const byBody = new Map<number, PhysEntity>();
 export let stepCount = 0;
+/** the last step that moved any body (a move event got through), so per-step scans of the moved can stop early */
+export let lastMoveStep = -1;
 
 let events: EventsBuffer;
 let hitEv: ContactHitEvent;
@@ -113,6 +115,7 @@ export function createWorld(): void {
   byBody.clear();
   blasts.length = 0;
   stepCount = 0;
+  lastMoveStep = -1;
   for (const st of streams) st.state = mulberry32.create(st.seed);
   const wd = b3.b3DefaultWorldDef();
   wd.gravity = [0, -9.81, 0];
@@ -201,6 +204,7 @@ export function step(h: StepHandlers): void {
     copy4(e.curRot, moveEv.rotation);
     if (runaway(e) || (e.kind === 'piece' && (e.mass >= GOV_MASS ? governed(e) : overspeed(e)))) continue;
     e.movedStep = stepCount;
+    lastMoveStep = stepCount;
     e.onMove?.();
   }
 
