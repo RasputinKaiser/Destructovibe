@@ -43,6 +43,9 @@ import { foundationLocal as chimneyFoundation } from '../../buildings/boiler-chi
 const V = { power: 0.3, water: 1.0, gas: 1.65 };
 const HSN = 0.35, HSS = 11.65, MLW = -27.65, MLE = -16.35, TRS = 43.15;
 const at = { hsN: (k: keyof typeof V) => HSN - V[k], mlW: (k: keyof typeof V) => MLW - V[k], mlE: (k: keyof typeof V) => MLE + V[k], trS: (k: keyof typeof V) => TRS + V[k] };
+/** the boiler-house chimney (square to the blast grid, flue toward +x) and its boiler house, whose west wall the flue
+    meets `wall` metres east of the chimney's axis */
+const STACK = { x: 52, z: -10, wall: 4 }, BH = { x: STACK.x + STACK.wall + 3.5, z: STACK.z };
 
 /* ---------------- local buildings (stockpiles only; the buildings are packages under src/buildings) ---------------- */
 
@@ -186,7 +189,7 @@ export function clearanceZone(): Blueprint {
   g.main('power', [[at.mlE('power'), at.hsN('power') + 0.07], [at.mlE('power'), at.trS('power')], [60, at.trS('power')]], { group: 'feeder' });
   g.main('power', [[at.mlE('power') + 0.07, HSS + V.power], [60, HSS + V.power]], { group: 'feeder' });
   // the governor's outlet turns down into the ground
-  g.main('gas', [[-32.2, -48.8 + MAIN.gas.d / 2], [-32.2, -40], [at.mlW('gas'), -40], [at.mlW('gas'), at.hsN('gas')], [50, at.hsN('gas')]],
+  g.main('gas', [[-32.2, -48.8 + MAIN.gas.d / 2], [-32.2, -40], [at.mlW('gas'), -40], [at.mlW('gas'), at.hsN('gas')], [60, at.hsN('gas')]],
     { valves: [[at.mlW('gas'), -30], [-8, at.hsN('gas')], [36, at.hsN('gas')]], group: 'gasmain', rise: 0.2 });
   g.main('gas', [[at.mlE('gas'), at.hsN('gas') + 0.09], [at.mlE('gas'), at.trS('gas')], [55, at.trS('gas')]], { valves: [[10, at.trS('gas')]], group: 'gasmain' });
 
@@ -228,12 +231,13 @@ export function clearanceZone(): Blueprint {
   bld('cottages', cottageRow({ x: 10.5, z: 50.8, rot: 2 }), 'drop');
   bld('semis', semiPair({ x: 28, z: 51.4, rot: 2 }), 'drop', true, false, true);
   bld('chapel', chapelLite({ x: -53, z: -8 }), 'drop', false, false, false, { depth: 1.0 });
-  bld('boilerhouse', boilerHouse({ x: 45, z: -13, rot: 1 }), 'ground', true, true);
-  // its brick chimney west of it on a mass-concrete pad, the flue duct running to the boiler house's west wall (x 41.5)
-  // between its windows; felled west along z -13 it falls across the yard and Works Road, clear for ~25 m, its top
-  // coming down on the back yards behind the high street shops
-  const stack = { x: 37, z: -13, wall: 41.5 - 37 };
-  add(onFoundation(assemble(boilerChimney, stack), place(chimneyFoundation(stack.wall), stack.x, stack.z), plan));
+  // the boiler house at the east end of the works yard; the brick chimney is its flue, so the guyed steel stack the
+  // plant kit stands on its end wall (and the stack's guys) is left out
+  bld('boilerhouse', place(boilerHouse({ x: 0, z: 0 }).filter((q) => q.pos[0] < 5.12 && Math.abs(q.pos[2]) < 4.2), BH.x, BH.z, 1), 'ground', true, true);
+  // its brick chimney west of it on a mass-concrete pad, the flue duct running to the boiler house's west wall between
+  // its windows; felled west along z -10 it comes down the length of the works yard (the felling lane, kept clear of
+  // plant) and its top lands on Works Road: ~36 m of open ground for a ~34 m pile
+  add(onFoundation(assemble(boilerChimney, STACK), place(chimneyFoundation(STACK.wall), STACK.x, STACK.z), plan));
   bld('merchant', merchantShed({ x: 47, z: 24 }), 'ground');
   add(rotunda({ x: -54, z: 22 }), stoneArchBridge({ x: -40, z: 12 }).filter((q) => !kindOf(q)));
   world.push(...canalCut(plan, -40, [-24, 32], [[9.2, 14.8]]));
@@ -244,7 +248,7 @@ export function clearanceZone(): Blueprint {
   const yard = [
     M.rotaryKiln({ x: 58.5, z: -22, rot: 1, feed: 'grid' }),
     M.bucketElevator({ x: 51, z: -4.5, feed: 'grid' }),
-    M.coolingTowerFans({ x: 58, z: -4.2, cells: 1, feed: 'grid' }),
+    M.coolingTowerFans({ x: 46, z: -4.2, cells: 1, feed: 'grid' }),
     M.fanBank({ x: 38.5, z: -4.2, feed: 'grid' }),
     M.ventStack({ x: 60.5, z: -29.5, feed: 'grid' }),
     // the builders' merchant's scrap corner: a grid-fed magnet crane working a scrap heap by the pavement
@@ -254,9 +258,9 @@ export function clearanceZone(): Blueprint {
   for (const m of [...hallKit, ...yard]) world.push(...m);
   for (const b of buildings) world.push(...b.ps);
 
-  // steam off-take from the boiler house header, turned along the north wall clear of the flue stack
-  const sy = DPC + 3.6;
-  const steamStub = route('steel', [[44.6, sy, -17.35], [43.5, sy, -17.35], [43.5, sy, -17.7]], 0.14, { tint: SVC.steam, util: 'steam', group: 'boilerhouse' }, { round: true, elbow: 0.18 });
+  // steam off-take from the boiler house header, turned along the north end wall (points in the house's frame)
+  const sy = DPC + 3.6, bh = ([lx, lz]: [number, number]): [number, number, number] => [BH.x + lz, sy, BH.z - lx];
+  const steamStub = route('steel', [bh([4.35, -0.4]), bh([4.35, -1.5]), bh([4.7, -1.5])], 0.14, { tint: SVC.steam, util: 'steam', group: 'boilerhouse' }, { round: true, elbow: 0.18 });
   buildings.find((b) => b.name === 'boilerhouse')!.ps.push(...steamStub);
   world.push(...steamStub);
   const swap = (b: B, ps: PieceSpec[]) => {

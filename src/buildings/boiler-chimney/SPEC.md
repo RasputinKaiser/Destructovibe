@@ -3,12 +3,14 @@
 Free-standing square brick chimney for a works boiler house. Local frame: shaft on Y, the flue (and the boiler house)
 toward +X. Param `wall`: where the boiler house's wall stands, metres from the axis along +X (the flue duct runs to it).
 
-In Clearance it stands at (37, -13), axis-aligned, 2.5 m west of the boiler house (`wall` 4.5) on a mass-concrete pad
-(`foundationLocal`, below grade, placed with `onFoundation`). Felled west it comes down across the yard and Works Road:
-~25 m of open ground, its top landing in the back yards behind the high street shops (their boundary wall at z -15.4,
-gas meter boxes on the shop backs). No spot beside the boiler house has a clear 35 m lane in an axis direction, and a
-turned chimney is not an option: a charge against a wall that is not square to the 1 m blast grid is taken as confined
-(the pedestal's hollow becomes a "room" and its gas cracks the whole base), so it would fell unpredictably.
+In Clearance it stands at (52, -10), axis-aligned, at the east end of the works yard with its boiler house east of
+it (the flue duct `wall` 4.0 m, to the house's west wall between its windows), on a mass-concrete pad (`foundationLocal`,
+below grade, placed with `onFoundation`). Felled west it comes down the length of the works yard along z -10, a lane
+kept clear of plant, and its top lands on Works Road: ~36 m of open ground (x 16-50 clear within ±4 m of the line)
+for a ~34 m pile. The boiler house's gas service comes in from the High Street main at the house's south end, clear of
+the gob charges. A turned chimney is not an option: a charge against a wall that is not square to the 1 m blast grid
+is taken as confined (the pedestal's hollow becomes a "room" and its gas cracks the whole base), so it would fell
+unpredictably.
 
 ## What it is
 
@@ -65,4 +67,5 @@ unbreakable and it falls whole).
 - No firebrick lining; the pedestal's interior is open to the flue.
 - Wall set-offs follow the rule of thumb of half a brick more for each 20 ft down, not a sourced figure.
 - Blasted bricks and the light air terminal can skid or be thrown tens of metres past the pile.
-- The fall lane in Clearance is ~25 m of open ground for a ~34 m pile (see above).
+- In the game the column breaks at about mid-height during the fall and the top third lands short of the base's
+  line and a few metres north of it (the engine's fall-direction drift); the lane is open ground either side.
