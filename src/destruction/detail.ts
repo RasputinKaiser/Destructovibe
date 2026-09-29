@@ -662,6 +662,19 @@ interface Release {
   filter: Piece | null;  // the body they are released from, when it keeps its envelope
   temp?: number;
   spread?: boolean;      // clumps drift apart too (a member breaking up), not only single units
+  kick?: Vec3;           // the velocity a blast gave the member: what breaks out of it keeps at least that
+}
+
+/* A unit breaking out of a member a blast has thrown keeps the blast's momentum: at least the kick's speed along it,
+   whatever the member lost against what it hit on the way out. */
+function carry(lin: Vec3, kick: Vec3 | undefined): void {
+  if (!kick) return;
+  const k = Math.hypot(kick[0], kick[1], kick[2]);
+  if (k < 1e-6) return;
+  const along = (lin[0] * kick[0] + lin[1] * kick[1] + lin[2] * kick[2]) / k;
+  if (along >= k) return;
+  const f = (k - along) / k;
+  lin[0] += kick[0] * f; lin[1] += kick[1] * f; lin[2] += kick[2] * f;
 }
 
 interface Made { i: number; q: Piece }
@@ -672,9 +685,18 @@ function allowance(): number {
   return STEP_CAP - spent;
 }
 
+/* released units are debris of the building they came from (scoring, clean-up and harness accounting by building) */
+const grouped = new WeakMap<PieceSpec, PieceSpec>();
+function inGroup(u: PieceSpec, group: string | undefined): PieceSpec {
+  if (!group || u.group === group) return u;
+  let g = grouped.get(u);
+  if (!g) { g = { ...u, group }; grouped.set(u, g); }
+  return g;
+}
+
 function unitRoot(s: DetailSet, i: number): Root {
   const r = s.p.root, v = s.vol[i];
-  return { spec: s.spec[i], volume: v, value: MATS[kinds[s.kind[i]].mat].value, protected: r.protected, prop: false, demolishedVol: 0, penalized: true, density: s.mass[i] / v };
+  return { spec: inGroup(s.spec[i], r.spec.group), volume: v, value: MATS[kinds[s.kind[i]].mat].value, protected: r.protected, prop: false, demolishedVol: 0, penalized: true, density: s.mass[i] / v, parent: r };
 }
 
 function spawnUnit(s: DetailSet, i: number, R: Release): Piece | null {
@@ -690,6 +712,7 @@ function spawnUnit(s: DetailSet, i: number, R: Release): Piece | null {
     const k = R.speed * (0.6 + 0.4 * rand()) / l;
     lin[0] += dx * k; lin[1] += dy * k + 0.3 * R.speed; lin[2] += dz * k;
   }
+  carry(lin, R.kick);
   const vol = s.vol[i], rubble = vol < RUBBLE_VOL;
   const q = h.createPiece({
     mat: K.mat, tint: s.spec[i].tint, poly: K.poly, box: K.box ?? undefined, cyl: K.cyl, pos, rot: rot as Quat, lin, ang: [...R.m.ang],
@@ -722,7 +745,7 @@ function spawnChunk(s: DetailSet, idx: number[], R: Release, cell: [number, numb
   const bv = 8 * half[0] * half[1] * half[2];
   const i0 = heaviest(s, idx);
   const r = s.p.root;
-  const root: Root = { spec: s.spec[i0], volume: vol, value: r.value, protected: r.protected, prop: false, demolishedVol: 0, penalized: true, density: mass / bv };
+  const root: Root = { spec: inGroup(s.spec[i0], r.spec.group), volume: vol, value: r.value, protected: r.protected, prop: false, demolishedVol: 0, penalized: true, density: mass / bv, parent: r };
   const rw = [0, 0, 0];
   qrot(rw, R.m.rot, c[0], c[1], c[2]);
   const pos: Vec3 = [R.m.pos[0] + rw[0], R.m.pos[1] + rw[1], R.m.pos[2] + rw[2]];
@@ -732,6 +755,7 @@ function spawnChunk(s: DetailSet, idx: number[], R: Release, cell: [number, numb
     const k = R.speed * (0.5 + 0.5 * rand()) / l;
     lin[0] += wc[0] * k; lin[1] += wc[1] * k + 0.2 * R.speed; lin[2] += wc[2] * k;
   }
+  carry(lin, R.kick);
   const K = kinds[s.kind[i0]];
   const q = host!.createPiece({
     mat: K.mat, tint: s.spec[i0].tint, poly: P.boxPoly(half[0], half[1], half[2]), box: half, cyl: null, pos, rot: [...R.m.rot] as Quat, lin,
@@ -1038,7 +1062,7 @@ function carve(s: DetailSet, op: Op, separateLeaves: boolean): Body[] | null {
     for (const g of geo) pvol += P.volumeCentroid(g.poly, w);
     const mat = B.leaf < 0 && B.parts.length > 1 && separateLeaves === false ? p.mat : [...mats].sort((a, b) => b[1] - a[1])[0]?.[0] ?? p.mat;
     const tint = mat === p.mat ? p.tint : s.spec[heaviest(s, B.units.filter((i) => kinds[s.kind[i]].mat === mat))].tint;
-    const root: Root = { ...p.root, demolishedVol: 0, density: mass / Math.max(pvol, 1e-6) };
+    const root: Root = { ...p.root, demolishedVol: 0, density: mass / Math.max(pvol, 1e-6), parent: p.root };
     const rw = [0, 0, 0];
     qrot(rw, m.rot, B.c[0], B.c[1], B.c[2]);
     const env = geo.length > 1 ? P.hullOf(geo.map((g) => g.poly)) : geo[0].poly;
@@ -1317,7 +1341,7 @@ const SHATTER_BODIES = 24;
 /** A panel blown out of its frame breaks up along its joints in flight: the units nearest the load come out one by
     one, the rest as joint-bounded clumps still drawn as their units (at most SHATTER_BODIES bodies, coarser when the
     debris budget is tight), each drifting apart from the others. The member is gone afterwards. */
-export function detailShatter(p: Piece, at: Vec3): boolean {
+export function detailShatter(p: Piece, at: Vec3, kick?: Vec3): boolean {
   const s = sets.get(p);
   if (!s || !host || p.dead || s.live === 0) return false;
   // a clump that lands hard comes apart into its bricks, while the debris budget has room for them
@@ -1346,7 +1370,7 @@ export function detailShatter(p: Piece, at: Vec3): boolean {
   let [groups, cells] = cluster(s, rest, size);
   const clumps = most - singles.length;
   while (groups.length > clumps && size < 2.2) [groups, cells] = cluster(s, rest, (size *= 1.3));
-  const R: Release = { m, at, blast: false, speed: fine ? 0.8 : 1.4, rim: new Set(), filter: null, spread: true };
+  const R: Release = { m, at, blast: false, speed: fine ? 0.8 : 1.4, rim: new Set(), filter: null, spread: true, kick };
   for (const i of singles) {
     const q = spawnUnit(s, i, R);
     drop(s, i);

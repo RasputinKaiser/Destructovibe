@@ -96,6 +96,8 @@ export interface Root {
   demolishedVol: number;
   penalized: boolean;
   density: number;          // kg/m³ the body is built with: spec.density, else the section's real kg/m over the modelled area
+  /** the member this body was carved or released from: what comes down of it counts toward that member too */
+  parent?: Root;
 }
 
 interface Caps { comp: number; ten: number; shear: number; torque: number }
@@ -419,6 +421,7 @@ function createPiece(o: NewPiece): Piece | null {
     svc: memberFor(o.root.spec, !!o.frag), mechs: null, hinged: false, proxied: 0, debris: !building,
   };
   if (p.debris) debrisCount++;
+  if (o.frag && lateBlasts.length) latePending.push(p);
   p.onMove = () => pieceMoved(p);
   register(p);
   if (fast) bullets.add(p);
@@ -1434,6 +1437,8 @@ export function clearStructures(): void {
   welds.clear();
   fractureQueue.length = 0;
   shatterQueue.length = 0;
+  lateBlasts.length = 0;
+  latePending.length = 0;
   fusing.length = 0;
   fading.length = 0;
   frozenList.length = 0;
@@ -1518,6 +1523,7 @@ export function stats(): { pieces: number; welds: number; ropes: number; queued:
 function credit(root: Root, vol: number, pos: Vec3): void {
   if (vol <= 0 || building || (root.prop && !root.protected)) return;
   root.demolishedVol += vol;
+  for (let r = root.parent; r; r = r.parent) r.demolishedVol += vol;
   if (root.protected) {
     if (!root.penalized) {
       root.penalized = true;
@@ -2958,6 +2964,45 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
   fields.fieldsBlast(pos, radius, power, bl);
   explodeImpulse(pos, radius, impulse, CAT.player | CAT.projectile);
   pushFree(pos, radius, impulse);
+  lateBlasts.push({ pos: [pos[0], pos[1], pos[2]], radius, impulse, step: stepCount });
+}
+
+/* The wave is past in milliseconds, but much of what it broke only comes free over the next steps (queued fractures,
+   units knocked out of a member, panels breaking up in flight). Each such body still gets the push the wave gives a
+   free body where it is - at least that speed away from the charge - instead of dropping in place at the speed of the
+   member it came out of and propping up whatever stood on it. */
+const LATE_STEPS = 12;
+const lateBlasts: { pos: Vec3; radius: number; impulse: number; step: number }[] = [];
+const latePending: Piece[] = [];
+const _lc: Vec3 = [0, 0, 0], _ld: Vec3 = [0, 0, 0], _lv: Vec3 = [0, 0, 0];
+function lateBlastPush(): void {
+  while (lateBlasts.length && stepCount - lateBlasts[0].step > LATE_STEPS) lateBlasts.shift();
+  if (!latePending.length) return;
+  const list = latePending.splice(0);
+  for (const p of list) {
+    if (p.dead || p.welds.length || p.rebars.length) continue;
+    for (const b of lateBlasts) {
+      b3.b3Body_GetWorldCenterOfMass(_lc, p.body);
+      vec3.sub(_ld, _lc, b.pos);
+      const d = vec3.length(_ld);
+      const k = 1 - d / b.radius;
+      if (k <= 0) continue;
+      if (d > 1e-4) vec3.scale(_ld, _ld, 1 / d); else vec3.set(_ld, 0, 1, 0);
+      _ld[1] += 0.35;
+      vec3.normalize(_ld, _ld);
+      // the speed pushFree gives a free body of this size here
+      const want = Math.min(b.impulse * Math.cbrt(p.volume) ** 2 * k, p.mass * 22) / p.mass;
+      b3.b3Body_GetLinearVelocity(_lv, p.body);
+      const along = vec3.dot(_lv, _ld);
+      if (along >= want) continue;
+      const j = (want - along) * p.mass;
+      b3.b3Body_ApplyLinearImpulseToCenter(p.body, [_ld[0] * j, _ld[1] * j, _ld[2] * j], true);
+      if (want > BULLET_SPEED) makeBullet(p);
+      // a tumble about an axis across the throw (fixed per body, so a replay throws it the same way)
+      const a = j * Math.cbrt(p.volume) * 0.2, h = Math.sin(p.id * 12.9898) * 43758.5453, u = h - Math.floor(h);
+      b3.b3Body_ApplyAngularImpulse(p.body, [(u - 0.5) * a, (0.5 - u) * a * 0.5, ((u * 2) % 1 - 0.5) * a], true);
+    }
+  }
 }
 
 /* ---------------- blast on wall panels ----------------
@@ -2971,7 +3016,7 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
    goes loses every connection, takes the momentum the load left over, and breaks up along its joints in flight. */
 const PANEL_MATS = new Set<MaterialId>(['brick', 'cinderblock', 'stone', 'sandstone', 'adobe', 'plaster', 'concrete']);
 const MAX_PANELS = 40, SHATTER_PER_STEP = 4;
-const shatterQueue: { p: Piece; at: Vec3; step: number; blast: boolean }[] = [];
+const shatterQueue: { p: Piece; at: Vec3; step: number; blast: boolean; kick?: Vec3 }[] = [];
 const _pn: Vec3 = [0, 0, 0], _pu: Vec3 = [0, 0, 0], _pc: Vec3 = [0, 0, 0];
 /** last blast's panel verdicts (harness / tests) */
 export const panelLog: { id: number; mat: MaterialId; P: number; I: number; R: number; I0: number; gas: boolean; failed: boolean; v: number }[] = [];
@@ -3041,13 +3086,14 @@ function blastPanels(bl: Survey, pos: Vec3): void {
       const lin: Vec3 = [0, 0, 0];
       b3.b3Body_GetLinearVelocity(lin, p.body);
       const up = Math.min(vel * 0.25, 3);
-      b3.b3Body_SetLinearVelocity(p.body, [lin[0] + _pn[0] * side * vel, lin[1] + up, lin[2] + _pn[2] * side * vel]);
+      const kick: Vec3 = [_pn[0] * side * vel, up, _pn[2] * side * vel];
+      b3.b3Body_SetLinearVelocity(p.body, [lin[0] + kick[0], lin[1] + kick[1], lin[2] + kick[2]]);
       // it hinges out about its base: the top leads
       const spin = vel / Math.max(1, h);
       b3.b3Body_SetAngularVelocity(p.body, [_pn[2] * side * spin * (chance() - 0.3), (chance() - 0.5) * 0.4, -_pn[0] * side * spin * (chance() - 0.3)]);
       b3.b3Body_SetAwake(p.body, true);
       shattering.add(p);
-      shatterQueue.push({ p, at: [_pc[0], _pc[1], _pc[2]], step: stepCount + 2 + Math.floor(chance() * 6), blast: true });
+      shatterQueue.push({ p, at: [_pc[0], _pc[1], _pc[2]], step: stepCount + 2 + Math.floor(chance() * 6), blast: true, kick });
     } else {
       // cracked bed joints: what is left stands on weakened mortar
       const k = Math.min(ld.I / I0, ld.P / Math.max(R, 1));
@@ -3095,7 +3141,7 @@ function processShatter(): void {
     if (e.step > stepCount) { i++; continue; }
     shatterQueue.splice(i, 1);
     n++;
-    if (hasDetail(e.p)) { if (detailShatter(e.p, e.at) || !e.blast) continue; }
+    if (hasDetail(e.p)) { if (detailShatter(e.p, e.at, e.kick) || !e.blast) continue; }
     if (e.blast && !e.p.dead && !e.p.queued) damagePiece(e.p, e.p.curPos, e.p.hp * 2.5, true);
   }
 }
@@ -3333,6 +3379,7 @@ export function afterStep(dt: number): void {
   if (stepCount % YIELD_EVERY === 1) updateYield();
   processFractures(FRACTURE_PER_STEP);
   if (shatterQueue.length) processShatter();
+  lateBlastPush();
   stepAnalysis(ANALYSIS_WORK);
   /* Only overstressed paths are revisited each step; a snapped column redistributes weight
      to surviving connections and can start a cascade even when the solver island is asleep.
