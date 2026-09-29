@@ -311,7 +311,8 @@ export function clearanceZone(): Blueprint {
     M.excavator({ x: -6, z: -54, rot: 3 }),
     M.dumpTruck({ x: 11, z: -56 }),
     M.mixerTruck({ x: 11, z: -36, rot: 2 }),
-    M.mobileCrane({ x: -5, z: -28.5 }),
+    // clear of the frame: its bundle set down inside the frame's bay and slewed out through the west wall
+    M.mobileCrane({ x: 2, z: -37, rot: 2 }),
     M.bulldozer({ x: 15, z: -50 }),
     M.compressor({ x: 14, z: -18.5 }),
     M.scissorLift({ x: 9.5, z: -18.2 }),

@@ -9,8 +9,11 @@
 // The run goes through the same per-step and per-frame calls as main.ts, so what it reports is what the player sees.
 // Neither the viewer nor the frame rate may change the outcome (tests/viewer-independence.test.ts): a run with no
 // VIEWER is the player's collapse wherever the player stands.
-// Last stdout line: RESULT {"weldsLost":n,"runaways":n,"awakeAtEnd":n,"fingerprint":"…"} (fingerprint: every live
-// body's position to 1 mm, so two runs that should match can be compared)
+// Last stdout line: RESULT {"weldsLost":n,"runaways":n,"awakeAtEnd":n,"awakeMachine":n,"awakeOther":n,"fingerprint":"…"}
+// (fingerprint: every live body's position to 1 mm, so two runs that should match can be compared). Machines work all
+// the time, so a settled map is not all asleep: awakeMachine is the awake bodies in a machine's own island (its parts,
+// whatever they are jointed to and whatever awake body touches them: the pallet on the forks, the cartons on a belt),
+// awakeOther everything else, which a settled map keeps at 0. The JSON's `machines` names them per machine group.
 import { createRequire } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -115,6 +118,7 @@ try {
     }
   }
   const s1 = st.stats();
+  const mi = machineIslands();
   const kinds = {};
   for (const b of soft.softBodies) { if (b.dead) continue; const k = b.kind + (b.awake ? ':awake' : ':asleep'); kinds[k] = (kinds[k] ?? 0) + 1; }
   const per = (x) => +(x / STEPS).toFixed(3);
@@ -122,10 +126,42 @@ try {
     weldsLostPct: +(100 * (1 - s1.welds / Math.max(1, s0.welds))).toFixed(2), demolitionPct: +(100 * st.demolitionFraction()).toFixed(3),
     avgPhysMs: per(physT), avgAfterMs: per(afterT), avgSoftMs: per(softSum), maxStepMs: +maxStep.toFixed(1),
     breakdownMsPerStep: { svc: per(svc.svcCost.ms - cost0.svc), mech: per(svc.mechCost.ms - cost0.mech), fields: per(fields.fieldCost.ms - cost0.field), joints: per(st.jointCost.ms - cost0.joint), analysis: per(an.stats.ms - cost0.an) },
-    runaways: phys.runaways, pumped: phys.pumped, designIssues: st.designIssues.length, softKinds: kinds, perWin }, null, 1));
+    machines: mi.groups, runaways: phys.runaways, pumped: phys.pumped, designIssues: st.designIssues.length, softKinds: kinds, perWin }, null, 1));
   const fp = createHash('sha1');
   for (const p of [...st.live].filter((p) => !p.dead).sort((a, b) => a.id - b.id)) fp.update(`${p.id}:${p.curPos.map((v) => Math.round(v * 1000)).join(',')};`);
-  console.log('RESULT ' + JSON.stringify({ weldsLost: Math.max(0, s0.welds - s1.welds), runaways: phys.runaways, awakeAtEnd: awake(), fingerprint: fp.digest('hex').slice(0, 16) }));
+  console.log('RESULT ' + JSON.stringify({ weldsLost: Math.max(0, s0.welds - s1.welds), runaways: phys.runaways, awakeAtEnd: awake(), awakeMachine: mi.bodies, awakeOther: awake() - mi.bodies, fingerprint: fp.digest('hex').slice(0, 16) }));
+
+  /* The awake bodies a working machine keeps awake, per machine group: a flood from every awake machine axis over the
+     joints (its host chain, ropes, welds of a carried frame) and over touching awake bodies (Box3D wakes and sleeps a
+     whole island of jointed or touching bodies together). */
+  function machineIslands() {
+    const b3 = phys.b3, byBody = new Map(), byId = new Map();
+    for (const p of st.live) if (!p.dead) { byBody.set(p.body.index1, p); byId.set(p.id, p); }
+    const isAwake = (p) => !p.dead && b3.b3Body_IsAwake(p.body);
+    const cand = [...byBody.values()].filter(isAwake);
+    const seen = new Set(), groups = {};
+    const A = [0, 0, 0, 0, 0, 0], B = [0, 0, 0, 0, 0, 0], M = 0.05;
+    const axes = svc.mechSummary();
+    for (const g of [...new Set(axes.map((m) => m.group ?? '?'))].sort()) {
+      const q = [];
+      for (const m of axes) { const p = byId.get(m.id); if ((m.group ?? '?') === g && p && isAwake(p) && !seen.has(p)) { seen.add(p); q.push(p); } }
+      for (let i = 0; i < q.length; i++) {
+        const p = q[i], add = (o) => { if (o && !seen.has(o) && isAwake(o)) { seen.add(o); q.push(o); } };
+        const js = b3.b3Body_GetJoints(p.body);
+        for (let k = 0; k < js.size(); k++) { const j = js.get(k); add(byBody.get(b3.b3Joint_GetBodyA(j).index1)); add(byBody.get(b3.b3Joint_GetBodyB(j).index1)); }
+        js.delete?.();
+        b3.b3Body_ComputeAABB(A, p.body);
+        for (const o of cand) {
+          if (seen.has(o)) continue;
+          b3.b3Body_ComputeAABB(B, o.body);
+          if (A[0] - M < B[3] && B[0] - M < A[3] && A[1] - M < B[4] && B[1] - M < A[4] && A[2] - M < B[5] && B[2] - M < A[5]) add(o);
+        }
+      }
+      const mine = axes.filter((m) => (m.group ?? '?') === g);
+      if (q.length || mine.some((m) => m.running)) groups[g] = { awake: q.length, axes: mine.length, running: mine.filter((m) => m.running).length };
+    }
+    return { bodies: seen.size, groups };
+  }
 } catch (e) { console.error('HARNESS ERROR', e?.stack ?? e); process.exitCode = 2; }
 finally { await server.close(); }
 
