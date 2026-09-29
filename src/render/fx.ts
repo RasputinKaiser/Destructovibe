@@ -425,7 +425,11 @@ function fxMaterial(uniforms: Record<string, THREE.IUniform>, vs: string, fs: st
 
 /* ---------------- CPU chips ---------------- */
 
-const CS = 16; // px py pz vx vy vz qx qy qz qw wx wy wz scale age life
+const CS = 17; // px py pz vx vy vz qx qy qz qw wx wy wz scale age life floor
+
+/* the height of whatever lies under a point (set by the structure layer; a render query, it changes nothing) */
+let floorAt: (x: number, y: number, z: number) => number = () => 0;
+export function setFxFloor(f: (x: number, y: number, z: number) => number): void { floorAt = f; }
 
 class Chips {
   readonly mesh: THREE.InstancedMesh;
@@ -450,7 +454,7 @@ class Chips {
     this.mesh.frustumCulled = false;
     this.mesh.receiveShadow = true;
   }
-  spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number, scale: number, life: number, c: THREE.Color): void {
+  spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number, scale: number, life: number, c: THREE.Color, floor = 0): void {
     const i = this.n < this.cap ? this.n++ : Math.floor(rng() * this.cap);
     const s = this.s, o = i * CS;
     s[o] = x; s[o + 1] = y; s[o + 2] = z;
@@ -460,7 +464,7 @@ class Chips {
     qx *= ql; qy *= ql; qz *= ql; qw *= ql;
     s[o + 6] = qx; s[o + 7] = qy; s[o + 8] = qz; s[o + 9] = qw;
     s[o + 10] = rf(-14, 14); s[o + 11] = rf(-14, 14); s[o + 12] = rf(-14, 14);
-    s[o + 13] = scale; s[o + 14] = 0; s[o + 15] = life;
+    s[o + 13] = scale; s[o + 14] = 0; s[o + 15] = life; s[o + 16] = floor;
     this.settled[i] = 0;
     const k = rf(0.85, 1.12);
     this.col[i * 3] = c.r * k; this.col[i * 3 + 1] = c.g * k; this.col[i * 3 + 2] = c.b * k;
@@ -481,7 +485,7 @@ class Chips {
         let vx = s[o + 3] * damp, vy = (s[o + 4] - 9.81 * dt) * damp, vz = s[o + 5] * damp;
         let px = s[o] + vx * dt, py = s[o + 1] + vy * dt, pz = s[o + 2] + vz * dt;
         let wx = s[o + 10], wy = s[o + 11], wz = s[o + 12];
-        const floor = sc * this.rest;
+        const floor = s[o + 16] + sc * this.rest;
         if (py < floor) {
           py = floor;
           if (vy < 0) {
@@ -591,7 +595,7 @@ let puffLoad = 0;
 let puffs: Ring, dustR: Ring, sparksR: Ring, scorches: Ring, rings: Ring;
 let dustAlive = 0;
 let puffU: Record<string, THREE.IUniform>, sparkU: Record<string, THREE.IUniform>, scorchU: Record<string, THREE.IUniform>, ringU: Record<string, THREE.IUniform>;
-let chips: Chips, splinterChips: Chips, shardChips: Chips, diceChips: Chips;
+let chips: Chips, splinterChips: Chips, shardChips: Chips, diceChips: Chips, fineChips: Chips;
 
 interface Flash { light: THREE.PointLight; t: number; dur: number; peak: number; prio: number; owner: number }
 const flashes: Flash[] = [];
@@ -1072,6 +1076,9 @@ export function initFx(scene: THREE.Scene, camera: THREE.Camera): void {
   splinterChips = new Chips(splinterGeometry(), new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0, flatShading: true }), 650, 0.06);
   shardChips = new Chips(shardGeometry(), new THREE.MeshStandardMaterial({ roughness: 0.07, metalness: 0.4, envMapIntensity: 2.4, flatShading: true }), 450, 0.03);
   diceChips = new Chips(new THREE.BoxGeometry(1, 0.8, 0.9), new THREE.MeshStandardMaterial({ roughness: 0.06, metalness: 0.5, envMapIntensity: 2.6, flatShading: true }), 1000, 0.4);
+  // crushed mortar, brick and stone grit that stays where rubble lands (render only: it costs the solver nothing)
+  fineChips = new Chips(chipGeometry(), new THREE.MeshStandardMaterial({ roughness: 0.97, metalness: 0, flatShading: true }), 7000, 0.25);
+  fineChips.mesh.castShadow = false;
 
   for (let i = 0; i < 3; i++) {
     const light = new THREE.PointLight(0xffa050, 0, 20, 2);
@@ -1081,7 +1088,7 @@ export function initFx(scene: THREE.Scene, camera: THREE.Camera): void {
   }
   for (const m of [dustMesh, puffMesh]) m.layers.set(FX_SOFT_LAYER);
   for (const m of [sparkMesh, ringMesh]) m.layers.set(FX_LAYER);
-  root.add(scorchMesh, chips.mesh, splinterChips.mesh, shardChips.mesh, diceChips.mesh, ringMesh, dustMesh, puffMesh, sparkMesh);
+  root.add(scorchMesh, chips.mesh, splinterChips.mesh, shardChips.mesh, diceChips.mesh, fineChips.mesh, ringMesh, dustMesh, puffMesh, sparkMesh);
   scene.add(root);
   ready = true;
   applyLighting();
@@ -1223,6 +1230,23 @@ export const fx = {
       const sp = speed * rf(0.4, 1.2), sc = rf(0.02, 0.05) + rng() * rng() * 0.08;
       chips.spawn(pos[0], pos[1], pos[2], _v.x * sp, _v.y * sp, _v.z * sp, sc, rf(5, 7), _c);
     }
+  },
+
+  /** Fines where masonry lands or breaks: crushed mortar, grit and brick crumbs (a few cm) settle over `radius` m round
+   *  the point at its height and stay there, with a dusting on the ground round it. `vol` is the m³ that broke up. */
+  fines(pos: Vec3, vol: number, color: number, radius = 0.6): void {
+    if (!ready || !(vol > 0)) return;
+    // they come to rest on whatever is under the point: the heap, a floor, the ground
+    const floor = Math.max(0, Math.min(pos[1] - 0.05, floorAt(pos[0], pos[1] + 0.1, pos[2])));
+    const n = clamp(Math.round(Math.cbrt(vol) * 60), 3, 40);
+    const base = _c.setHex(color).lerp(_mortar, 0.45);
+    for (let i = 0; i < n; i++) {
+      const a = rf(0, 6.283), r = radius * Math.sqrt(rng());
+      const sc = 0.012 + rng() * rng() * 0.07;
+      _cc.copy(base).multiplyScalar(rf(0.78, 1.1));
+      fineChips.spawn(pos[0] + Math.cos(a) * r, pos[1] + rf(0.05, 0.3), pos[2] + Math.sin(a) * r, rf(-0.4, 0.4), rf(0, 0.8), rf(-0.4, 0.4), sc, rf(150, 240), _cc, floor);
+    }
+    splatCover(pos[0], pos[2], radius * 1.6 + Math.cbrt(vol), clamp(0.05 + vol * 0.4, 0.05, 0.3), base.r, base.g, base.b);
   },
 
   sparks(pos: Vec3, normal: Vec3, count: number): void {
@@ -1923,6 +1947,7 @@ export const fx = {
     splinterChips.update(dt);
     shardChips.update(dt);
     diceChips.update(dt);
+    fineChips.update(dt);
     puffU.uTime.value = clock;
     sparkU.uTime.value = clock;
     sparkU.uAspect.value = view.width / Math.max(1, view.height);
@@ -1949,7 +1974,7 @@ export const fx = {
     coverage.data.fill(0);
     coverage.tex.needsUpdate = true;
     coverage.dirty = false;
-    chips.clear(); splinterChips.clear(); shardChips.clear(); diceChips.clear();
+    chips.clear(); splinterChips.clear(); shardChips.clear(); diceChips.clear(); fineChips.clear();
     for (const f of fires) f.on = false;
     for (const e of beacons) e.on = false;
     for (const e of arcs) e.on = false;

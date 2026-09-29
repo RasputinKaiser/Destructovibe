@@ -808,11 +808,11 @@ function adopt(s: DetailSet, idx: number[], q: Piece, c: Vec3, parts: Part[] | n
 function release(s: DetailSet, idx: number[], R: Release): Made[] {
   const h = host!, made: Made[] = [];
   if (!idx.length) return made;
-  const solid: number[] = [];
+  const solid: number[] = [], joints: number[] = [];
   let dust = 0, dustVol = 0;
   for (const i of idx) {
     if (s.gone[i]) continue;
-    if (kinds[s.kind[i]].cosmetic) { dust += s.mass[i]; dustVol += s.vol[i]; drop(s, i); } else solid.push(i);
+    if (kinds[s.kind[i]].cosmetic) joints.push(i); else solid.push(i);
   }
   const dr = h.debris() / Math.max(1, h.budget());
   let left = allowance();
@@ -821,17 +821,22 @@ function release(s: DetailSet, idx: number[], R: Release): Made[] {
   let groups: number[][] = solid.map((i) => [i]);
   let cells: [number, number, number, number, number, number][] = [];
   if (cellSize > 0) {
-    [groups, cells] = cluster(s, solid, cellSize);
-    if (groups.length > left && cellSize < 0.9) [groups, cells] = cluster(s, solid, (cellSize = 0.9));
-  }
+    /* released as clumps: the mortar between their units comes with them (a lump of brickwork is bricks set in
+       mortar, not a lattice of bricks with daylight between) */
+    const all = solid.concat(joints);
+    [groups, cells] = cluster(s, all, cellSize);
+    if (groups.filter((g) => g.some((i) => !kinds[s.kind[i]].cosmetic)).length > left && cellSize < 0.9) [groups, cells] = cluster(s, all, (cellSize = 0.9));
+  } else for (const i of joints) { dust += s.mass[i]; dustVol += s.vol[i]; drop(s, i); }
   for (let g = 0; g < groups.length; g++) {
     const grp = groups[g];
-    if (left <= 0) {
+    const units = grp.filter((i) => !kinds[s.kind[i]].cosmetic);
+    if (left <= 0 || !units.length) {
       for (const i of grp) { dust += s.mass[i]; dustVol += s.vol[i]; drop(s, i); }
       continue;
     }
-    if (grp.length === 1) {
-      const i = grp[0];
+    if (units.length === 1) {
+      const i = units[0];
+      for (const j of grp) if (j !== i) { dust += s.mass[j]; dustVol += s.vol[j]; drop(s, j); }
       const q = spawnUnit(s, i, R);
       drop(s, i);
       if (q) { made.push({ i, q }); left--; spent++; spawned++; }
@@ -845,7 +850,7 @@ function release(s: DetailSet, idx: number[], R: Release): Made[] {
   if (dust > 0) {
     const pm = MATS[s.p.mat];
     if (pm.style === 'shards' || pm.style === 'dice') fx.shards(R.at, clamp(Math.round(dustVol * 4000), 8, 60));
-    else fx.dust(R.at, clamp(Math.cbrt(dustVol) * 3, 0.4, 3), pm.dust);
+    else { fx.dust(R.at, clamp(Math.cbrt(dustVol) * 3, 0.4, 3), pm.dust); fx.fines(R.at, dustVol, pm.dust); }
   }
   return made;
 }
@@ -1464,6 +1469,8 @@ export function detailShatter(p: Piece, at: Vec3, kick?: Vec3): boolean {
   const pm = MATS[p.mat];
   fx.crushDust(at, p.volume, pm.dust);
   fx.debris(at, 24, pm.chips, 6);
+  // the mortar and skim that went to dust leave their grit where the member came apart
+  if (pm.style !== 'shards' && pm.style !== 'dice' && dustVol > 0) fx.fines(at, dustVol * s.k, pm.dust, clamp(Math.cbrt(p.volume), 0.4, 1.6));
   audio.fracture(at, p.mat, clamp(p.volume, 0.05, 2));
   return true;
 }

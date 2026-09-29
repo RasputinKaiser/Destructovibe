@@ -4,7 +4,7 @@ import type { b3ShapeId, b3JointId } from 'box3d.js';
 import type { Blueprint, MaterialId, PieceSpec, Vec3, Quat } from '../types';
 import {
   b3, world, ground, CAT, ALL, filter, register, unregister, stepCount, overlapAABB, explodeImpulse,
-  entityOfShape, copy3, copy4, step as physicsStep, runawayQueue, randomStream, type PhysEntity, type StepHandlers,
+  entityOfShape, copy3, copy4, step as physicsStep, runawayQueue, randomStream, raycast, type PhysEntity, type StepHandlers,
 } from '../physics/physics';
 import { MATS, pieceHp, flammable, strengthAt, grainShare, charTime, rebarTie, effectiveDensity, autoSectionInertia, REAL_SCALE, type PhysMat } from './materials';
 import * as P from './polytope';
@@ -17,7 +17,7 @@ export { sectionParts, sectionProps, specParts, specDensity } from './compound';
 import {
   initBatches, addPieceGfx, pieceFinish, setPieceTransform, setPieceColor, setPieceHeat, removePieceGfx, clearBatches, setBatchesXray, type PieceGfx,
 } from './batches';
-import { fx } from '../render/fx';
+import { fx, setFxFloor } from '../render/fx';
 import { rebar as rebarGfx } from '../render/rebar';
 import { initRopes, ropes as ropeGfx } from '../render/ropes';
 import { xrayDots, stressColor, thermalColor } from '../render/xray';
@@ -278,6 +278,7 @@ export function setStructureHooks(explosion: typeof onExplosion, protectedHit: t
 }
 
 export function initStructures(s: THREE.Scene): void {
+  setFxFloor((x, y, z) => { const h = raycast([x, y, z], [0, -40, 0], CAT.ground | CAT.structure | CAT.debris); return h ? h.point[1] : 0; });
   initBatches(s);
   initRopes(s);
   initSoftGfx(s);
@@ -2443,12 +2444,66 @@ function strainWelds(p: Piece, point: Vec3, radius: number, amount: number): voi
   }
 }
 
+/* A brick or a stone that lands hard breaks across, into a bat and a half with rough faces and a puff of its own grit,
+   instead of vanishing: brick rubble is whole bricks, bats and halves in a bed of crushed mortar and fines. */
+const UNIT_MATS = new Set<MaterialId>(['brick', 'stone', 'sandstone', 'cinderblock', 'terracotta', 'adobe', 'concrete']);
+function snapUnit(p: Piece, point: Vec3): boolean {
+  const pos: Vec3 = [0, 0, 0], rot: Quat = [0, 0, 0, 1], lin: Vec3 = [0, 0, 0], ang: Vec3 = [0, 0, 0];
+  b3.b3Body_GetTransform(pos, rot, p.body);
+  b3.b3Body_GetLinearVelocity(lin, p.body);
+  b3.b3Body_GetAngularVelocity(ang, p.body);
+  const bmin: Vec3 = [0, 0, 0], bmax: Vec3 = [0, 0, 0];
+  P.bounds(p.poly, bmin, bmax);
+  const d: Vec3 = [bmax[0] - bmin[0], bmax[1] - bmin[1], bmax[2] - bmin[2]];
+  const k = d[0] >= d[1] && d[0] >= d[2] ? 0 : d[1] >= d[2] ? 1 : 2;
+  if (d[k] < 0.08) return false;
+  // where it breaks: toward the struck end, a third to a half along (fixed per body, so a replay breaks it the same way)
+  const h = Math.sin(p.id * 78.233) * 43758.5453, u = h - Math.floor(h);
+  const li = toLocal([0, 0, 0], pos, rot, point);
+  const fromLo = li[k] - bmin[k] < bmax[k] - li[k];
+  const f = 0.33 + 0.17 * u, at = fromLo ? bmin[k] + f * d[k] : bmax[k] - f * d[k];
+  const n: Vec3 = [0, 0, 0];
+  n[k] = 1;
+  const nt = tilted(n, 0.5);
+  const c: Vec3 = [(bmin[0] + bmax[0]) / 2, (bmin[1] + bmax[1]) / 2, (bmin[2] + bmax[2]) / 2];
+  c[k] = at;
+  const off = vec3.dot(nt, c);
+  const A = P.clip(p.poly, nt, off - 0.002, -2), B = P.clip(p.poly, [-nt[0], -nt[1], -nt[2]], -(off + 0.002), -2);
+  if (A.faces.length < 4 || B.faces.length < 4 || P.minWidth(A) < 0.02 || P.minWidth(B) < 0.02) return false;
+  if (!p.demolished) credit(p.root, p.volume, p.curPos);
+  destroyPiece(p);
+  counters.fractures++;
+  for (const [poly, sg] of [[A, -1], [B, 1]] as const) {
+    const cc: Vec3 = [0, 0, 0];
+    const vol = P.volumeCentroid(poly, cc);
+    const r: Vec3 = [0, 0, 0], wc: Vec3 = [0, 0, 0];
+    vec3.transformQuat(r, cc, rot);
+    vec3.add(wc, pos, r);
+    const v: Vec3 = [lin[0] + ang[1] * r[2] - ang[2] * r[1], lin[1] + ang[2] * r[0] - ang[0] * r[2], lin[2] + ang[0] * r[1] - ang[1] * r[0]];
+    const nw: Vec3 = [0, 0, 0];
+    vec3.transformQuat(nw, nt, rot);
+    vec3.scaleAndAdd(v, v, nw, sg * 0.35);
+    createPiece({
+      mat: p.mat, tint: p.tint, poly: P.translate(poly, [-cc[0], -cc[1], -cc[2]]), cyl: null,
+      pos: wc, rot: [...rot], lin: v, ang: [ang[0] + sg * 0.8, ang[1], ang[2] - sg * 0.8],
+      uvOrigin: [p.uvOrigin[0] + cc[0], p.uvOrigin[1] + cc[1], p.uvOrigin[2] + cc[2]],
+      depth: Math.min(MAX_DEPTH, p.depth + 1), root: p.root, demolished: true, awake: true, volume: vol,
+      char: p.char, burning: p.burning, temp: p.temp, frag: true,
+    });
+  }
+  fx.dust(point, 0.35, p.pm.dust);
+  fx.debris(point, 6, p.pm.chips, 1.8);
+  fx.fines(point, p.volume * 0.15, p.pm.dust, 0.35);
+  return true;
+}
+
 function pulverize(p: Piece, point: Vec3): void {
   if (!p.demolished) credit(p.root, p.volume, p.curPos);
   p.demolished = true;
   destroyPiece(p);
   fx.debris(point, 10, p.pm.chips, 3);
   fx.dust(point, 0.8, p.pm.dust);
+  if (UNIT_MATS.has(p.mat)) fx.fines(point, p.volume, p.pm.dust, 0.45);
 }
 
 function fracture(p: Piece, point: Vec3, intensity: number, blast: boolean): void {
@@ -2461,6 +2516,8 @@ function fracture(p: Piece, point: Vec3, intensity: number, blast: boolean): voi
   if (detailFracture(p, point, intensity, blast)) return;
   if (p.parts) { splitCompound(p, point, intensity, blast); return; }
   if (p.svc) svcHarm(p, true);
+  // a unit landing hard snaps into a bat and a half while there is room for the bodies (a blast's shattering reduces it)
+  if (p.volume < MIN_FRACTURE_VOL && p.volume > 4e-4 && p.depth < MAX_DEPTH && UNIT_MATS.has(p.mat) && intensity < 4 && debrisCount < BUDGET * 1.1 && snapUnit(p, point)) return;
   if (p.volume < MIN_FRACTURE_VOL || p.depth >= MAX_DEPTH || (debrisCount > BUDGET * 0.85 && p.depth >= 1)) {
     if (p.volume < 0.06) pulverize(p, point);
     else p.damage = p.hp * 0.5;
@@ -3199,8 +3256,12 @@ function blastPanels(bl: Survey, pos: Vec3): void {
    bigger than a few units comes apart where it lands, into clumps, and a clump into its bricks. */
 const LAND_J_PER_KG = 3;
 const shattering = new WeakSet<Piece>();
+/* a slate or tile roof slab lands as slates, battens and rafters, a timber floor as its boards and joists (nailed
+   timber takes a harder landing than a mortar joint to come apart) */
+const BREAKUP_MATS = new Set<MaterialId>([...PANEL_MATS, 'roof', 'terracotta', 'wood', 'plywood']);
+const landJ = (p: Piece): number => (p.mat === 'wood' || p.mat === 'plywood' ? 12 : LAND_J_PER_KG) * p.mass;
 function landing(p: Piece, at: Vec3, e: number): void {
-  if (p.dead || p.welds.length || shattering.has(p) || !PANEL_MATS.has(p.mat) || e < LAND_J_PER_KG * p.mass || detailUnits(p) < 6) return;
+  if (p.dead || p.welds.length || shattering.has(p) || !BREAKUP_MATS.has(p.mat) || e < landJ(p) || detailUnits(p) < 6) return;
   if (clock - p.born < 0.15) return;
   shattering.add(p);
   shatterQueue.push({ p, at: [at[0], at[1], at[2]], step: stepCount, blast: false });
@@ -3539,7 +3600,7 @@ function housekeeping(dt: number): void {
   const doomed: Piece[] = [];
   for (const p of live) {
     if (p.curPos[1] < -15) { if (!p.demolished) markDemolished(p); doomed.push(p); continue; }
-    if (p.depth === 0 && !p.welds.length && p.demolished && !shattering.has(p) && PANEL_MATS.has(p.mat)) fallen(p);
+    if (p.depth === 0 && !p.welds.length && p.demolished && !shattering.has(p) && BREAKUP_MATS.has(p.mat)) fallen(p);
     if (p.fade > 0 || !p.demolished || p.depth === 0 || p.rebars.length || frozenSet.has(p)) continue;
     if (p.movedStep < stepCount - 2) p.sleepT += 0.5;
     if (p.volume < 0.012 && p.sleepT > 30) { if (canFreeze(p) && onRubble(p)) freezeRubble(p); else startFade(p); }
