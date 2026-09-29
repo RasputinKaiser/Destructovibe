@@ -62,13 +62,13 @@ interface Preset {
 const PRESETS: Record<EnvPreset, Preset> = {
   noon: {
     elev: 58, azim: 35, sun: 0xfff1dc, sunI: 5.2, shadow: 1, zenith: 0x2d6cc4, horizon: 0xb9cfe3, fogD: 0.0021,
-    hemiSky: 0xcfe0ff, hemiGround: 0x6b5d4b, hemiI: 0.25, envI: 0.85, exposure: 1.0,
+    hemiSky: 0xcfe0ff, hemiGround: 0x67615a, hemiI: 0.25, envI: 0.85, exposure: 1.0,
     glow: 0xfff0d0, glowK: 0.35, cloud: 0.3, cloudLit: 0xffffff, cloudShade: 0x9aa6b8, stars: 0, disc: 60, discDeg: 1.1, bloomT: 5, bloomS: 0.35,
     hazeD: 0.0009, hazeH: 34, scatter: 0.35, god: 0.16, humid: 0.2, wet: 0,
   },
   golden: {
     elev: 14, azim: -68, sun: 0xffb46b, sunI: 4.6, shadow: 1, zenith: 0x4a74b0, horizon: 0xe6c39c, fogD: 0.0026,
-    hemiSky: 0xbac8e2, hemiGround: 0x6a4e38, hemiI: 0.22, envI: 0.8, exposure: 1.05,
+    hemiSky: 0xbac8e2, hemiGround: 0x665a50, hemiI: 0.22, envI: 0.8, exposure: 1.05,
     glow: 0xffa860, glowK: 1.1, cloud: 0.35, cloudLit: 0xffd2a0, cloudShade: 0x8a7f8c, stars: 0, disc: 40, discDeg: 1.3, bloomT: 4, bloomS: 0.45,
     hazeD: 0.0016, hazeH: 24, scatter: 0.9, god: 0.5, humid: 0.35, wet: 0,
   },
@@ -80,7 +80,7 @@ const PRESETS: Record<EnvPreset, Preset> = {
   },
   dusk: {
     elev: 7, azim: -100, sun: 0xff7a42, sunI: 2.2, shadow: 0.9, zenith: 0x283060, horizon: 0xb57a6a, fogD: 0.003,
-    hemiSky: 0x6a6aa8, hemiGround: 0x3a2c2a, hemiI: 0.35, envI: 0.7, exposure: 1.35,
+    hemiSky: 0x6a6aa8, hemiGround: 0x37312f, hemiI: 0.35, envI: 0.7, exposure: 1.35,
     glow: 0xff7040, glowK: 1.5, cloud: 0.4, cloudLit: 0xff9a6a, cloudShade: 0x4a3c58, stars: 0.25, disc: 25, discDeg: 1.4, bloomT: 2.2, bloomS: 0.55,
     hazeD: 0.0018, hazeH: 18, scatter: 1.0, god: 0.45, humid: 0.6, wet: 0.35,
   },
@@ -927,7 +927,8 @@ export function setEnvironment(e: EnvPreset): void {
   gfx.scene.environmentIntensity = p.envI;
 
   const k = (p.sunI * Math.max(sunDir.y, 0)) / Math.PI;
-  const groundEnv = new THREE.Color(0.2, 0.17, 0.13).multiply(new THREE.Color(sunC.r * k + hor.r * 0.8, sunC.g * k + hor.g * 0.8, sunC.b * k + hor.b * 0.8));
+  // what comes back up off a site is paving, concrete, rubble and trodden grass: a grey-brown, not a sandy orange
+  const groundEnv = new THREE.Color(0.19, 0.175, 0.155).multiply(new THREE.Color(sunC.r * k + hor.r * 0.8, sunC.g * k + hor.g * 0.8, sunC.b * k + hor.b * 0.8));
   sky.set({
     sunDir,
     sunDisc: sunC.clone().multiplyScalar(p.disc),

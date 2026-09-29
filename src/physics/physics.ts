@@ -199,7 +199,7 @@ export function step(h: StepHandlers): void {
     copy3(e.prevPos, e.curPos); copy4(e.prevRot, e.curRot);
     copy3(e.curPos, moveEv.position);
     copy4(e.curRot, moveEv.rotation);
-    if (runaway(e) || (e.kind === 'piece' && e.mass >= GOV_MASS && governed(e))) continue;
+    if (runaway(e) || (e.kind === 'piece' && (e.mass >= GOV_MASS ? governed(e) : overspeed(e)))) continue;
     e.movedStep = stepCount;
     e.onMove?.();
   }
@@ -278,6 +278,14 @@ function inBlast(p: Vec3): boolean {
     if (dx * dx + dy * dy + dz * dz < b.r2) return true;
   }
   return false;
+}
+
+/* A light body (a wheel off a parked bus, a fragment wedged in a joint cluster) past GOV_MAX with no blast about and
+   nothing driving it is the solver spitting it out, not a throw: nothing on a site flings a wheel at 125 m/s. */
+function overspeed(e: PhysEntity): boolean {
+  const dx = e.curPos[0] - e.prevPos[0], dy = e.curPos[1] - e.prevPos[1], dz = e.curPos[2] - e.prevPos[2];
+  if (dx * dx + dy * dy + dz * dz <= (GOV_MAX * FIXED_DT) ** 2 || stepCount - (e.drivenStep ?? -99) < 30 || (blasts.length && inBlast(e.curPos))) return false;
+  return runaway(e, true);
 }
 
 function governed(e: PhysEntity): boolean {
