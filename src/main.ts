@@ -357,9 +357,15 @@ function beginPlay(title: string): void {
   audio.setPaused(false);
   if (!input.locked) requestLock();
   ui.setPointerHint(!input.locked);
-  flashHint(mode === 'sandbox' ? 'F — fly · R — rebuild site' : `Target ${Math.round(active.target * 100)}% · Enter — call it early`, 5);
+  clockOn = mode === 'sandbox';
+  flashHint(mode === 'sandbox' ? 'F — fly · R — rebuild site' : `Target ${Math.round(active.target * 100)}% · the clock starts when you move or fire · Enter calls it early`, 6);
   ui.toast(title.toUpperCase(), 'info', 1800);
 }
+
+/* The contract clock waits for the crew: looking round from the spawn (and clicking in for the mouse) is free; the first
+   key, click or tool use starts it. */
+let clockOn = true;
+const startClock = (): void => { clockOn = true; };
 
 function restart(): void {
   if (mode === 'campaign') void startContract(contractIdx);
@@ -665,6 +671,7 @@ function endReplay(): void {
 }
 
 function handleInput(): void {
+  if (!clockOn && (input.pressed.size || input.clicked || input.buttons)) startClock();
   if (handleDriving()) return;
   if (input.mouseDX || input.mouseDY) applyLook(input.mouseDX, input.mouseDY);
   if (input.pressed.has('KeyQ')) { bank = (bank + 1) % BANK_COUNT; audio.ui('click'); }
@@ -850,7 +857,7 @@ function frame(dt: number): void {
       replay.recordStep();
       recMs += performance.now() - tr0;
       playerPostStep();
-      scoring.tickScore(FIXED_DT);
+      if (clockOn) scoring.tickScore(FIXED_DT);
       acc -= FIXED_DT;
       steps++;
     }
@@ -1056,8 +1063,8 @@ if (import.meta.env.DEV) window.__dv = {
   railway: () => startSandbox(RAILWAY),
   get objective() { return { ...scoring.objective, target: active.target, met: scoring.goalMet(active.target), id: active.id }; },
   look: (dx: number, dy: number) => applyLook(dx, dy),
-  fire: () => tryFire(),
-  select: (id: WeaponId) => select(id),
+  fire: () => { startClock(); return tryFire(); },
+  select: (id: WeaponId) => { startClock(); select(id); },
   detonate: () => detonate(),
   setPlaying: () => { if (state === 'paused') { state = 'playing'; ui.showScreen(null); } },
   get perf() { return { phys: +perf.phys.toFixed(2), render: +perf.render.toFixed(2), fx: +perf.fx.toFixed(2), sync: +perf.sync.toFixed(2), rec: +perf.rec.toFixed(3), calls: gfx.renderer.info.render.calls, tris: gfx.renderer.info.render.triangles, ...renderStats() }; },
