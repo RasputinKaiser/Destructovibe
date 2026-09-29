@@ -6,6 +6,7 @@ import b_apartment_block from './apartment-block/def.ts';
 import b_arch_bridge from './arch-bridge/def.ts';
 import b_backdrop_tower from './backdrop-tower/def.ts';
 import b_barn from './barn/def.ts';
+import b_boiler_chimney from './boiler-chimney/def.ts';
 import b_brick_stack from './brick-stack/def.ts';
 import b_brick_wall from './brick-wall/def.ts';
 import b_bungalow from './bungalow/def.ts';
@@ -66,6 +67,7 @@ export const BUILDINGS: Record<string, BuildingDef<any>> = {
   'arch-bridge': b_arch_bridge,
   'backdrop-tower': b_backdrop_tower,
   'barn': b_barn,
+  'boiler-chimney': b_boiler_chimney,
   'brick-stack': b_brick_stack,
   'brick-wall': b_brick_wall,
   'bungalow': b_bungalow,
