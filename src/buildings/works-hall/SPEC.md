@@ -10,4 +10,6 @@ directly and keeps them). Footprint frame only; no datums.
 Known gaps:
 - No floor slab or joints (site pad).
 - No office pod (piece budget).
-- The shell's gaps (sheet gloss and crumpling, member bending, GRP, ambient) are listed in portal-shed/SPEC.md.
+- The shell's gaps (sheet gloss and crumpling, the stripped-sheet strips, member bending, GRP, ambient, the dust
+  look and E8 box) are listed in portal-shed/SPEC.md. The gable rafter read curved (M-c): the gable frames are now
+  unhaunched.

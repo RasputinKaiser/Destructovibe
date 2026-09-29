@@ -6,5 +6,5 @@ Load paths: roof slabs seat on the front/back wall tops and the gable triangles;
 
 Pub front: green 'joinery'-finish timber (pale undercoat chips, no red primer bleed), fielded panel stall risers, gilded-capital pilasters, lettered fascia with cornice.
 
-Known gaps (package): no stair or internal partitions; the pub basement comes from the map's foundation (found basement); shop-a and the pub stand detached (map layout, M4).
-Known gaps (engine): carved stubs, roof hang/plateau, lattice clumps without fines, unbroken landed slabs, black sprite smoke, awake bodies after a blast (see cottage-row SPEC).
+Known gaps (package): no stair or internal partitions; the pub basement comes from the map's foundation (found basement); shop-a and the pub stand detached (map layout, M4); the gable corner shows a straight joint at the member boundary (critic N8).
+Known gaps (engine; critic loop 1 round 4, not package-fixable): see cottage-row SPEC — carved load-bearing stubs, roof hang and plateau, see-through lattice clumps without mortar or fines, landed slabs that never break, black sprite smoke and emissive burning timber, hundreds of bodies still awake 60 s after an event.

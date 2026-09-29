@@ -22,3 +22,9 @@ export function vary(c: number, u: PieceSpec, spread = 0.22, salt = 0): number {
   const r = hash3(u.pos[0], u.pos[1], u.pos[2], salt), s = hash3(u.pos[2], u.pos[0], u.pos[1], salt + 7);
   return shadeTint(c, 1 - spread / 2 + spread * r * r * 0.6 + spread * 0.4 * s, (s - 0.5) * 2);
 }
+
+/** a colour multiplied channel by channel by another (a white-laid finish taking a paint colour) */
+export function mulTint(c: number, by: number): number {
+  const ch = (s: number) => Math.round((((c >> s) & 255) * ((by >> s) & 255)) / 255);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}

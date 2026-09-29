@@ -1,6 +1,6 @@
 import type { MaterialId, PieceSpec, Vec3 } from '../../types.ts';
 import { block, extrude, hull, wallRun, weldParts, type Opening, type PieceOpts, type Range, type WallRunOpts } from '../../levels/kit.ts';
-import { boards, layered, masonry, wallSlab, withDetail, BRICK } from '../../levels/layers.ts';
+import { boards, layered, masonry, wallSlab, withDetail, BRICK, type Slab } from '../../levels/layers.ts';
 import { roofUnits, type Covering } from './roofs.ts';
 import { hash3, shadeTint, vary } from './tints.ts';
 import { inscribe, letters, type SignFace } from './lettering.ts';
@@ -289,6 +289,9 @@ export interface LimeOpts {
   /** lintels over openings built into the courses (stone or concrete units bearing 110 mm each side), so the member
       over an opening needs no separate lintel piece */
   heads?: Head[];
+  /** the run's plan axis; without it each member's longer side is taken (wrong for a pier narrower than the wall is
+      thick, such as the columns beside a service patch) */
+  axis?: 'x' | 'z';
 }
 
 export interface Head { u: Range; y: number; h?: number; mat?: MaterialId; tint?: number }
@@ -319,6 +322,20 @@ function boxLike(u: PieceSpec, lo: number[], hi: number[]): PieceSpec {
 
 const PL = 0.0115;
 
+/* a skin over the whole face of a member in near-square cells of about `step`, fitted to its edges so no strip of
+   the brick behind shows at the member's ends, head or foot */
+function tiles(s: Slab, T: Range, mat: MaterialId, step: number, tint: number): PieceSpec[] {
+  const nu = Math.max(1, Math.round((s.U[1] - s.U[0]) / step)), nv = Math.max(1, Math.round((s.V[1] - s.V[0]) / step));
+  const du = (s.U[1] - s.U[0]) / nu, dv = (s.V[1] - s.V[0]) / nv, out: PieceSpec[] = [];
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const u: Range = [s.U[0] + i * du, s.U[0] + (i + 1) * du], v: Range = [s.V[0] + j * dv, s.V[0] + (j + 1) * dv];
+    const q = s.u === 0 ? block(mat, u, v, T) : block(mat, T, v, u);
+    q.tint = tint;
+    out.push(q);
+  }
+  return out;
+}
+
 /** Give the brick members of one wallRun their units: solid brick in bond with lime plaster on the room face(s) and,
     optionally, render outside. `out` is the weather side along the wall's thickness axis. Every brick is fired a
     little differently; the foot of the wall and the brick under each sill are dirtier. Plaster and render are laid as
@@ -328,13 +345,13 @@ export function lime(ps: PieceSpec[], out: 1 | -1, o: LimeOpts = {}): PieceSpec[
   let lo = Infinity, hi = -Infinity, base = Infinity;
   for (const p of ps) {
     if (p.mat !== 'brick') continue;
-    const k = p.size[0] >= p.size[2] ? 0 : 2;
+    const k = o.axis ? (o.axis === 'x' ? 0 : 2) : p.size[0] >= p.size[2] ? 0 : 2;
     lo = Math.min(lo, p.pos[k] - p.size[k] / 2); hi = Math.max(hi, p.pos[k] + p.size[k] / 2); base = Math.min(base, p.pos[1] - p.size[1] / 2);
   }
   const foot = o.foot ?? base;
   return ps.map((p) => {
     if (p.mat !== 'brick' || p.detail || p.parts || (p.shape && p.shape !== 'box') || p.util || p.fixture) return p;
-    const [sx, sy, sz] = p.size, alongX = sx >= sz, T = Math.min(sx, sz);
+    const [sx, sy, sz] = p.size, alongX = o.axis ? o.axis === 'x' : sx >= sz, T = alongX ? sz : sx;
     if (T < 0.09 || T > 0.62 || sy < 0.2) return p;
     const r = (k: number): Range => [p.pos[k] - p.size[k] / 2, p.pos[k] + p.size[k] / 2];
     const s = wallSlab(alongX ? 'x' : 'z', r(alongX ? 0 : 2), r(1), r(alongX ? 2 : 0), out);
@@ -371,9 +388,9 @@ export function lime(ps: PieceSpec[], out: 1 | -1, o: LimeOpts = {}): PieceSpec[
       d.push(st);
     }
     const inset = o.inset ?? T, U: Range = [Math.max(s.U[0], lo + inset), Math.min(s.U[1], hi - inset)];
-    if (rin && U[1] - U[0] > 0.05) d.push(...boards({ ...s, U }, bandT(T - rin, rin), 'plaster', [0.6, 0.6], 0, { tint: o.plaster ?? 0xeee7da }));
+    if (rin && U[1] - U[0] > 0.05) d.push(...tiles({ ...s, U }, bandT(T - rin, rin), 'plaster', 0.6, o.plaster ?? 0xeee7da));
     if (rout) {
-      const skin = boards(s, bandT(0, rout), o.render !== undefined ? 'concrete' : 'plaster', o.render !== undefined ? [0.15, 0.15] : [0.6, 0.6], 0, { tint: o.render ?? o.plaster ?? 0xeee7da });
+      const skin = tiles(s, bandT(0, rout), o.render !== undefined ? 'concrete' : 'plaster', o.render !== undefined ? 0.15 : 0.6, o.render ?? o.plaster ?? 0xeee7da);
       if (o.render !== undefined) for (const u of skin) {
         // weathered roughcast: darker at the foot and in faint streaks, otherwise near-uniform
         const streak = hash3(Math.round(u.pos[0] * 2), 0, Math.round(u.pos[2] * 2), 17) < 0.25 ? 0.94 : 1;
@@ -548,7 +565,7 @@ export function brickRun(w: WallRunOpts, out: 1 | -1, o: LimeOpts & { patches?: 
   });
   for (const [u, y] of o.patches ?? []) q = servicePatch(q, u, y);
   if (o.dress) q = glazeAll(q, o.dress);
-  return lime(q, out, { stains: sillStains(src, w.y0), foot: 0, ...o, heads: [...heads, ...(o.heads ?? [])] });
+  return lime(q, out, { stains: sillStains(src, w.y0), foot: 0, axis: w.axis ?? 'x', ...o, heads: [...heads, ...(o.heads ?? [])] });
 }
 
 /** Bond members that are built as one (a chimney breast and the wall it is corbelled from): one compound body with

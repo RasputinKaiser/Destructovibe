@@ -6,7 +6,7 @@ import type { Placement } from '../../_shared/base.ts';
 import { put } from '../../_shared/clearance-helpers.ts';
 import { archWall, gable, gableBlocks, rubble, COURSES, type Lancet } from '../lib.ts';
 
-const STONE = 0x9a968e, DRESS = 0xe0dacb, OAK = 0x6b4a2e, SLATE = 0x3a4350, IRON = 0x2a2c2e;
+const STONE = 0x9a968e, DRESS = 0xe0dacb, SLATE = 0x3a4350, IRON = 0x2a2c2e;
 
 /** Victorian nonconformist chapel, gable front (west door) toward -X: a single-cell nave, 13 × 7.2 m over 500 mm
     walls of squared rubble (dressed plinth, sill-level string course, quoins, dressed jambs, sills and arch stones;
@@ -48,10 +48,10 @@ export function chapelLite(p: Placement): PieceSpec[] {
   const at = (y: number) => COURSES.reduce((b, c) => (Math.abs(c.y[0] - y) < Math.abs(b - y) ? c.y[0] : b), 0);
   const lifts = [at(6.3), at(7.45)];
   // east gable under the roof slopes
-  ps.push(...gableBlocks([[-Z + seat, h], [Z - seat, h], [0, under(0)]], [X - t, X], STONE, { lifts, splits: [[-1.0, 1.0]], out: 1 }));
+  ps.push(...gableBlocks([[-Z + seat, h], [Z - seat, h], [0, under(0)]], [X - t, X], STONE, { lifts, splits: [[-1.0, 1.0]], out: 1, plaster: true, dress: DRESS }));
   // west parapet gable: coped 150 mm above the slates at the eaves, rising to a flat top over the ridge for the bellcote
   const topZ = under(Z) + thick + 0.15, yA = under(0) + thick + 0.3;
-  ps.push(...gableBlocks([[-Z, h], [Z, h], [Z, topZ], [0.55, yA], [-0.55, yA], [-Z, topZ]], [-X, -X + t], STONE, { lifts, splits: [[-1.2, 1.2], [-1.2, 1.2]], out: -1 }));
+  ps.push(...gableBlocks([[-Z, h], [Z, h], [Z, topZ], [0.55, yA], [-0.55, yA], [-Z, topZ]], [-X, -X + t], STONE, { lifts, splits: [[-1.2, 1.2], [-1.2, 1.2]], out: -1, plaster: true, dress: DRESS }));
   // bellcote: two piers and a gabled cap, the bell hung between them
   const bx: Range = [-X, -X + t], cap = yA + 0.95;
   const capHull = hull('stone', [bx[0] - 0.05, bx[1] + 0.05].flatMap((x) => [[x, cap, -0.62], [x, cap, 0.62], [x, cap + 0.1, -0.62], [x, cap + 0.1, 0.62], [x, cap + 0.5, 0]] as Vec3[]));
@@ -71,10 +71,10 @@ export function chapelLite(p: Placement): PieceSpec[] {
   ps.push(gable([[-pz + pseat, hp], [pz - pseat, hp], [0, hp + pk * (pz - pseat)]], [px[0], px[0] + pw], STONE, -1));
 
   // interior: pews on their platforms, the communion table, the pulpit on its dais
-  for (const s of [1, -1]) ps.push(pewBlock([-4.6, 2.6], s > 0 ? [0.45, 2.95] : [-2.95, -0.45], 8));
+  ps.push(pewBlock([-4.6, 2.6], [[0.45, 2.95], [-2.95, -0.45]], 8));
   ps.push(block('stone', [4.2, X - t], [0, 0.2], [-Z + t, Z - t], { tint: 0xcfc6b2 }));
   ps.push(table([3.2, 3.9], [-0.9, 0.9], 0));
-  ps.push(pulpit([4.9, 5.85], [-0.65, 0.65], 0.2));
+  ps.push(pulpit([5.0, 5.85], [-2.75, -1.9], 0.2));
   // consumer unit on the north wall over the through-stone; its lighting cable up the wall and along the wall head
   const zn = -Z + t;
   ps.push(supplyBox([-5.6, -5.2], [0.85, 1.3], [zn, zn + 0.12]));
@@ -85,17 +85,29 @@ export function chapelLite(p: Placement): PieceSpec[] {
   return put(ps, p, 'chapel');
 }
 
-/** A run of pews on a timber platform: one body per side (platform, and per pew its two bench ends, seat and back). */
-function pewBlock(x: Range, z: Range, n: number): PieceSpec {
-  const parts: PieceSpec[] = [block('wood', x, [0, 0.08], z)];
-  const pitch = (x[1] - x[0] - 0.5) / (n - 1);
+/** The pews either side of the aisle on one timber platform, facing east (+x): one body. Each pew is its back (raked), a book
+    ledge on the back for the pew behind, the seat on an apron rail, and two shaped bench ends rising to a rounded
+    shoulder at the back. Varnished oak, not painted. */
+function pewBlock(x: Range, sides: Range[], n: number): PieceSpec {
+  // one boarded platform under both blocks and the aisle between
+  const parts: PieceSpec[] = [block('oak', x, [0, 0.08], [Math.min(...sides.map((z) => z[0])), Math.max(...sides.map((z) => z[1]))])];
+  for (const z of sides) pews(x, z, n, parts);
+  return weldParts(parts, { tint: 0xd9bf9c });
+}
+
+function pews(x: Range, z: Range, n: number, parts: PieceSpec[]): void {
+  const pitch = (x[1] - x[0] - 0.62) / (n - 1), zi: Range = [z[0] + 0.05, z[1] - 0.05];
+  const prof = (q: [number, number][], zr: Range) => hull('oak', zr.flatMap((zz) => q.map(([xx, y]) => [xx, y, zz] as Vec3)));
   for (let i = 0; i < n; i++) {
-    const x0 = x[0] + 0.05 + i * pitch;
-    parts.push(block('wood', [x0, x0 + 0.42], [0.42, 0.46], [z[0] + 0.05, z[1] - 0.05]));
-    parts.push(block('wood', [x0 + 0.42, x0 + 0.46], [0.36, 0.95], [z[0] + 0.05, z[1] - 0.05]));
-    for (const e of [[z[0], z[0] + 0.05], [z[1] - 0.05, z[1]]] as Range[]) parts.push(block('wood', [x0 - 0.02, x0 + 0.48], [0.08, 0.98], e));
+    const x0 = x[0] + 0.14 + i * pitch;
+    parts.push(prof([[x0, 0.46], [x0 + 0.045, 0.46], [x0 - 0.01, 0.92], [x0 - 0.055, 0.92]], zi));
+    parts.push(block('oak', [x0 - 0.17, x0 - 0.052], [0.83, 0.87], zi));
+    parts.push(block('oak', [x0 + 0.045, x0 + 0.46], [0.42, 0.46], zi));
+    parts.push(block('oak', [x0 + 0.42, x0 + 0.46], [0.3, 0.42], zi));
+    for (const e of [[z[0], z[0] + 0.05], [z[1] - 0.05, z[1]]] as Range[]) {
+      parts.push(prof([[x0 - 0.08, 0.08], [x0 + 0.48, 0.08], [x0 + 0.48, 0.6], [x0 + 0.4, 0.66], [x0 + 0.02, 0.98], [x0 - 0.04, 1.0], [x0 - 0.08, 0.96]], e));
+    }
   }
-  return weldParts(parts, { tint: OAK, finish: 'satin' });
 }
 
 /** Communion table on the dais: top, frieze and four legs as one body. */
@@ -105,7 +117,7 @@ function table(x: Range, z: Range, y0: number): PieceSpec {
     block('wood', [x[0] - 0.03, x[1] + 0.03], [top - 0.04, top], [z[0] - 0.03, z[1] + 0.03]),
     block('wood', x, [top - 0.16, top - 0.04], z),
     ...([[x[0], z[0]], [x[1] - l, z[0]], [x[0], z[1] - l], [x[1] - l, z[1] - l]] as [number, number][]).map(([a, b]) => block('wood', [a, a + l], [y0, top - 0.16], [b, b + l])),
-  ], { tint: OAK, finish: 'satin' });
+  ], { tint: 0xc9a47c, mat: 'oak' });
 }
 
 /** King-post truss across the nave at x: a tie beam on the wall heads (its ends cut to the roof slope), two principal
@@ -118,7 +130,7 @@ function truss(x: number, h: number, half: number, k: number): PieceSpec {
   const tie = hull('wood', pts([[-half, h], [half, h], [zU, h + tb], [-zU, h + tb]]));
   const princ = (s: 1 | -1) => hull('wood', pts([[s * 0.1, U(0.1)], [s * 0.1, L(0.1)], [s * zL, h + tb], [s * zU, h + tb]]));
   const king = block('wood', w, [h + tb, U(0.1)], [-0.1, 0.1]);
-  return weldParts([tie, princ(1), princ(-1), king], { tint: 0x5a3f28, joint: { kind: 'bolt', n: 2, d: 0.02 } });
+  return weldParts([tie, princ(1), princ(-1), king], { tint: 0x8a6a4a, joint: { kind: 'bolt', n: 2, d: 0.02 } });
 }
 
 /** Fascia over the rafter feet, a cast-iron gutter on it and a downpipe at each end, one body along the eaves. */
@@ -126,7 +138,9 @@ function eaves(s: 1 | -1, X: number, Z: number, h: number, top: number): PieceSp
   const zr = (a: number, b: number): Range => [Math.min(s * a, s * b), Math.max(s * a, s * b)];
   const o = { tint: IRON, finish: 'paint' as const };
   const p = weldParts([
-    block('castiron', [-X + 0.5, X], [h - 0.03, top + 0.02], zr(Z, Z + 0.04)),
+    // the fascia stands 100 mm above the rafter feet, closing the eaves under the bottom slates (the nave's lamps and
+    // the sky showed through there)
+    block('castiron', [-X + 0.5, X], [h - 0.03, top + 0.1], zr(Z, Z + 0.04)),
     block('castiron', [-X + 0.5, X], [h + 0.03, h + 0.15], zr(Z + 0.04, Z + 0.17)),
   ], o);
   p.density = 1400;
@@ -135,28 +149,33 @@ function eaves(s: 1 | -1, X: number, Z: number, h: number, top: number): PieceSp
   return [p, ...pipes];
 }
 
-/** Raised pulpit on the dais: panelled box, book board and cornice, one oak body. */
+/** Raised pulpit on the dais, clear of the east window: a panelled octagon-fronted tub on a pedestal, its floor
+    1.1 m up, a sloped book board on its front, a cornice, and a stair of five steps with a handrail and newel coming
+    up to it from the west. One oak body; the fielded panels, rails and stiles are detail. */
 function pulpit(x: Range, z: Range, y0: number): PieceSpec {
-  const top = y0 + 1.75;
-  const p = weldParts([
-    block('wood', x, [y0, top], z),
-    block('wood', [x[0] - 0.05, x[1] + 0.05], [top, top + 0.06], [z[0] - 0.05, z[1] + 0.05]),
-    block('wood', [x[0] - 0.12, x[0]], [top - 0.25, top - 0.05], [z[0] + 0.2, z[1] - 0.2]),
-  ], { tint: OAK, finish: 'satin' });
-  const d: PieceSpec[] = [];
-  const u = (xr: Range, yr: Range, zr2: Range, tint: number) => { const q = block('wood', xr, yr, zr2); q.tint = tint; q.finish = 'satin'; d.push(q); };
-  // the front: stiles, rails and fielded panels
-  const fx: Range = [x[0], x[0] + 0.05];
-  const zs = [z[0], z[0] + 0.06, (z[0] + z[1]) / 2 - 0.03, (z[0] + z[1]) / 2 + 0.03, z[1] - 0.06, z[1]];
-  for (let i = 0; i + 1 < zs.length; i++) {
-    const zz: Range = [zs[i], zs[i + 1]];
-    if (i % 2 === 0) u(fx, [y0, top], zz, OAK);
-    else { u(fx, [y0, y0 + 0.2], zz, OAK); u(fx, [top - 0.15, top], zz, OAK); u([x[0] + 0.012, x[0] + 0.05], [y0 + 0.2, top - 0.15], zz, 0x5c3e25); }
+  const fl = y0 + 0.9, top = fl + 1.0, xm = (x[0] + x[1]) / 2, zm = (z[0] + z[1]) / 2, ch = 0.22;
+  // the tub in plan: a square with its front corners cut (a half-octagon toward the congregation)
+  const tub = (y: Range, g = 0): PieceSpec => hull('oak', y.flatMap((yy) => ([[x[0] - g + ch, z[0] - g], [x[1] + g, z[0] - g], [x[1] + g, z[1] + g], [x[0] - g + ch, z[1] + g], [x[0] - g, z[1] + g - ch], [x[0] - g, z[0] - g + ch]] as [number, number][]).map(([a, b]) => [a, yy, b] as Vec3)));
+  const parts: PieceSpec[] = [
+    block('oak', [xm - 0.2, xm + 0.2], [y0, fl - 0.12], [zm - 0.2, zm + 0.2]),
+    tub([fl - 0.12, top]),
+    tub([top, top + 0.06], 0.04),
+    hull('oak', ([[x[0] - 0.14, top - 0.05], [x[0], top - 0.005], [x[0], top - 0.13], [x[0] - 0.06, top - 0.13]] as [number, number][]).flatMap(([a, y]) => [zm - 0.3, zm + 0.3].map((b) => [a, y, b] as Vec3))),
+  ];
+  // stair up the pulpit's north side from the west: five risers to the floor, a newel and a raking handrail
+  const sz: Range = [z[1], z[1] + 0.55], sx0 = x[0] - 0.7, run = (x[0] + ch - sx0) / 5;
+  for (let i = 0; i < 5; i++) parts.push(block('oak', [sx0 + i * run, sx0 + (i + 1) * run], [y0, y0 + ((fl - y0) * (i + 1)) / 5], sz));
+  parts.push(block('oak', [sx0 - 0.08, sx0], [y0, fl + 0.05], [sz[1] - 0.08, sz[1]]));
+  parts.push(hull('oak', ([[sx0, fl - 0.05], [sx0, fl + 0.02], [x[0] + ch, top], [x[0] + ch, top - 0.07]] as [number, number][]).flatMap(([a, y]) => [sz[1] - 0.06, sz[1] - 0.02].map((b) => [a, y, b] as Vec3))));
+  // fielded panels on the three front faces of the tub, bolection-moulded, standing 40 mm proud of its stiles and rails
+  const faces: [number, number, number, number][] = [[x[0] + ch, z[0], x[0], z[0] + ch], [x[0], z[0] + ch, x[0], z[1] - ch], [x[0], z[1] - ch, x[0] + ch, z[1]]];
+  for (const [ax, az, bx, bz] of faces) {
+    const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz), nx = dz / L, nz = -dx / L;
+    const q: Vec3[] = [];
+    for (const o2 of [0.001, 0.041]) for (const s2 of [0.07, L - 0.07]) for (const yy of [fl + 0.06, top - 0.14]) q.push([ax + (dx * s2) / L - nx * o2, yy, az + (dz * s2) / L - nz * o2]);
+    parts.push(hull('oak', q));
   }
-  u([x[0] + 0.05, x[1]], [y0, top], z, OAK);
-  u([x[0] - 0.05, x[1] + 0.05], [top, top + 0.06], [z[0] - 0.05, z[1] + 0.05], 0x5c3e25);
-  u([x[0] - 0.12, x[0]], [top - 0.25, top - 0.05], [z[0] + 0.2, z[1] - 0.2], 0x5c3e25);
-  return withDetail(p, d);
+  return weldParts(parts, { tint: 0xc9a47c });
 }
 
 /* Welsh slate: the roof detail's slates as grey-blue stone, each a little different (the roof set's tile texture reads
@@ -164,5 +183,38 @@ function pulpit(x: Range, z: Range, y0: number): PieceSpec {
 function slated(ps: PieceSpec[]): PieceSpec[] {
   const tones = [0x3a4350, 0x434b57, 0x353c47, 0x48505a, 0x3e4652];
   // rafters, battens: sawn softwood (an untinted unit would take the slab's slate colour)
-  return ps.map((p) => (p.detail ? { ...p, detail: p.detail.map((u, i) => (u.mat === 'roof' ? { ...u, mat: 'stone' as const, tint: tones[(i * 7919) % tones.length] } : u.mat === 'wood' && u.tint === undefined ? { ...u, tint: 0x8a6a48 } : u)) } : p));
+  return ps.map((p) => (p.detail ? { ...p, detail: closeCourses(p, p.detail.map((u, i) => (u.mat === 'roof' ? { ...u, mat: 'stone' as const, tint: tones[(i * 7919) % tones.length] } : u.mat === 'wood' && u.tint === undefined ? { ...u, tint: 0xa27c55 } : u))) } : p));
+}
+
+/* The slates are laid broken-bond on a grid that ignores where a roof bay ends, and a slate that would cross the bay's
+   end is left out: every other course stops half a slate short, and the battens show through a stepped gap (at the
+   bay joint over the truss this read as a damaged roof). Each course is closed to the bay's end with a cut slate (or
+   its end slate widened into a slate-and-a-half), as a slater finishes a verge. The slates run along x. */
+function closeCourses(slab: PieceSpec, d: PieceSpec[]): PieceSpec[] {
+  const x0 = slab.pos[0] - slab.size[0] / 2 + 0.003, x1 = slab.pos[0] + slab.size[0] / 2 - 0.003;
+  const rows = new Map<string, number[]>();
+  d.forEach((u, i) => {
+    if (u.mat !== 'stone' || !u.verts) return;
+    const k = `${Math.round(u.pos[1] * 200)},${Math.round(u.pos[2] * 200)}`;
+    const r = rows.get(k);
+    if (r) r.push(i); else rows.set(k, [i]);
+  });
+  const out = [...d];
+  const span = (u: PieceSpec): Range => [u.pos[0] - u.size[0] / 2, u.pos[0] + u.size[0] / 2];
+  const refit = (u: PieceSpec, a: number, b: number): PieceSpec => {
+    const [ua, ub] = span(u), c = (a + b) / 2;
+    const verts = u.verts!.map((v) => [Math.abs(v[0] + u.pos[0] - ua) < 1e-4 ? a - c : Math.abs(v[0] + u.pos[0] - ub) < 1e-4 ? b - c : v[0] + u.pos[0] - c, v[1], v[2]] as Vec3);
+    return { ...u, pos: [Math.round(c * 1e6) / 1e6, u.pos[1], u.pos[2]], size: [Math.round((b - a) * 1e6) / 1e6, u.size[1], u.size[2]], verts };
+  };
+  for (const idx of rows.values()) {
+    idx.sort((i, j) => out[i].pos[0] - out[j].pos[0]);
+    for (const [end, i] of [[0, idx[0]], [1, idx[idx.length - 1]]] as [0 | 1, number][]) {
+      const u = out[i], [ua, ub] = span(u), gap = end ? x1 - ub : ua - x0;
+      if (gap < 0.004) continue;
+      // a gap under 100 mm widens the end slate; a wider one takes a cut slate of its own, 4 mm joint between
+      if (gap < 0.1) out[i] = end ? refit(u, ua, x1) : refit(u, x0, ub);
+      else out.push(end ? refit(u, ub + 0.004, x1) : refit(u, x0, ua - 0.004));
+    }
+  }
+  return out;
 }

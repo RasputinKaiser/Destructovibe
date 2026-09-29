@@ -103,7 +103,7 @@ export function archWall(o: ArchWallOpts): PieceSpec[] {
     if (L !== undefined) ps.push(walling(u, [L, o.h]));
     else if (th && th.u[0] >= u[0] - 1e-6 && th.u[1] <= u[1] + 1e-6) {
       ps.push(walling(u, [0, th.y[0]]), walling(u, [th.y[1], o.h]));
-      ps.push(block('stone', u, th.y, o.t, { tint: o.dress }));
+      ps.push(dressedStone(u, th.y, o.t, o.out, { dress: o.dress, plaster: o.plaster && !o.twoFaced }));
     } else ps.push(walling(u, [0, o.h]));
   };
   if (L !== undefined) {
@@ -117,7 +117,7 @@ export function archWall(o: ArchWallOpts): PieceSpec[] {
     for (const s of segs) {
       if (th && th.u[0] >= s[0] - 1e-6 && th.u[1] <= s[1] + 1e-6) {
         if (th.u[0] - s[0] > 1e-6) ps.push(walling([s[0], th.u[0]], [0, L]));
-        ps.push(walling(th.u, [0, th.y[0]]), block('stone', th.u, [th.y[0], L], o.t, { tint: o.dress }));
+        ps.push(walling(th.u, [0, th.y[0]]), dressedStone(th.u, [th.y[0], L], o.t, o.out, { dress: o.dress, plaster: o.plaster && !o.twoFaced }));
         if (s[1] - th.u[1] > 1e-6) ps.push(walling([th.u[1], s[1]], [0, L]));
       } else ps.push(walling(s, [0, L]));
     }
@@ -156,16 +156,39 @@ export function archWall(o: ArchWallOpts): PieceSpec[] {
     const layers = (q2: [number, number][], tint: number, rho: number): PieceSpec[] => {
       const band = (a: number, b2: number): Range => { const x = outF + dir * a, y = outF + dir * b2; return [Math.min(x, y), Math.max(x, y)]; };
       const T = o.t[1] - o.t[0], inner = o.twoFaced ? 0.011 : 0;
-      const out: PieceSpec[] = [poly(q2, band(0, 0.011)), poly(q2, band(0.011, T - inner))];
-      if (inner) out.push(poly(q2, band(T - inner, T)));
+      const out: PieceSpec[] = [poly(insetPoly(q2, 0.003), band(0, 0.011)), poly(q2, band(0.011, T - inner))];
+      if (inner) out.push(poly(insetPoly(q2, 0.003), band(T - inner, T)));
       return out.map((u, k) => { if (k !== 1) u.mat = 'drywall'; u.tint = tint; u.density = k === 1 ? rho : 2500; return u; });
     };
     const area = (q2: [number, number][]) => { let s2 = 0; for (let i = 0; i < q2.length; i++) { const [x1, y1] = q2[i], [x2, y2] = q2[(i + 1) % q2.length]; s2 += x1 * y2 - x2 * y1; } return Math.abs(s2) / 2; };
     const dedup = (q2: [number, number][]) => q2.filter((p, i) => q2.findIndex((r) => Math.hypot(r[0] - p[0], r[1] - p[1]) < 1e-5) === i);
     const vous: [number, number][][] = [], fans: [number, number][][] = [];
+    // each ring stone's soffit (its face on the arch) takes an 11 mm dressed skin across the reveal, the body drawn
+    // back off it: the soffits had shown the bare, speckled, chamfered stone bodies
+    const soffits = new Map<number, [number, number][]>();
     const leftP = [0, 1, 2, 3].map((i) => pts[i]), rightP = [6, 5, 4, 3].map((i) => pts[i]);
     for (const [P2, E2] of [[leftP, eL], [rightP, eR]] as [[number, number][], [number, number][]][]) {
-      for (let i = 0; i < 3; i++) vous.push(dedup([P2[i], P2[i + 1], E2[i + 1], E2[i]]));
+      for (let i = 0; i < 3; i++) {
+        const q2 = dedup([P2[i], P2[i + 1], E2[i + 1], E2[i]]);
+        if (q2.length >= 3 && Math.hypot(P2[i + 1][0] - P2[i][0], P2[i + 1][1] - P2[i][1]) > 0.05) {
+          // square off the chord: a rectangular skin is a thin box, which the engine keeps cosmetic at any slope
+          const [p0, p1] = [P2[i], P2[i + 1]], l = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+          let nx = -(p1[1] - p0[1]) / l, ny = (p1[0] - p0[0]) / l;
+          if (nx * (E2[i + 1][0] - p0[0]) + ny * (E2[i + 1][1] - p0[1]) < 0) { nx = -nx; ny = -ny; }
+          // (drawn in 8 mm from each end, clear of the neighbours: the joints between ring stones open there)
+          // (a springer is a wedge from a point at the jamb: its skin starts where the wedge is thick enough for it)
+          const ux = (p1[0] - p0[0]) / l, uy = (p1[1] - p0[1]) / l;
+          let s0 = 0.008;
+          if (q2.length === 3) {
+            const e = q2[2], el = Math.hypot(e[0] - p0[0], e[1] - p0[1]) || 1, sin = Math.abs(ux * (e[1] - p0[1]) - uy * (e[0] - p0[0])) / el;
+            s0 = Math.max(s0, 0.016 / Math.max(sin, 1e-3));
+          }
+          if (s0 > l - 0.06) { vous.push(q2); continue; }
+          const a0: [number, number] = [p0[0] + ux * s0, p0[1] + uy * s0], a1: [number, number] = [p1[0] - ux * 0.008, p1[1] - uy * 0.008];
+          soffits.set(vous.length, [a0, a1, [a1[0] + nx * 0.011, a1[1] + ny * 0.011], [a0[0] + nx * 0.011, a0[1] + ny * 0.011]]);
+        }
+        vous.push(q2);
+      }
     }
     vous.push(dedup([pts[3], eR[3], kt, eL[3]]));
     const cornerL: [number, number] = [a, yE], cornerR: [number, number] = [b, yE];
@@ -173,9 +196,20 @@ export function archWall(o: ArchWallOpts): PieceSpec[] {
     for (let i = 0; i + 1 < chainL.length; i++) fans.push(dedup([cornerL, chainL[i], chainL[i + 1]]));
     for (let i = 0; i + 1 < chainR.length; i++) fans.push(dedup([cornerR, chainR[i + 1], chainR[i]]));
     fans.push(dedup([cornerL, kt, cornerR]));
-    const vq = vous.filter((q2) => q2.length >= 3 && area(q2) > 2e-4), fq = fans.filter((q2) => q2.length >= 3 && area(q2) > 2e-4);
+    const vi = vous.map((_, i) => i).filter((i) => vous[i].length >= 3 && area(vous[i]) > 2e-4), vq = vi.map((i) => vous[i]);
+    const fq = fans.filter((q2) => q2.length >= 3 && area(q2) > 2e-4);
     const vp = vq.map((q2) => poly(q2)), fp = fq.map((q2) => poly(q2));
-    const vdet = vq.flatMap((q2, i) => layers(q2, tone(o.dress, 0.95 + 0.07 * h3(i, 41)), 2500));
+    const vdet = vi.flatMap((vIdx, i) => {
+      const q2 = vous[vIdx], tint = tone(o.dress, 0.95 + 0.07 * h3(i, 41)), sf = soffits.get(vIdx);
+      const us = layers(q2, tint, 2500);
+      if (!sf) return us;
+      // the body without its soffit strip, and the soffit skin across the reveal between the face skins
+      const T = o.t[1] - o.t[0], inner = o.twoFaced ? 0.011 : 0;
+      const band = (a2: number, b2: number): Range => { const x = outF + dir * a2, y = outF + dir * b2; return [Math.min(x, y), Math.max(x, y)]; };
+      us[1] = { ...poly([sf[3], sf[2], ...q2.slice(2)], band(0.011, T - inner)), tint, density: 2500 };
+      const k = poly(sf, band(0.011, T - inner)); k.mat = 'drywall'; k.tint = tint; k.density = 2500;
+      return [...us, k];
+    });
     const fdet = fq.flatMap((q2, i) => layers(q2, tone(RUBBLE[Math.floor(h3(i, 43) * RUBBLE.length)], 0.95), 2400));
     const parts: PieceSpec[] = [...vp, ...fp];
     let wall: PieceSpec[] = [];
@@ -238,60 +272,162 @@ function boardedDoor(pts: [number, number][], t: Range, m: Map3): PieceSpec {
   return withDetail(leaf, d);
 }
 
+/* ---------------- stone faces ----------------
+
+   A face stone is drawn as a thin skin (cosmetic: it goes to dust when struck) proud of a lime mortar bed, over the
+   stone's body, which is what flies. Skins are convex prisms of an irregular outline (a rectangle with its corners
+   knocked off by varied amounts; dressed stones only lose a 4 mm arris) set into their cell with a joint round them,
+   so the mortar shows between the stones in varied widths. They are hulls, never boxes: the renderer draws any
+   box-shaped thin unit as one unit cube stretched to size, which streaked the texture on every stone. Their sizes
+   come from short lists, so a wall's thousands of skins draw as a few hundred shapes. */
+
+type Out2 = [number, number][];
+/** skin depth (the stone face proud of the bed), mortar bed, reveal and sill skins */
+const SK = 0.006, MB = 0.011, RV = 0.011;
+const FACE_W = [0.1, 0.13, 0.16, 0.19, 0.22, 0.25, 0.28, 0.32, 0.36, 0.4, 0.45, 0.5, 0.55, 0.6];
+const FACE_H = [0.07, 0.09, 0.11, 0.13, 0.15, 0.17, 0.19, 0.21, 0.23];
+/** face-stone bodies: each carries one to two stone faces; the core behind is laid in lumps two courses high */
+const BODY_L = [0.42, 0.49, 0.56, 0.63, 0.7], DRESSED_L = [0.7, 0.77, 0.84, 0.91, 0.98];
+const r4 = (v: number) => Math.round(v * 1e4) / 1e4;
+
+function faceOutline(W: number, H: number, rough: boolean, v = 0): Out2 {
+  const w = W / 2, h = H / 2;
+  if (!rough) {
+    const c = Math.min(0.004, W / 6, H / 6);
+    return ([[-w + c, -h], [w - c, -h], [w, -h + c], [w, h - c], [w - c, h], [-w + c, h], [-w, h - c], [-w, -h + c]] as Out2).map(([a, b]) => [r4(a), r4(b)]);
+  }
+  // a roughly squared stone: the rectangle's top corners dropped and pushed a little (the bed stays level), then each
+  // corner knocked off by its own amount along each edge
+  const s = Math.round(W * 1000) * 7 + Math.round(H * 1000) * 131 + v * 7919, m = Math.min(W, H);
+  const P: Out2 = [[-w, -h], [w, -h], [w - 0.012 * h3(s, 5, 75), h - 0.1 * H * h3(s, 6, 75)], [-w + 0.012 * h3(s, 7, 75), h - 0.1 * H * h3(s, 8, 75)]];
+  const out: Out2 = [];
+  for (let i = 0; i < 4; i++) {
+    const a = P[(i + 3) % 4], c = P[i], b = P[(i + 1) % 4];
+    const la = Math.hypot(a[0] - c[0], a[1] - c[1]), lb = Math.hypot(b[0] - c[0], b[1] - c[1]);
+    const ka = Math.min(0.35 * la, m * (0.02 + 0.2 * h3(s, i, 71))), kb = Math.min(0.35 * lb, m * (0.02 + 0.2 * h3(s, i, 73)));
+    out.push([c[0] + ((a[0] - c[0]) * ka) / la, c[1] + ((a[1] - c[1]) * ka) / la], [c[0] + ((b[0] - c[0]) * kb) / lb, c[1] + ((b[1] - c[1]) * kb) / lb]);
+  }
+  // recentred on its box, so every stone of one size and variant is one shape
+  const lo = [Math.min(...out.map((q) => q[0])), Math.min(...out.map((q) => q[1]))], hi = [Math.max(...out.map((q) => q[0])), Math.max(...out.map((q) => q[1]))];
+  return out.map(([a, b]) => [r4(a - (lo[0] + hi[0]) / 2), r4(b - (lo[1] + hi[1]) / 2)]);
+}
+
+/** a convex outline pulled in toward its centroid by d (a stone's face inside its joint) */
+export function insetPoly(q2: [number, number][], d: number): [number, number][] {
+  const cx = q2.reduce((s, p) => s + p[0], 0) / q2.length, cy = q2.reduce((s, p) => s + p[1], 0) / q2.length;
+  return q2.map(([u, y]) => { const l = Math.hypot(u - cx, y - cy) || 1; return [r4(u - ((u - cx) / l) * d), r4(y - ((y - cy) / l) * d)]; });
+}
+const pick = (set: number[], x: number) => [...set].reverse().find((s) => s <= x + 1e-9) ?? Math.floor(x / 0.02) * 0.02;
+
+/** The face stone to set in a cell cu × cy: its outline, size and centre. Rubble sits low in its bed with a joint of
+    7-30 mm round it; a dressed stone is centred with a fine joint. */
+function faceIn(cu: Range, cy: Range, rough: boolean, seed: number): { ol: Out2; c: [number, number] } | null {
+  const cw = cu[1] - cu[0], ch = cy[1] - cy[0];
+  const W = rough ? pick(FACE_W, cw - 0.012) : Math.floor((cw - 0.006) / 0.04) * 0.04;
+  const H = rough ? pick(FACE_H, ch - 0.011) : Math.floor((ch - 0.006) / 0.02) * 0.02;
+  if (W < 0.04 || H < 0.03) return null;
+  const x = cu[0] + (cw - W) * (rough ? 0.3 + 0.4 * h3(seed, 1, 81) : 0.5) + W / 2;
+  const y = cy[0] + (ch - H) * (rough ? 0.2 + 0.35 * h3(seed, 2, 83) : 0.5) + H / 2;
+  return { ol: faceOutline(W, H, rough), c: [x, y] };
+}
+
+/** Lays one course u0..u1 as face stones: bodies of a few lengths (2 mm apart), each showing one stone face or two
+    (a split beside it, or a sneck: two thinner stones one over the other, now and then two bodies too). `body` and
+    `face` place the units; the skin cells run to the middle of the gaps between the bodies. */
+function layCourse(u0: number, u1: number, cy: Range, by: Range, dressed: { tint: number } | null, rs: number,
+  body: (u: Range, y: Range, tint: number) => void, face: (u: Range, y: Range, tint: number, rough: boolean, seed: number) => void): void {
+  if (u1 - u0 < 0.03) return;
+  const fit = fitRow(u1 - u0, dressed ? DRESSED_L : BODY_L, rs, 0.002);
+  const us: Range[] = [];
+  let x = u0;
+  for (const len of fit.lens) { us.push([x, x + len]); x += len + 0.002 + fit.e; }
+  const ch = cy[1] - cy[0];
+  us.forEach((u, i) => {
+    const cu: Range = [i === 0 ? u0 : (us[i - 1][1] + u[0]) / 2, i + 1 === us.length ? u1 : (u[1] + us[i + 1][0]) / 2];
+    const r = h3(rs, i, 9), seed = rs * 31 + i * 7;
+    const tint = dressed ? tone(dressed.tint, 0.96 + 0.06 * h3(rs, i, 11)) : tone(RUBBLE[Math.floor(r * RUBBLE.length)], 0.93 + 0.12 * h3(rs, i, 11));
+    const t2 = tone(RUBBLE[Math.floor(h3(rs, i, 17) * RUBBLE.length)], 0.93 + 0.12 * h3(rs, i, 19));
+    if (dressed) { body(u, by, tint); face(cu, cy, tint, false, seed); return; }
+    if (ch > 0.19 && r > 0.55) {
+      const ym = cy[0] + ch * (h3(rs, i, 13) < 0.5 ? 0.42 : 0.58);
+      // a sneck; one in four is two stones right through (the small stuff in the heap)
+      if (r > 0.9) { body(u, [by[0], ym - 0.001], tint); body(u, [ym + 0.001, by[1]], t2); } else body(u, by, tint);
+      face(cu, [cy[0], ym], tint, true, seed); face(cu, [ym, cy[1]], t2, true, seed + 3);
+    } else if (r < 0.5) {
+      // two or three stones side by side on one body
+      body(u, by, tint);
+      const n = u[1] - u[0] > 0.55 && r < 0.2 ? 3 : 2, cut = [cu[0]];
+      for (let j = 1; j < n; j++) cut.push(cu[0] + ((cu[1] - cu[0]) * (j + 0.3 * (h3(rs, i, 15 + j) - 0.5))) / n);
+      cut.push(cu[1]);
+      for (let j = 0; j < n; j++) face([cut[j], cut[j + 1]], cy, j % 2 ? t2 : tint, true, seed + 3 * j);
+    } else { body(u, by, tint); face(cu, cy, tint, true, seed); }
+  });
+}
+
 /* ---------------- coursed stone in a convex polygon (gables) ---------------- */
 
-/** Stone courses filling a convex polygon (u, y) in a wall along X (thickness band t): each course cut at the
-    polygon's edges into stones of a few lengths, the end stones hulls following the slope. Each stone is its body
-    with an 11 mm face skin on the outer face (`out`, the +t or -t side) and, with `both`, on the inner face too:
-    the skins draw flat and crumble to dust, the bodies fly. */
-export function coursedPolygon(poly: [number, number][], t: Range, o: { tint: number; seed?: number; out?: 1 | -1; both?: boolean } = { tint: 0xb9ad96 }): PieceSpec[] {
+/** Stone courses filling a convex polygon (u, y) in a wall along X (thickness band t), the outer face toward `out`
+    (+t or -t): face stones as `layCourse` lays them, dressed verge stones of one width along a sloped edge, a mortar
+    bed per course under the skins, and the bodies right through (a gable has no separate core). With `both` the
+    inner face takes stone faces too; with `plaster` it is left for a plaster coat (laid by the caller). */
+export function coursedPolygon(poly: [number, number][], t: Range, o: { tint: number; dress?: number; seed?: number; out?: 1 | -1; both?: boolean; plaster?: boolean } = { tint: 0xb9ad96 }): PieceSpec[] {
   const ys = poly.map((p) => p[1]), y0 = Math.min(...ys), y1 = Math.max(...ys);
   const span = polySpan(poly);
   const out: PieceSpec[] = [];
-  const seed = o.seed ?? 7;
-  const sgn = o.out ?? 1, T = t[1] - t[0], J = 0.0115, R = 0.008;
-  const band = (a: number, b: number): Range => (sgn > 0 ? [t[1] - b, t[1] - a] : [t[0] + a, t[0] + b]);
-  const bands: [Range, boolean][] = o.both ? [[band(0, 0.011), true], [band(0.011, T - 0.011), false], [band(T - 0.011, T), true]] : [[band(0, 0.011), true], [band(0.011, T), false]];
-  // a stone: skins and body, or (a slope-cut end stone) one body, whose odd outline would be a draw batch of its own
-  const put = (q2: [number, number][], tint: number, skins: boolean) => {
-    for (const [tr, skin] of skins ? bands : [[t, false] as [Range, boolean]]) {
-      const q: Vec3[] = [];
-      for (const tt of tr) for (const [u, y] of q2) q.push([u, y, tt]);
-      const s = hull(skin ? 'drywall' : 'stone', q); s.tint = tint; s.density = skin ? 2500 : 2400; out.push(s);
-    }
+  const seed = o.seed ?? 7, dress = o.dress ?? DRESS_T;
+  const sgn = o.out ?? 1, T = t[1] - t[0];
+  const band = (a: number, b: number, inner = false): Range => ((sgn > 0) !== inner ? [t[1] - b, t[1] - a] : [t[0] + a, t[0] + b]);
+  const faces = o.both && !o.plaster ? [false, true] : [false];
+  const bodyT = band(MB, T - (o.plaster ? 0.012 : o.both ? MB : 0));
+  const prism = (mat: MaterialId, q2: Out2, tr: Range, tint: number, rho: number) => {
+    const q: Vec3[] = [];
+    for (const tt of tr) for (const [u, y] of q2) q.push([u, y, tt]);
+    const s = hull(mat, q); s.tint = tint; s.density = rho; out.push(s);
   };
-  const mortar = (u: Range, y: Range) => {
-    const c = (u[0] + u[1]) / 2, w = Math.min(u[1] - u[0], J);
-    const m = block('concrete', [c - w / 2, c + w / 2], y, [t[0] + R, t[1] - R]); m.tint = MORTAR; m.density = 1800; out.push(m);
+  const skinAt = (ol: Out2, c: [number, number], inner: boolean, tint: number) => prism('drywall', ol.map(([a, b]) => [c[0] + a, c[1] + b]), band(0, SK, inner), tint, 2500);
+  // a sloped stone's face: its own outline pulled in 4 mm (each such shape is a draw batch, so verge stones share a width)
+  const inset = (q2: Out2, d: number): Out2 => {
+    const cx = q2.reduce((s, p) => s + p[0], 0) / q2.length, cy = q2.reduce((s, p) => s + p[1], 0) / q2.length;
+    return q2.map(([u, y]) => { const l = Math.hypot(u - cx, y - cy) || 1; return [r4(u - ((u - cx) / l) * d), r4(y - ((y - cy) / l) * d)]; });
   };
   const rows = rowsIn(y0, y1);
   rows.forEach((r, ri) => {
     const top = ri === rows.length - 1;
-    const ya = r.y[0] + 0.001, yb = r.y[1] - (top ? 0.001 : J);
+    const ya = r.y[0] + 0.001, yb = r.y[1] - (top ? 0.001 : 0.002);
     const sa = span(ya), sb = span(yb);
     if (!sa || !sb) return;
     const lo = Math.max(sa[0], sb[0]), hi = Math.min(sa[1], sb[1]);
-    const tint = (i: number) => tone(RUBBLE[Math.floor(h3(seed, ri, 30 + i) * RUBBLE.length)], 0.9 + 0.18 * h3(seed, ri, 60 + i));
-    if (!top) {
-      const s0 = span(r.y[1] - J), s1 = span(r.y[1]);
-      if (s0 && s1) { const m = block('concrete', [Math.max(s0[0], s1[0]) + 0.002, Math.min(s0[1], s1[1]) - 0.002], [r.y[1] - J, r.y[1]], [t[0] + R, t[1] - R]); m.tint = MORTAR; m.density = 1800; out.push(m); }
-    }
     if (hi - lo < 0.3) {
-      // the apex course: one stone following both slopes
-      put([[sa[0] + 0.001, ya], [sa[1] - 0.001, ya], [sb[1] - 0.001, yb], [sb[0] + 0.001, yb]], tint(0), false);
+      // the apex course: one dressed stone following both slopes
+      const q2: Out2 = [[sa[0] + 0.001, ya], [sa[1] - 0.001, ya], [sb[1] - 0.001, yb], [sb[0] + 0.001, yb]];
+      prism('stone', q2, bodyT, tone(dress, 0.97), 2400);
+      for (const f of faces) prism('drywall', inset(q2, 0.004), band(0, SK, f), tone(dress, 0.97), 2500);
+      if (o.plaster) prism('plaster', q2, band(T - 0.011, T), LIMEWASH, 1500);
       return;
     }
+    const VW = 0.2;
     const slopeL = Math.abs(sa[0] - sb[0]) > 1e-4, slopeR = Math.abs(sa[1] - sb[1]) > 1e-4;
-    const fit = fitRow(hi - lo - 0.002, RUBBLE_L, seed * 17 + r.k, J);
-    let x = lo + 0.001;
-    fit.lens.forEach((len, i) => {
-      const first = i === 0, last = i + 1 === fit.lens.length;
-      const ua = x, ub = x + len;
-      const cutL = first && slopeL, cutR = last && slopeR;
-      put([[cutL ? sa[0] + 0.001 : ua, ya], [cutR ? sa[1] - 0.001 : ub, ya], [cutR ? sb[1] - 0.001 : ub, yb], [cutL ? sb[0] + 0.001 : ua, yb]], tint(i), !cutL && !cutR);
-      x = ub;
-      if (!last) { mortar([x, x + J + fit.e], [ya, yb]); x += J + fit.e; }
-    });
+    let a0 = slopeL ? lo + VW : lo + 0.001, a1 = slopeR ? hi - VW : hi - 0.001;
+    if (a1 - a0 < 0.12) { a0 = a1 = (lo + hi) / 2; }
+    // dressed verge stones along a raking edge, one width (measured at the course's top), so they repeat
+    const verge = (q2: Out2) => {
+      const tint = tone(dress, 0.94 + 0.06 * h3(seed, ri, 91));
+      prism('stone', q2, bodyT, tint, 2400);
+      for (const f of faces) prism('drywall', inset(q2, 0.004), band(0, SK, f), tint, 2500);
+    };
+    if (slopeL) verge([[sa[0] + 0.001, ya], [a0 - 0.001, ya], [a0 - 0.001, yb], [sb[0] + 0.001, yb]]);
+    if (slopeR) verge([[a1 + 0.001, ya], [sa[1] - 0.001, ya], [sb[1] - 0.001, yb], [a1 + 0.001, yb]]);
+    if (a1 - a0 > 0.02) {
+      layCourse(a0 + 0.001, a1 - 0.001, [r.y[0], r.y[1]], [ya, yb], null, seed * 17 + r.k,
+        (u, y, tint) => prism('stone', [[u[0], y[0]], [u[1], y[0]], [u[1], y[1]], [u[0], y[1]]], bodyT, tint, 2400),
+        (u, y, tint, rough, s) => { for (const f of faces) { const st = faceIn(u, y, rough, s + (f ? 5 : 0)); if (st) skinAt(st.ol, st.c, f, tint); } });
+    }
+    // the inner face's limewash, the course's whole outline
+    if (o.plaster) prism('plaster', [[sa[0] + 0.001, ya], [sa[1] - 0.001, ya], [sb[1] - 0.001, yb], [sb[0] + 0.001, yb]], band(T - 0.011, T), LIMEWASH, 1500);
+    // the mortar bed behind the faces, across the course's plumb part
+    for (const f of faces) {
+      const m = block('plaster', [lo + 0.001, hi - 0.001], [ya, yb], band(SK, MB, f)); m.tint = MORTAR; m.density = 1800; out.push(m);
+    }
   });
   return out;
 }
@@ -330,8 +466,8 @@ function rowsIn(y0: number, y1: number): { y: Range; k: number }[] {
     carries no tension): each bears only on the lift below, so one that loses its support drops, rather than the gable
     hanging off its neighbours as one triangle. (A stepped, bonded break line interlocks: the blocks' teeth would
     catch on each other as rigid bodies.) Each block is one body (its courses as parts) carrying its stones as detail;
-    `out` is the outer face's side of x. */
-export function gableBlocks(poly: [number, number][], xr: Range, tint: number, o: { lifts: number[]; splits: number[][]; out: 1 | -1; seed?: number }): PieceSpec[] {
+    `out` is the outer face's side of x. With `plaster`, the inner face is limewashed. */
+export function gableBlocks(poly: [number, number][], xr: Range, tint: number, o: { lifts: number[]; splits: number[][]; out: 1 | -1; seed?: number; plaster?: boolean; dress?: number }): PieceSpec[] {
   const ys = poly.map((p) => p[1]), y0 = Math.min(...ys), y1 = Math.max(...ys);
   const span = polySpan(poly);
   const rows = rowsIn(y0, y1);
@@ -364,7 +500,7 @@ export function gableBlocks(poly: [number, number][], xr: Range, tint: number, o
       const pts: Vec3[] = [];
       for (const x of xr) for (const [u, y] of q2) pts.push([u, y, x]);
       const part = hull('stone', pts);
-      const st = coursedPolygon(q2, xr, { tint, seed: 7 + ri * 31 + j * 7, out: o.out, both: true });
+      const st = coursedPolygon(q2, xr, { tint, dress: o.dress, seed: 7 + ri * 31 + j * 7, out: o.out, both: true, plaster: o.plaster });
       let bk = blocks.get(key);
       if (!bk) { bk = { parts: [], detail: [] }; blocks.set(key, bk); }
       bk.parts.push(part); bk.detail.push(...st);
@@ -388,8 +524,6 @@ export function gable(poly: [number, number][], xr: Range, tint: number, out: 1 
 }
 
 /* ---------------- squared rubble ---------------- */
-
-const RUBBLE_L = [0.28, 0.35, 0.42, 0.49, 0.56], DRESSED_L = [0.7, 0.77, 0.84, 0.91, 0.98];
 
 /** Stone lengths from `set` (joints J between) filling W: drawn in turn, then the longest that still fits, then
     stones lengthened a step at a time while a whole step is left; what remains widens the perpends by `e`. */
@@ -415,7 +549,9 @@ function fitRow(W: number, set: number[], seed: number, J: number): { lens: numb
     if (lens[j] + step <= max + 1e-9) { lens[j] = Math.round((lens[j] + step) * 1000) / 1000; left -= step; }
     else if (lens.every((l) => l + step > max + 1e-9)) break;
   }
-  return { lens, e: Math.max(0, left) / (lens.length - 1) };
+  // what is left widens the stones, not the joints (a gap between bodies is hidden, but the faces are cut to it)
+  const add = Math.max(0, left) / lens.length;
+  return { lens: lens.map((l) => l + add), e: 0 };
 }
 
 /** The building's courses (builder y): a dressed plinth, rubble courses to a dressed sill-level string course, rubble
@@ -437,10 +573,12 @@ function h3(a: number, b: number, c = 0): number {
   h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12;
   return (h >>> 0) / 4294967296;
 }
-const RUBBLE = [0x9a968e, 0x8a8781, 0xa8a49a, 0x7d7a74, 0xa39a86, 0x95897a, 0xb2a894, 0x8c7f6c, 0x9d9a91, 0x6f6c66, 0xb5ad9d, 0x8e8577];
+/* warm brown, ochre and grey sandstones and slatestone, as in a Devon chapel's random-coursed rubble */
+const RUBBLE = [0x9a8f7e, 0x8c8272, 0xa89a82, 0x7f776c, 0xa3906f, 0x96846a, 0xb0a084, 0x8a7a62, 0x9b968c, 0x767068, 0xae9f86, 0x8e8474];
 const tone = (c: number, k: number): number =>
   (Math.min(255, Math.round(((c >> 16) & 255) * k)) << 16) | (Math.min(255, Math.round(((c >> 8) & 255) * k)) << 8) | Math.min(255, Math.round((c & 255) * k));
-export const MORTAR = 0xcfc8b4, CORE = 0x8f887a, LIMEWASH = 0xeee9dc;
+export const MORTAR = 0xd3cbb7, CORE = 0x8f887a, LIMEWASH = 0xeee9dc;
+const DRESS_T = 0xe0dacb;
 
 export interface RubbleOpts {
   tint: number; dress: number;
@@ -448,12 +586,14 @@ export interface RubbleOpts {
   plaster?: boolean; twoFaced?: boolean; sill?: boolean;
 }
 
-/** Squared-rubble walling for a wall block u × y (along X, thickness band t, outside toward `out`): stones of varied
-    length and tone in the building's courses, occasional snecks, lime mortar joints raked back 8 mm, dressed quoins
-    and returns at corners, dressed jamb stones beside openings, a dressed sill course under windows; a rubble core
-    behind, and either limewashed plaster or a second stone face on the inside. */
+/** Squared-rubble walling for a wall block u × y (along X, thickness band t, outside toward `out`): face stones of
+    varied size and tone in the building's courses (`layCourse`), set in a lime mortar bed that shows between them,
+    dressed quoins and returns at corners, dressed jamb stones beside openings with the reveal dressed (stone outside,
+    limewash inside), a dressed sill course and sill under windows; a core of hearting lumps two courses high behind,
+    and either limewashed plaster or a second stone face on the inside. */
 export function rubble(U: Range, Y: Range, t: Range, out: 1 | -1, o: RubbleOpts): PieceSpec[] {
-  const T = t[1] - t[0], FD = Math.min(0.16, T / 2 - 0.01), J = 0.0115, R = 0.008;  // joints under the 12 mm cosmetic limit: struck mortar goes to dust, not bodies
+  const T = t[1] - t[0], FD = Math.min(0.16, T / 2 - 0.01), G = 0.002;
+  const plasterIn = !!o.plaster && !o.twoFaced, PL = plasterIn ? 0.012 : 0;
   const d: PieceSpec[] = [];
   const depth = (a: number, b: number, inner = false): Range => {
     // a band a..b deep from the outer face (or from the inner face)
@@ -462,29 +602,17 @@ export function rubble(U: Range, Y: Range, t: Range, out: 1 | -1, o: RubbleOpts)
     return [Math.min(p, q), Math.max(p, q)];
   };
   const put = (u: Range, y: Range, dd: Range, tint: number, rho: number, mat: 'stone' | 'concrete' | 'plaster' = 'stone') => {
-    if (u[1] - u[0] < 0.004 || y[1] - y[0] < 0.004) return;
+    if (u[1] - u[0] < 0.004 || y[1] - y[0] < 0.004 || dd[1] - dd[0] < 0.001) return;
     const q = block(mat, u, y, dd); q.tint = tint; q.density = rho; d.push(q);
   };
-  /* a stone seen on a face: its weathered face as an 11 mm skin over the stone's body, which is what flies. The skin
-     is a hull, so it draws flat (no arris chamfer: it is under the cosmetic limit) with its texture unstretched (a
-     box skin draws it squashed from a unit cube: the wood grain). Every skin's texture starts at its own corner, so
-     the set must be near-uniform: the 'drywall' set's fine stipple reads as a tooled face, where 'stone' (coursed
-     ashlar: bricks inside every stone) and 'plaster' (a dirt cloud: the same smudge on every stone) do not. The
-     stone's colour is its tint. It crumbles to dust when struck. */
-  const skin = (u: Range, y: Range, dd: Range, tint: number) => {
-    if (u[1] - u[0] < 0.004 || y[1] - y[0] < 0.004) return;
-    const q: Vec3[] = [];
-    for (const a of u) for (const b of y) for (const c of dd) q.push([a, b, c]);
-    const k = hull('drywall', q); k.tint = tint; k.density = 2500; d.push(k);
-  };
-  // a perpend: one mortar strip under the cosmetic limit in the middle; the slack either side reads as a deeper joint
-  const joint = (u: Range, y: Range, dd: Range) => {
-    const c = (u[0] + u[1]) / 2, w = Math.min(u[1] - u[0], J);
-    put([c - w / 2, c + w / 2], y, dd, MORTAR, 1800, 'concrete');
-  };
-  const stone = (u: Range, y: Range, a: number, b: number, inside: boolean, tint: number) => {
-    skin(u, y, inside ? depth(a, a + 0.011, true) : depth(a, a + 0.011), tint);
-    put(u, y, inside ? depth(a + 0.011, b, true) : depth(a + 0.011, b), tint, 2500);
+  const prism = (pts: Vec3[], tint: number) => { const k = hull('drywall', pts); k.tint = tint; k.density = 2500; d.push(k); };
+  // a stone face in its cell on the outer (or inner) face
+  const face = (cu: Range, cy: Range, tint: number, rough: boolean, seed: number, inside: boolean) => {
+    const st = faceIn(cu, cy, rough, seed);
+    if (!st) return;
+    const pts: Vec3[] = [];
+    for (const tt of depth(0, SK, inside)) for (const [a, b] of st.ol) pts.push([st.c[0] + a, st.c[1] + b, tt]);
+    prism(pts, tint);
   };
   // courses clipped to the block; slivers merge into the course below
   const rows: { y: Range; kind: string; k: number }[] = [];
@@ -496,83 +624,114 @@ export function rubble(U: Range, Y: Range, t: Range, out: 1 | -1, o: RubbleOpts)
   });
   if (rows.length > 1 && rows[0].y[1] - rows[0].y[0] < 0.06) { rows[1].y[0] = rows[0].y[0]; rows.shift(); }
   const faces = o.twoFaced ? [false, true] : [false];
+  const jambAt = (lo: boolean, y: Range) => o.jambs.some((jb) => (lo ? jb.u <= U[0] + 1e-6 : jb.u >= U[1] - 1e-6) && y[1] > jb.y[0] + 0.02 && y[0] < jb.y[1] - 0.02);
+  const anyLo = o.jambs.some((jb) => jb.u <= U[0] + 1e-6), anyHi = o.jambs.some((jb) => jb.u >= U[1] - 1e-6);
+  const sillTop = !!o.sill;
+  const cores: { y: Range; cu: Range }[] = [];
   rows.forEach((row, ri) => {
     const { k } = row;
     const top = ri === rows.length - 1 && Math.abs(row.y[1] - Y[1]) < 1e-6;
-    const sy: Range = [row.y[0], top ? row.y[1] : row.y[1] - J];
+    // skins fill the course; bodies stand 2 mm clear of the course above (a sill course stops under the sill skin)
+    const cy: Range = [row.y[0], top && sillTop ? row.y[1] - RV : row.y[1]];
+    const by: Range = [row.y[0], top ? cy[1] : row.y[1] - G];
     const dressed = row.kind !== 'rubble' || (o.sill && ri === rows.length - 1);
+    // the reveal: an opening's jamb at this end of the block, within its height, takes an 11 mm dressed return face
+    const revLo = jambAt(true, row.y), revHi = jambAt(false, row.y);
+    const Ua = U[0] + (revLo ? RV : 0), Ub = U[1] - (revHi ? RV : 0);
     // quoins (through-stones) and returns at the ends, jamb dressings beside openings
     const stops: { u: Range; through: boolean }[] = [];
-    for (const q of o.quoin) { const L = k % 2 ? 0.56 : 0.3; stops.push({ u: q <= U[0] + 1e-6 ? [U[0], U[0] + L] : [U[1] - L, U[1]], through: true }); }
-    for (const q of o.ret) if (k % 2 === 0) stops.push({ u: q <= U[0] + 1e-6 ? [U[0], U[0] + 0.25] : [U[1] - 0.25, U[1]], through: false });
-    for (const jb of o.jambs) if (row.y[1] > jb.y[0] + 0.02 && row.y[0] < jb.y[1] - 0.02) { const L = k % 2 ? 0.38 : 0.22; stops.push({ u: jb.u <= U[0] + 1e-6 ? [U[0], U[0] + L] : [U[1] - L, U[1]], through: false }); }
+    for (const q of o.quoin) { const L = k % 2 ? 0.56 : 0.3; stops.push({ u: q <= U[0] + 1e-6 ? [Ua, Ua + L] : [Ub - L, Ub], through: true }); }
+    for (const q of o.ret) if (k % 2 === 0) stops.push({ u: q <= U[0] + 1e-6 ? [Ua, Ua + 0.25] : [Ub - 0.25, Ub], through: false });
+    for (const jb of o.jambs) if (row.y[1] > jb.y[0] + 0.02 && row.y[0] < jb.y[1] - 0.02) { const L = k % 2 ? 0.38 : 0.22; stops.push({ u: jb.u <= U[0] + 1e-6 ? [Ua, Ua + L] : [Ub - L, Ub], through: false }); }
     // a narrow pier cannot take full-length dressings at both ends
-    const w = U[1] - U[0], lo = stops.filter((s) => s.u[0] <= U[0] + 1e-6), hi = stops.filter((s) => s.u[1] >= U[1] - 1e-6);
-    const need = Math.max(0, ...lo.map((s) => s.u[1] - s.u[0])) + Math.max(0, ...hi.map((s) => s.u[1] - s.u[0])) + 2 * J;
+    const w = Ub - Ua, lo = stops.filter((s) => s.u[0] <= Ua + 1e-6), hi = stops.filter((s) => s.u[1] >= Ub - 1e-6);
+    const need = Math.max(0, ...lo.map((s) => s.u[1] - s.u[0])) + Math.max(0, ...hi.map((s) => s.u[1] - s.u[0])) + 2 * G;
     if (need > w) {
-      const cap = (w - 2 * J) / (lo.length && hi.length ? 2 : 1);
-      for (const s of lo) s.u = [U[0], U[0] + Math.min(cap, s.u[1] - s.u[0])];
-      for (const s of hi) s.u = [U[1] - Math.min(cap, s.u[1] - s.u[0]), U[1]];
+      const cap = (w - 2 * G) / (lo.length && hi.length ? 2 : 1);
+      for (const s of lo) s.u = [Ua, Ua + Math.min(cap, s.u[1] - s.u[0])];
+      for (const s of hi) s.u = [Ub - Math.min(cap, s.u[1] - s.u[0]), Ub];
     }
-    const inner: Range = [Math.max(U[0], ...stops.filter((s) => s.u[0] <= U[0] + 1e-6).map((s) => s.u[1] + J)), Math.min(U[1], ...stops.filter((s) => s.u[1] >= U[1] - 1e-6).map((s) => s.u[0] - J))];
+    const inner: Range = [Math.max(Ua, ...lo.map((s) => s.u[1] + G)), Math.min(Ub, ...hi.map((s) => s.u[0] - G))];
     for (const inside of faces) {
-      const fd = (a: number, b: number) => depth(a, b, inside);
       for (const s of stops) {
-        if (s.through && inside) continue;
-        stone(s.u, sy, 0, s.through ? T - (o.plaster && !o.twoFaced ? 0.012 : 0) : FD, inside, tone(o.dress, 0.95 + 0.08 * h3(k, Math.round(s.u[0] * 100))));
+        const tint = tone(o.dress, 0.95 + 0.08 * h3(k, Math.round(s.u[0] * 100)));
+        if (!inside) put(s.u, by, depth(MB, s.through ? T - (o.twoFaced ? MB : PL) : FD), tint, 2500);
+        else if (!s.through) put(s.u, by, depth(MB, FD, true), tint, 2500);
+        const cu: Range = [s.u[0] <= Ua + 1e-6 ? Ua : s.u[0] - G / 2, s.u[1] >= Ub - 1e-6 ? Ub : s.u[1] + G / 2];
+        face(cu, cy, tint, false, k * 13 + Math.round(s.u[0] * 100), inside);
       }
-      // the stones between, in a few lengths fitted to the gap (the slack goes into the perpends)
-      if (inner[1] - inner[0] > 0.02) {
-        const rs = k * 131 + Math.round((inner[0] + 50) * 100) + (inside ? 7 : 0);
-        const fit = fitRow(inner[1] - inner[0], dressed ? DRESSED_L : RUBBLE_L, rs, J);
-        let x = inner[0];
-        for (let i = 0; i < fit.lens.length; i++) {
-          const u: Range = [x, x + fit.lens[i]];
-          {
-            const r = h3(rs, i, 9), base = dressed ? o.dress : RUBBLE[Math.floor(r * RUBBLE.length)];
-            const tint = tone(base, 0.9 + 0.18 * h3(rs, i, 11));
-            if (!dressed && sy[1] - sy[0] > 0.2 && r > 0.72) {
-              // a sneck: the slot split into two smaller stones
-              const ym = sy[0] + (sy[1] - sy[0]) * (h3(rs, i, 13) < 0.5 ? 0.45 : 0.55);
-              stone(u, [sy[0], ym - J / 2], 0, FD, inside, tint);
-              stone(u, [ym + J / 2, sy[1]], 0, FD, inside, tone(RUBBLE[Math.floor(h3(rs, i, 17) * RUBBLE.length)], 1));
-              put(u, [ym - J / 2, ym + J / 2], fd(R, FD), MORTAR, 1800, 'concrete');
-            } else stone(u, sy, 0, FD, inside, tint);
-          }
-          x = u[1];
-          if (i + 1 < fit.lens.length) { joint([x, x + J + fit.e], sy, fd(R, FD)); x += J + fit.e; }
-        }
-      }
-      // joints beside the end stones
-      for (const s of stops) {
-        if (s.through && inside) continue;
-        const pj: Range = s.u[0] <= U[0] + 1e-6 ? [s.u[1], Math.min(s.u[1] + J, U[1])] : [Math.max(s.u[0] - J, U[0]), s.u[0]];
-        if (pj[1] - pj[0] > 0.002 && pj[0] >= inner[0] - J - 1e-6 && pj[1] <= inner[1] + J + 1e-6) put(pj, sy, fd(R, FD), MORTAR, 1800, 'concrete');
-      }
-      // bed joint over the course
-      if (!top) {
-        const bu: Range = [U[0], U[1]];
-        const through = stops.filter((s) => s.through);
-        const segs: Range[] = [];
-        let c0 = bu[0];
-        for (const s of through.sort((a, b) => a.u[0] - b.u[0])) { if (s.u[0] > c0) segs.push([c0, s.u[0]]); c0 = Math.max(c0, s.u[1]); }
-        if (bu[1] > c0) segs.push([c0, bu[1]]);
-        for (const sg of segs) put(sg, [row.y[1] - J, row.y[1]], fd(R, FD), MORTAR, 1800, 'concrete');
-        for (const s of through) if (!inside) put(s.u, [row.y[1] - J, row.y[1]], depth(R, T - (o.plaster && !o.twoFaced ? 0.012 : 0)), MORTAR, 1800, 'concrete');
-      }
+      // the stones between
+      const rs = k * 131 + Math.round((inner[0] + 50) * 100) + (inside ? 7 : 0);
+      layCourse(inner[0], inner[1], cy, by, dressed ? { tint: o.dress } : null, rs,
+        (u, y, tint) => put(u, y, depth(MB, FD, inside), tint, 2500),
+        (u, y, tint, rough, s) => face([u[0] <= inner[0] + 1e-6 ? u[0] - G / 2 : u[0], u[1] >= inner[1] - 1e-6 ? u[1] + G / 2 : u[1]], y, tint, rough, s, inside));
+      // the mortar bed the faces are set in
+      put([Ua, Ub], cy, depth(SK, MB, inside), MORTAR, 1800, 'plaster');
     }
-    // core between the faces (clear of the through-stones), then plaster
-    const core: Range = o.twoFaced ? [FD, T - FD] : [FD, T - (o.plaster ? 0.012 : 0)];
-    const cu: Range = [Math.max(U[0], ...stops.filter((s) => s.through && s.u[0] <= U[0] + 1e-6).map((s) => s.u[1])), Math.min(U[1], ...stops.filter((s) => s.through && s.u[1] >= U[1] - 1e-6).map((s) => s.u[0]))];
-    // the core: hearting stones of mixed lengths bedded in lime, so a breached wall spills lumps, not a plank
-    if (core[1] - core[0] > 0.01 && cu[1] - cu[0] > 0.004) {
-      const cs = [cu[0]];
-      for (let x = cu[0] + 0.15 + 0.3 * h3(k, 21), i = 0; x < cu[1] - 0.15; x += 0.3 + 0.1 * Math.floor(h3(k, i, 23) * 4), i++) cs.push(x);
-      cs.push(cu[1]);
-      for (let i = 0; i + 1 < cs.length; i++) put([cs[i], cs[i + 1] - (i + 2 < cs.length ? 0.004 : 0)], row.y, depth(core[0], core[1]), tone(CORE, 0.88 + 0.24 * h3(k, i, 25)), 2100, 'stone');
+    // the reveal's return face: a dressed jamb stone outside, the limewashed splay inside
+    for (const [on, ur] of [[revLo, [U[0], U[0] + RV]], [revHi, [U[1] - RV, U[1]]]] as [boolean, Range][]) {
+      if (!on) continue;
+      const deep = o.twoFaced ? T : FD, dd = depth(0, deep);
+      const W = Math.floor((deep - 0.006) / 0.02) * 0.02, H = Math.floor((cy[1] - cy[0] - 0.006) / 0.02) * 0.02;
+      if (W >= 0.04 && H >= 0.03) {
+        const ol = faceOutline(W, H, false), tc = (dd[0] + dd[1]) / 2, yc = (cy[0] + cy[1]) / 2;
+        const pts: Vec3[] = [];
+        for (const uu of ur) for (const [a, b] of ol) pts.push([uu, yc + b, tc + a]);
+        prism(pts, tone(o.dress, 0.97 + 0.04 * h3(k, 57)));
+      }
+      if (plasterIn) put(ur, cy, depth(FD, T), LIMEWASH, 1500, 'plaster');
     }
+    const cu: Range = [Math.max(Ua, ...stops.filter((s) => s.through && s.u[0] <= Ua + 1e-6).map((s) => s.u[1] + G)), Math.min(Ub, ...stops.filter((s) => s.through && s.u[1] >= Ub - 1e-6).map((s) => s.u[0] - G))];
+    cores.push({ y: [row.y[0], by[1]], cu });
   });
+  // the core: hearting lumps of mixed lengths, two courses high, bedded in lime, so a breached wall spills a few big
+  // lumps among the face stones, not a plank (and not a second wall's worth of bodies)
+  const core: Range = o.twoFaced ? [FD, T - FD] : [FD, T - PL];
+  for (let i = 0; i < cores.length; i += 2) {
+    const a = cores[i], b = cores[i + 1] ?? a;
+    const y: Range = [a.y[0], b.y[1]], cu: Range = [Math.max(a.cu[0], b.cu[0]), Math.min(a.cu[1], b.cu[1])];
+    if (core[1] - core[0] < 0.01 || cu[1] - cu[0] < 0.004) continue;
+    const k = Math.round(y[0] * 100);
+    const xs = [cu[0]];
+    for (let x = cu[0], j = 0; ; j++) {
+      x += 0.55 + 0.15 * Math.floor(h3(k, j, 23) * 4);
+      if (x > cu[1] - 0.35) break;
+      xs.push(x);
+    }
+    xs.push(cu[1]);
+    for (let j = 0; j + 1 < xs.length; j++) put([xs[j], xs[j + 1] - (j + 2 < xs.length ? 0.004 : 0)], y, depth(core[0], core[1]), tone(CORE, 0.88 + 0.24 * h3(k, j, 25)), 2100, 'stone');
+  }
   // one coat of limewashed plaster over the whole inner face (a coat per course would show the coursing through it)
-  if (o.plaster && !o.twoFaced) put(U, Y, depth(T - 0.011, T), LIMEWASH, 1500, 'plaster');
+  const topY = sillTop ? Y[1] - RV : Y[1];
+  if (plasterIn) put([U[0] + (anyLo ? RV : 0), U[1] - (anyHi ? RV : 0)], [Y[0], topY], depth(T - 0.011, T), LIMEWASH, 1500, 'plaster');
+  // the sill: a dressed stone over the whole top of the panel, weathered to the glass
+  if (sillTop) {
+    const W = Math.floor((U[1] - U[0] - 0.004) / 0.02) * 0.02, D = Math.floor((T - 0.004) / 0.02) * 0.02;
+    if (W >= 0.04 && D >= 0.04) {
+      const ol = faceOutline(W, D, false), uc = (U[0] + U[1]) / 2, tc = (t[0] + t[1]) / 2;
+      const pts: Vec3[] = [];
+      for (const yy of [Y[1] - RV, Y[1]]) for (const [a, b] of ol) pts.push([uc + a, yy, tc + b]);
+      prism(pts, tone(o.dress, 0.98));
+    }
+  }
   return d;
+}
+
+/** A plain dressed stone standing in the walling (a through-stone for a service sleeve): its body, a dressed face
+    skin outside and the plaster coat (or a second face) inside. */
+export function dressedStone(u: Range, y: Range, t: Range, out: 1 | -1, o: { dress: number; plaster?: boolean }): PieceSpec {
+  const p = block('stone', u, y, t, { tint: o.dress });
+  const d: PieceSpec[] = [];
+  const face = (inner: boolean): Range => { const f = (out > 0) !== inner ? t[1] : t[0], s = (out > 0) !== inner ? -1 : 1; const a = f, b = f + s * SK; return [Math.min(a, b), Math.max(a, b)]; };
+  const W = Math.floor((u[1] - u[0] - 0.006) / 0.02) * 0.02, H = Math.floor((y[1] - y[0] - 0.006) / 0.02) * 0.02;
+  for (const inner of o.plaster ? [false] : [false, true]) {
+    const ol = faceOutline(W, H, false), pts: Vec3[] = [];
+    for (const tt of face(inner)) for (const [a, b] of ol) pts.push([(u[0] + u[1]) / 2 + a, (y[0] + y[1]) / 2 + b, tt]);
+    const s = hull('drywall', pts); s.tint = tone(o.dress, 0.98); s.density = 2500; d.push(s);
+  }
+  const bd: Range = out > 0 ? [t[0] + (o.plaster ? 0.012 : MB), t[1] - MB] : [t[0] + MB, t[1] - (o.plaster ? 0.012 : MB)];
+  const body = block('stone', u, y, bd); body.tint = o.dress; body.density = 2500; d.push(body);
+  const m = block('plaster', u, y, out > 0 ? [t[1] - MB, t[1] - SK] : [t[0] + SK, t[0] + MB]); m.tint = MORTAR; m.density = 1800; d.push(m);
+  if (o.plaster) { const c = block('plaster', u, y, out > 0 ? [t[0], t[0] + 0.011] : [t[1] - 0.011, t[1]]); c.tint = LIMEWASH; c.density = 1500; d.push(c); }
+  return withDetail(p, d);
 }

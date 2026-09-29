@@ -1,11 +1,11 @@
 import type { PieceSpec } from '../../../types.ts';
-import { block, type Range } from '../../../levels/kit.ts';
+import { block, weldParts, type Range } from '../../../levels/kit.ts';
 import { withDetail } from '../../../levels/layers.ts';
 import type { Placement } from '../../_shared/base.ts';
 import { put } from '../../_shared/clearance-helpers.ts';
 
 /** Site cabin: a 20 ft steel container office (6 × 2.4 m) on timber sleepers, with a window and door in its long side
-    (+Z). One body; up close it is its corner posts, top and bottom rails, corrugated side and end panels, roof sheet
+    (+Z) and a galvanised step unit at the door. One body; up close it is its corner posts, top and bottom rails, corrugated side and end panels, roof sheet
     and floor. */
 export function siteCabin(p: Placement & { tint?: number }): PieceSpec[] {
   const tint = p.tint ?? 0x3f6f9a;
@@ -57,6 +57,8 @@ export function siteCabin(p: Placement & { tint?: number }): PieceSpec[] {
     cabin,
     block('tempered', [-1.8, -0.4], [1.1, 2.1], [1.2, 1.26]),
     steelDoor([1.2, 2.1], [0.2, 2.3], [1.2, 1.26]),
+    // a galvanised two-riser step unit standing on the ground in front of the door, its top tread at the sill
+    { ...weldParts([block('steel', [1.05, 2.25], [0, 0.1], [1.265, 1.87]), block('steel', [1.05, 2.25], [0.1, 0.195], [1.265, 1.57])], { tint: 0x9aa1a6, finish: 'galv' }), density: 900 },
   ], p, 'cabins');
 }
 
