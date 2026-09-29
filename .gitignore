@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 node_modules.nosync/
 legacy-node_modules-trash/
 dist/
