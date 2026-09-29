@@ -179,24 +179,7 @@ function convexSolid(p: PieceSpec): Solid {
     width = Math.min(sz, (sx * sy) / Math.hypot(sx, sy));
   } else if (shape === 'hull') {
     verts = (p.verts ?? []).map((v) => [...v] as Vec3);
-    const faces = hullFaces(verts);
-    normals = [];
-    edges = [];
-    for (const f of faces) addDir(normals, f.n);
-    for (let i = 0; i < faces.length; i++) {
-      for (let j = i + 1; j < faces.length; j++) {
-        const shared = faces[i].pts.filter((q) => faces[j].pts.includes(q)).length;
-        if (shared >= 2) addDir(edges, unit(cross(faces[i].n, faces[j].n)));
-      }
-    }
-    const c = verts.reduce<Vec3>((s, q) => [s[0] + q[0], s[1] + q[1], s[2] + q[2]], [0, 0, 0]).map((v) => v / Math.max(1, verts.length)) as Vec3;
-    volume = faces.reduce((s, f) => s + (polygonArea(f) * (f.d - dot(f.n, c))) / 3, 0);
-    width = Infinity;
-    for (const n of normals) {
-      const pr = verts.map((q) => dot(n, q));
-      width = Math.min(width, Math.max(...pr) - Math.min(...pr));
-    }
-    if (!faces.length) width = 0;
+    ({ normals, edges, volume, width } = hullLocal(verts));
   } else {
     verts = [];
     for (const x of [-hx, hx]) for (const y of [-hy, hy]) for (const z of [-hz, hz]) verts.push([x, y, z]);
@@ -216,6 +199,38 @@ function convexSolid(p: PieceSpec): Solid {
   const q = r / (Math.PI / 2);
   const aligned = shape === 'box' && Math.abs(q - Math.round(q)) < 1e-6;
   return { verts: world, normals: normals.map(rot), edges: edges.map(rot), box: { min, max }, aligned, volume, width };
+}
+
+/* The hull's local frame (axes, volume, caliper width) depends only on its local points, and a building repeats the
+   same few shapes thousands of times (a slate course, a run of voussoirs): computed once per distinct point list. The
+   key is exact (every coordinate's round-trip string, -0 kept apart from 0), so a hit is the same computation. */
+type HullLocal = { normals: Vec3[]; edges: Vec3[]; volume: number; width: number };
+const hullMemo = new Map<string, HullLocal>();
+function hullLocal(verts: Vec3[]): HullLocal {
+  let key = '';
+  for (const v of verts) for (const x of v) key += (Object.is(x, -0) ? '-0' : String(x)) + ',';
+  let h = hullMemo.get(key);
+  if (h) return h;
+  const faces = hullFaces(verts);
+  const normals: Vec3[] = [], edges: Vec3[] = [];
+  for (const f of faces) addDir(normals, f.n);
+  for (let i = 0; i < faces.length; i++) {
+    for (let j = i + 1; j < faces.length; j++) {
+      const shared = faces[i].pts.filter((q) => faces[j].pts.includes(q)).length;
+      if (shared >= 2) addDir(edges, unit(cross(faces[i].n, faces[j].n)));
+    }
+  }
+  const c = verts.reduce<Vec3>((s, q) => [s[0] + q[0], s[1] + q[1], s[2] + q[2]], [0, 0, 0]).map((v) => v / Math.max(1, verts.length)) as Vec3;
+  const volume = faces.reduce((s, f) => s + (polygonArea(f) * (f.d - dot(f.n, c))) / 3, 0);
+  let width = Infinity;
+  for (const n of normals) {
+    const pr = verts.map((q) => dot(n, q));
+    width = Math.min(width, Math.max(...pr) - Math.min(...pr));
+  }
+  if (!faces.length) width = 0;
+  if (hullMemo.size >= 50_000) hullMemo.clear();
+  hullMemo.set(key, h = { normals, edges, volume, width });
+  return h;
 }
 
 export function pieceAabb(p: PieceSpec): Aabb {
@@ -331,12 +346,13 @@ function checkDetail(p: PieceSpec, s: Solid, where: string, errors: string[]): v
       : (s.parts ?? []).some((q) => c.verts.every((v) => v.every((x, k) => x >= q.box.min[k] - DETAIL_TOL && x <= q.box.max[k] + DETAIL_TOL)));
     if (!inside && outside++ < 2) first.push(`${kids[i].mat} at ${kids[i].pos.map((x) => x.toFixed(2)).join(',')} pokes out`);
   });
-  const C = 0.25, grid = new Map<string, number[]>();
+  // cell keys packed into one number (cells of ±2048 × 0.25 m = ±512 m, far past any site; exact below 2^53)
+  const C = 0.25, grid = new Map<number, number[]>();
   sol.forEach((c, i) => {
     for (let x = Math.floor(c.box.min[0] / C); x <= Math.floor(c.box.max[0] / C); x++)
       for (let y = Math.floor(c.box.min[1] / C); y <= Math.floor(c.box.max[1] / C); y++)
         for (let z = Math.floor(c.box.min[2] / C); z <= Math.floor(c.box.max[2] / C); z++) {
-          const k = `${x},${y},${z}`, g = grid.get(k);
+          const k = ((x + 2048) * 4096 + (y + 2048)) * 4096 + (z + 2048), g = grid.get(k);
           if (g) g.push(i); else grid.set(k, [i]);
         }
   });
