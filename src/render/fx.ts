@@ -2353,8 +2353,9 @@ export const fx = {
     if (!ready || budget() < 0.35) return;
     pAt(pos[0], pos[1], pos[2]);
     P.vx = vel[0] * 0.8 + rf(-0.15, 0.15); P.vy = vel[1] * 0.8 + rf(0, 0.2); P.vz = vel[2] * 0.8 + rf(-0.15, 0.15); P.drag = 0.8;
-    P.rise = 0.15; P.life = rf(2.5, 4); P.s0 = size * 0.6; P.s1 = size * rf(1.3, 1.8);
-    pColor(color, rf(0.92, 1.06)); P.a = alpha; P.fadeIn = 0.5; P.wind = 0.6; P.curl = 0.3; P.spin = rf(-0.3, 0.3);
+    // many thin billows that spread as they rise: a plume, not a string of opaque balls
+    P.rise = 0.15; P.life = rf(3, 5); P.s0 = size * 0.7; P.s1 = size * rf(2, 2.8);
+    pColor(color, rf(0.92, 1.06)); P.a = alpha * 0.55; P.fadeIn = 0.8; P.wind = 0.7; P.curl = 0.5; P.spin = rf(-0.3, 0.3);
     emit();
   },
 };
