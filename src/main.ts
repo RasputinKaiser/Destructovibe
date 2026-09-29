@@ -88,11 +88,14 @@ const nextFrame = (): Promise<void> => new Promise(r => {
 });
 let loadSeq = 0;
 
-async function loadLevel(c: Contract, label: string): Promise<boolean> {
+/* `backdrop`: build the site behind whatever menu is showing, without the loading screen (the title's scenery). */
+async function loadLevel(c: Contract, label: string, backdrop = false): Promise<boolean> {
   const seq = ++loadSeq;
-  state = 'loading';
-  ui.showHud(false);
-  ui.showScreen('loading');
+  if (!backdrop) {
+    state = 'loading';
+    ui.showHud(false);
+    ui.showScreen('loading');
+  }
   ui.setLoading(0.15, label);
   await nextFrame();
   if (seq !== loadSeq) return false;
@@ -146,15 +149,16 @@ async function loadLevel(c: Contract, label: string): Promise<boolean> {
 async function showTitle(): Promise<void> {
   releaseLock();
   const pristine = state === 'contracts' || state === 'settings';
-  if (!pristine) {
-    mode = 'sandbox';
-    if (!await loadLevel(SANDBOX, 'Preparing site')) return;
-  }
   state = 'title';
   ui.showHud(false);
   viewmodel.setVisible(false);
   ui.showScreen('title');
   audio.setPaused(false);
+  /* the menu is usable at once; the Clearance Zone builds behind it (a pick made meanwhile supersedes it) */
+  if (!pristine) {
+    mode = 'sandbox';
+    await loadLevel(SANDBOX, 'Preparing site', true);
+  }
 }
 
 function showContracts(): void {
