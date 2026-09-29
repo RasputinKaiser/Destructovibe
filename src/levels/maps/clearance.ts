@@ -1,5 +1,5 @@
 import type { Blueprint, PieceSpec, UtilityKind } from '../../types.ts';
-import { airDome, block, dunnageBag, raise, sandbags, splitRange, stockpile, tag, type Range } from '../kit.ts';
+import { airDome, block, dunnageBag, place, raise, sandbags, splitRange, stockpile, tag, type Range } from '../kit.ts';
 import { route, SVC } from '../services.ts';
 import { chipShop, cottageRow, dump, rotunda, stoneArchBridge, towerCrane, TINT, type Placement } from '../structures.ts';
 import { boilerHouse } from '../plant.ts';
@@ -8,7 +8,7 @@ import * as EL from '../electrical.ts';
 import { MAIN, SiteGrid, checkGrid, depthOf, intakes, kindOf, networks, pumpHall, substation, unsource } from '../grid.ts';
 import { bench, bollard, fence, litterBin, marker, phoneBox, postBox, sign, stand, stopFlag, wheelieBin } from './ground.ts';
 import { TerrainPlan } from '../../terrain/plan.ts';
-import { found, type FoundOpts } from '../../terrain/foundations.ts';
+import { found, onFoundation, type FoundOpts } from '../../terrain/foundations.ts';
 import { groundFn, groundHeight } from '../../terrain/raster.ts';
 import { DPC, KERB_UP } from '../../terrain/spec.ts';
 import { highStreetUnit } from '../../buildings/high-street-unit/parts/main.ts';
@@ -20,6 +20,9 @@ import { worksHall } from '../../buildings/works-hall/parts/main.ts';
 import { merchantShed } from '../../buildings/merchant-shed/parts/main.ts';
 import { frameUnderConstruction } from '../../buildings/frame-under-construction/parts/main.ts';
 import { put } from '../../buildings/_shared/clearance-helpers.ts';
+import { assemble } from '../../buildings/assemble.ts';
+import boilerChimney from '../../buildings/boiler-chimney/def.ts';
+import { foundationLocal as chimneyFoundation } from '../../buildings/boiler-chimney/lib.ts';
 
 /* Clearance Zone: an urban-edge district condemned whole, inside the site fence (±64 m; x east, +z south).
      Streets   High Street (E-W, z 2.5..9.5), the main road, with a raised crossing by the chip shop and signals at
@@ -226,6 +229,11 @@ export function clearanceZone(): Blueprint {
   bld('semis', semiPair({ x: 28, z: 51.4, rot: 2 }), 'drop', true, false, true);
   bld('chapel', chapelLite({ x: -53, z: -8 }), 'drop', false, false, false, { depth: 1.0 });
   bld('boilerhouse', boilerHouse({ x: 45, z: -13, rot: 1 }), 'ground', true, true);
+  // its brick chimney west of it on a mass-concrete pad, the flue duct running to the boiler house's west wall (x 41.5)
+  // between its windows; felled west along z -13 it falls across the yard and Works Road, clear for ~25 m, its top
+  // coming down on the back yards behind the high street shops
+  const stack = { x: 37, z: -13, wall: 41.5 - 37 };
+  add(onFoundation(assemble(boilerChimney, stack), place(chimneyFoundation(stack.wall), stack.x, stack.z), plan));
   bld('merchant', merchantShed({ x: 47, z: 24 }), 'ground');
   add(rotunda({ x: -54, z: 22 }), stoneArchBridge({ x: -40, z: 12 }).filter((q) => !kindOf(q)));
   world.push(...canalCut(plan, -40, [-24, 32], [[9.2, 14.8]]));
