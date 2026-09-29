@@ -168,15 +168,17 @@ void main() {
   float r2 = dot( vQ, vQ );
   if ( r2 >= 1.0 ) discard;
   vec4 tx = texture2D( uTex, vUv );
-  float dens = tx.r;
+  // thin, ragged margins and a less even core: dust is a haze with structure, not a ball of wool
+  float dens = tx.r * mix( 0.7, 1.15, tx.g ) * ( 1.0 - 0.45 * smoothstep( 0.35, 1.0, r2 ) );
   float ground = smoothstep( 0.0, 0.35, vY );
   float soft = 1.0;
   if ( uSoft > 0.5 ) soft = clamp( ( texture2D( uDepth, gl_FragCoord.xy / uRes ).r - vViewZ ) / vSoftR, 0.0, 1.0 );
   float a = clamp( dens * vCol.a, 0.0, 1.0 ) * ground * soft;
   vec3 emit = vEmit * dens * ground * soft;
   if ( a < 0.002 && dot( emit, emit ) < 1e-6 ) discard;
-  vec3 n = normalize( vec3( vQ, sqrt( 1.0 - r2 ) + 0.3 ) );
-  float wrap = clamp( dot( n, vSunV ) * 0.55 + 0.45, 0.0, 1.0 );
+  // a flattened normal: the puff is lit as a patch of a larger cloud, not shaded as a sphere
+  vec3 n = normalize( vec3( vQ * 0.45, sqrt( 1.0 - r2 ) + 0.9 ) );
+  float wrap = clamp( dot( n, vSunV ) * 0.45 + 0.55, 0.0, 1.0 );
   // forward scatter with the sun behind the puff is strongest through thin edges (the silver lining)
   float fwd = pow( max( -vSunV.z, 0.0 ), 4.0 ) * ( 1.15 - dens );
   vec3 amb = mix( uAmbBot, uAmbTop, n.y * 0.5 + 0.5 ) * mix( 0.45, 1.0, vOcc );
@@ -914,7 +916,7 @@ function spawnBillow(c: Cloud, R: number, life: number): void {
     P.rise = rf(0.2, 0.6); P.accel = -0.003; P.s0 = ps * rf(0.5, 0.8); P.s1 = ps * rf(1.6, 2.6);
   }
   const k = rf(0.86, 1.08);
-  _cc.setRGB(c.r, c.g, c.b).lerp(_cg, 0.25);
+  _cc.setRGB(c.r, c.g, c.b).lerp(_cg, 0.45);
   P.r = _cc.r * k; P.g = _cc.g * k; P.b = _cc.b * k;
   P.life = life * rf(0.55, 1); P.a = rf(0.5, 0.68); P.fadeIn = rf(0.8, 2.2);
   P.wind = rf(0.8, 1.1); P.spin = rf(-0.12, 0.12); P.curl = rf(0.35, 0.6);
@@ -1117,19 +1119,20 @@ export const fx = {
       const sp = R * rf(1.4, 3.2);
       pAt(x + _v.x * R * 0.25, y + _v.y * R * 0.2, z + _v.z * R * 0.25);
       P.vx = _v.x * sp; P.vy = _v.y * sp; P.vz = _v.z * sp; P.drag = 3.5;
-      P.life = rf(0.9, 1.9); P.s0 = R * 0.35; P.s1 = R * rf(0.9, 1.3) * grow;
-      pColor(0x2e2924, rf(0.8, 1.2)); P.a = 0.9; P.heat = rf(9, 14); P.heatDur = rf(0.2, 0.45);
+      P.life = rf(0.7, 1.3); P.s0 = R * 0.35; P.s1 = R * rf(0.9, 1.3) * grow;
+      pColor(0x3a342d, rf(0.8, 1.2)); P.a = 0.8; P.heat = rf(9, 14); P.heatDur = rf(0.2, 0.45);
       P.rise = 1.5; P.accel = 0.4; P.wind = 0.3; P.fadeIn = 0.02; P.spin = rf(-1.5, 1.5);
       emit();
     }
     const ns = Math.round((8 + R * 2) * b);
     for (let i = 0; i < ns; i++) {
       const f = i / ns;
-      pAt(x + rf(-0.4, 0.4) * R, y + R * (0.3 + f * 0.6), z + rf(-0.4, 0.4) * R);
-      P.delay = f * 0.8; P.vx = rf(-1, 1); P.vy = rf(2, 4); P.vz = rf(-1, 1); P.drag = 0.8;
-      P.rise = 1.1 + R * 0.15; P.accel = -0.02; P.life = rf(6, 11); P.s0 = R * 0.5; P.s1 = R * rf(1.8, 2.6) * grow;
-      // the column is mostly lofted dust and pulverised mortar, grey-tan; only the fireball's own soot is dark
-      pColor(0x7a7064, rf(0.8, 1.12)); P.a = 0.5; P.heat = 2; P.heatDur = 0.3; P.fadeIn = 0.35; P.curl = 0.25;
+      pAt(x + rf(-0.6, 0.6) * R, y + R * (0.3 + f * 0.6), z + rf(-0.6, 0.6) * R);
+      P.delay = f * 0.8; P.vx = rf(-1.4, 1.4); P.vy = rf(1.5, 3.2); P.vz = rf(-1.4, 1.4); P.drag = 0.8;
+      P.rise = 0.7 + R * 0.1; P.accel = -0.02; P.life = rf(5, 9); P.s0 = R * 0.5; P.s1 = R * rf(2.0, 2.9) * grow;
+      // the column is mostly lofted dust and pulverised mortar, grey-tan and thinning as it spreads, not a dark ball
+      // floating off: only the fireball's own soot is dark
+      pColor(0x9b9283, rf(0.85, 1.1)); P.a = 0.34; P.heat = 2; P.heatDur = 0.3; P.fadeIn = 0.35; P.curl = 0.4;
       emit();
     }
     // debris-laden ejecta: dark, fast, narrow, falling back under drag
@@ -1203,7 +1206,9 @@ export const fx = {
       P.vx = rf(-0.6, 0.6); P.vy = rf(0.2, 0.6); P.vz = rf(-0.6, 0.6); P.drag = 1.2;
       P.rise = rf(0.15, 0.35); P.life = rf(4, 6) + sz * rf(0.3, 0.6);
       P.s0 = sz * rf(0.35, 0.6); P.s1 = sz * rf(1.0, 1.7) * grow;
-      pColor(color, rf(0.9, 1.06)); P.a = clamp(0.62 - sz * 0.03, 0.35, 0.58); P.fadeIn = rf(0.15, 0.4); P.delay = (i / n) * 0.25; P.curl = 0.2;
+      // what hangs in the air reads grey-tan whatever it came off: the fine fraction is mostly mortar and grit
+      _cc.setHex(color).lerp(_cg, 0.35); const k = rf(0.9, 1.06); P.r = _cc.r * k; P.g = _cc.g * k; P.b = _cc.b * k;
+      P.a = clamp(0.5 - sz * 0.03, 0.28, 0.46); P.fadeIn = rf(0.25, 0.6); P.delay = (i / n) * 0.35; P.curl = 0.35;
       emit();
     }
     feedCloud(pos[0], pos[1], pos[2], sz * sz * sz * 0.5, color);

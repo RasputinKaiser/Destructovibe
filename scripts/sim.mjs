@@ -110,7 +110,7 @@ try {
     win.max = Math.max(win.max ?? 0, d - a); win.phys += b - a; win.after += d - b; win.soft += soft.softPerf.ms; win.n++;
     if ((i + 1) % (process.env.WIN ? +process.env.WIN : 120) === 0) {
       const s = st.stats();
-      perWin.push(`t=${((i + 1) / 60).toFixed(0)}s phys ${(win.phys / win.n).toFixed(2)} after ${(win.after / win.n).toFixed(2)} soft ${(win.soft / win.n).toFixed(2)} ms | welds ${s.welds} pieces ${s.pieces} demo ${(100 * st.demolitionFraction()).toFixed(2)}% awakeBodies ${awake()} softAwake ${soft.softPerf.awake} snaps ${s.snaps} evSnaps ${s.eventSnaps} frac ${s.fractures} cracks ${s.cracks} yields ${s.yields} anPending ${an.stats.pending} anMax ${an.stats.maxMs.toFixed(1)} maxStep ${win.max.toFixed(1)}`); win.max = 0;
+      perWin.push(`t=${((i + 1) / 60).toFixed(0)}s phys ${(win.phys / win.n).toFixed(2)} after ${(win.after / win.n).toFixed(2)} soft ${(win.soft / win.n).toFixed(2)} ms | welds ${s.welds} pieces ${s.pieces} demo ${(100 * st.demolitionFraction()).toFixed(2)}% awakeBodies ${awake()} softAwake ${soft.softPerf.awake} snaps ${s.snaps} evSnaps ${s.eventSnaps} frac ${s.fractures} cracks ${s.cracks} yields ${s.yields} hangs ${s.hangs ?? 0} relieved ${s.relieved ?? 0} frozen ${s.frozen ?? 0} anPending ${an.stats.pending} anMax ${an.stats.maxMs.toFixed(1)} maxStep ${win.max.toFixed(1)}`); win.max = 0;
       win.phys = win.after = win.soft = win.n = 0;
     }
   }

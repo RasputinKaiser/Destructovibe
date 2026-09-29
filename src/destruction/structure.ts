@@ -3601,6 +3601,7 @@ function housekeeping(dt: number): void {
   for (const p of live) {
     if (p.curPos[1] < -15) { if (!p.demolished) markDemolished(p); doomed.push(p); continue; }
     if (p.depth === 0 && !p.welds.length && p.demolished && !shattering.has(p) && BREAKUP_MATS.has(p.mat)) fallen(p);
+    if (p.welds.length && p.demolished && !p.dead) looseCluster(p);
     if (p.fade > 0 || !p.demolished || p.depth === 0 || p.rebars.length || frozenSet.has(p)) continue;
     if (p.movedStep < stepCount - 2) p.sleepT += 0.5;
     if (p.volume < 0.012 && p.sleepT > 30) { if (canFreeze(p) && onRubble(p)) freezeRubble(p); else startFade(p); }
@@ -3620,6 +3621,30 @@ function housekeeping(dt: number): void {
     excess = debrisCount - Math.floor(BUDGET * 1.25);
     for (let i = 0; i < cands.length && excess > 0; i++) if (!cands[i].still && cands[i].p.fade <= 0) { startFade(cands[i].p); excess--; }
   }
+}
+
+/* Members that came down still joined to each other (a door frame on its lump of wall, two lifts of a pier) and lie
+   free of everything standing are rubble: the joints between them hold nothing up any more, and a light member
+   jointed to a heavy one rocks on the heap for as long as the solver runs, keeping the whole pile awake. Once the
+   cluster has slowed, its joints go and each piece settles on its own. */
+const LOOSE_MAX = 8;
+const _lcv: Vec3 = [0, 0, 0];
+function looseCluster(p: Piece): void {
+  const seen = new Set<Piece>([p]), stack = [p];
+  while (stack.length) {
+    const q = stack.pop()!;
+    if (q.rebars.length || q.ropes.length || q.mechs || q.hinged) return;
+    for (const w of q.welds) {
+      if (!w.b) return;
+      const o = w.a === q ? w.b : w.a;
+      if (seen.has(o)) continue;
+      if (!o.demolished || o.dead || seen.size >= LOOSE_MAX) return;
+      seen.add(o); stack.push(o);
+    }
+  }
+  for (const q of seen) { b3.b3Body_GetLinearVelocity(_lcv, q.body); if (vec3.squaredLength(_lcv) > 1) return; }
+  for (const q of seen) for (const w of q.welds.slice()) killWeld(w, true);
+  for (const q of seen) rubble(q);
 }
 
 /* Settled rubble: a static body where it came to rest, still drawn and still solid underfoot, but no longer solved

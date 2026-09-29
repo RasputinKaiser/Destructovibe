@@ -305,7 +305,8 @@ export function fieldsBlast(pos: Vec3, radius: number, power: number, s: Survey 
     f[F_PK][i] = Math.max(f[F_PK][i], pso(Math.max(d, 0.3) / (s ? s.cw : cw)));
     if (d < rf) {
       f[F_T][i] = Math.max(f[F_T][i], 1500 - 900 * (d / rf));
-      f[F_SMOKE][i] += 0.6; f[F_DARK][i] += 0.5; f[F_CO][i] += 0.01;
+      // a high explosive's own soot is a brief dark flash in the fireball; what lingers is lofted dust (grey-tan)
+      f[F_SMOKE][i] += 0.6; f[F_DARK][i] += 0.12; f[F_CO][i] += 0.01;
       f[F_O2][i] = Math.max(0, f[F_O2][i] - 0.04);
     }
     const k = Math.max(0, 1 - d / rp) * 14 / Math.max(0.5, d);
@@ -333,7 +334,8 @@ function emitSmoke(): void {
       _p[0] = b.ox + x + rnd(); _p[1] = b.oy + y + rnd(); _p[2] = b.oz + z + rnd();
       _vel[0] = b.f[F_U][i]; _vel[1] = b.f[F_V][i]; _vel[2] = b.f[F_W][i];
       const k = white ? 0 : Math.min(1, D[i] / Math.max(1e-6, sm));
-      const col = white ? 0xeeeeea : mix(0x74665a, 0x151414, k);
+      // timber and plastics burning in the open smoke grey-brown to charcoal, not black: only a fuel-rich fire goes darker
+      const col = white ? 0xeeeeea : mix(0x7c7064, 0x2c2a28, k * 0.85);
       fx.fieldSmoke(_p, _vel, 0.9 + Math.min(1.2, dens), Math.min(0.75, 0.18 + dens * 0.5), col);
       budget--;
     }

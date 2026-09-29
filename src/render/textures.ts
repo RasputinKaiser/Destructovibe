@@ -1743,8 +1743,10 @@ export function smokeAtlas(): THREE.DataTexture {
           if (q > b) b = q;
         }
         const nn = tap(f0, sx + px * 40, sy + py * 40) * 0.55 + tap(f2, sx + px * 90, sy + py * 90) * 0.45;
-        const t = clamp01((b * 1.1 + (nn - 0.5) * 0.9) * 1.25) * (1 - smooth(0.78, 0.97, rad));
-        dens = t * t * (3 - 2 * t);
+        // noise eats into the lobes more than it adds to them, and the density ramps in rather than stepping, so the
+        // edge of a billow is a ragged thinning haze and not a cotton-wool rim
+        const t = clamp01((b * 0.95 + (nn - 0.5) * 1.3) * 1.1) * (1 - smooth(0.55, 0.97, rad));
+        dens = t * (0.55 + 0.45 * t);
         det = nn;
       }
       const o = ((oy + y) * n + ox + x) * 4;
