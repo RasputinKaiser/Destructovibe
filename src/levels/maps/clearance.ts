@@ -30,9 +30,10 @@ import { foundationLocal as chimneyFoundation } from '../../buildings/boiler-chi
                x 23..29) into the yards · Terrace Row (E-W, z 35..41), with a back alley behind the houses.
      North of High Street, east to west: the utility compound and the heritage quarter (chapel, drained canal cut
                under a stone arch bridge, rotunda) west of Mill Lane; the high street shops and pub, with the
-               construction site behind them; the industrial yard (boiler house, works hall, press shop) past
-               Works Road.
-     South of High Street: the car park and the builders' merchant; Terrace Row houses; open demolition ground
+               construction site behind them (hoarded on three sides); the works yard past Works Road, its
+               boiler house and brick chimney at the east end with a felling lane down the yard.
+     South of High Street: the car park, a green with a cut-through path and the builders' merchant; Terrace Row
+               houses behind walled front gardens, then cleared plots down to their slabs; open demolition ground
                in the south-west by the Mill Lane entrance, where the player starts.
    Every street verge carries the mains, plot side to kerb: gas, water, power (see V below), buried at their real
    cover under the footways and verges (grid.ts). The ground is terrain (terrain/*): carriageways carved a kerb below
@@ -311,7 +312,7 @@ export function clearanceZone(): Blueprint {
     house(frameUnderConstruction({ x: 10, z: -26 })),
     siteCabin({ x: -8, z: -19.5 }), siteCabin({ x: -8, z: -23, tint: 0x2f6f4f }),
     // the winter-works enclosure: an air dome over the ground-works bay
-    [airDome([-17, -11], [-31, -27], 0, 3, [-14, -31.7], { tint: 0xe9e9e4 })],
+    [airDome([-15.4, -9.4], [-31, -27], 0, 3, [-12.4, -31.7], { tint: 0xe9e9e4 })],
     M.excavator({ x: -6, z: -54, rot: 3 }),
     M.dumpTruck({ x: 11, z: -56 }),
     M.mixerTruck({ x: 11, z: -36, rot: 2 }),
@@ -322,7 +323,7 @@ export function clearanceZone(): Blueprint {
     M.scissorLift({ x: 9.5, z: -18.2 }),
     M.lightTower({ x: -12, z: -46 }),
     M.lightTower({ x: 16, z: -40, rot: 2 }),
-    stockpiles({ x: -12, z: -60 }),
+    stockpiles({ x: -10, z: -60 }),
     dump({ x: 17, z: -60, barrels: [2, 1], propane: [2, 1], group: 'site-gas' }),
   );
 
@@ -360,8 +361,66 @@ export function clearanceZone(): Blueprint {
   /* back alley behind Terrace Row: garden fences, wheelie bins at the back gates */
   furn.push(...fence('x', -16.35, 44, 59.54, 0, 1.8));
   for (const x of [-9, -3, 7, 14, 24, 32]) furn.push(wheelieBin(x, 60.3, 0, x % 2 ? 0x2f5a3a : 0x3a3d40));
-  /* the site hoarding round the construction site, open at its gate on Works Road side */
+  /* the site hoarding round the construction site: along the shops' back yards (open at the plant gate by the frame),
+     down Mill Lane and down Works Road (open at the delivery gate) */
   furn.push(...fence('x', -16, 20.4, -15.4, 0, 2.2, 'plywood', 0x4f6f4f, 6.1).filter((q) => Math.abs(q.pos[0] - 14.5) > 3.5));
+  furn.push(...fence('z', -15.45, -62.5, -16, 0, 2.2, 'plywood', 0x4f6f4f, 8.2));
+  furn.push(...fence('z', -15.45, -37.6, 20.4, 0, 2.2, 'plywood', 0x4f6f4f, 8.2), ...fence('z', -44.2, -62.5, 20.4, 0, 2.2, 'plywood', 0x4f6f4f, 8.2));
+
+  /* plot boundaries (ground features: low walls stand as the ground does) */
+  const wall = (x: Range, z: Range, top: number, mat: 'brick' | 'stone' | 'concrete' = 'brick', tint?: number, y0 = -0.1) => {
+    plan.block(x, z, y0, top, mat);
+    if (tint !== undefined) plan.spec.blocks[plan.spec.blocks.length - 1].tint = tint;
+  };
+  const coped = (x: Range, z: Range, top: number, tint = 0x9c5a44) => {
+    const alongX = x[1] - x[0] > z[1] - z[0];
+    wall(x, z, top - 0.08, 'brick', tint);
+    wall(alongX ? x : [x[0] - 0.03, x[1] + 0.03], alongX ? [z[0] - 0.03, z[1] + 0.03] : z, top, 'stone', 0xcfc6b2, top - 0.08);
+  };
+  // Terrace Row front gardens: a dwarf wall with brick piers at each gate, half-brick walls between the gardens, a
+  // flagged path from each gate to the step; the row ends walled back to the alley
+  const FW: Range = [43.2, 43.43], FRONT = 46.9;
+  const rows = [{ x: [-13.35, 1.35] as Range, doors: [-12.32, -4.37, -2.83], party: [-8.55, -3.75] },
+    { x: [3.15, 17.85] as Range, doors: [4.18, 12.13, 13.66], party: [7.95, 12.75] },
+    { x: [22.5, 33.5] as Range, doors: [26.95, 29.05], party: [28] }];
+  for (const r of rows) {
+    const gates = r.doors.map((d) => [d - 0.5, d + 0.5] as Range).sort((a, b) => a[0] - b[0]);
+    let x0 = r.x[0];
+    for (const g0 of gates) {
+      if (g0[0] - x0 > 0.3) coped([x0, g0[0]], FW, 0.85);
+      for (const px of [g0[0] - 0.18, g0[1] + 0.18]) coped([px - 0.17, px + 0.17], [FW[0] - 0.06, FW[1] + 0.06], 1.1, 0x8e4e3a);
+      plan.mat([g0[0] + 0.05, g0[1] - 0.05], [FW[1], 47.1], 'paving');
+      x0 = g0[1];
+    }
+    if (r.x[1] - x0 > 0.3) coped([x0, r.x[1]], FW, 0.85);
+    for (const px of r.party) wall([px - 0.06, px + 0.06], [FW[1], FRONT], 0.9);
+  }
+  // side walls closing the gardens off from Mill Lane and from the cleared plots east of the semis
+  coped([-16.25, -16.02], [FW[0], 59.3], 1.5);
+  coped([35.4, 35.63], [FW[0], 59.3], 1.5);
+  // the builders' merchant's yard: palisade on its west side, along the green
+  furn.push(...fence('z', 12.2, 32.3, 33.2, 0, 2.0, 'steel', 0x2f3a36, 6.8));
+  // the works yard's frontage to High Street: palisade, open at the yard gate
+  furn.push(...fence('x', 32.4, 63.6, -1.95, 0, 2.0, 'steel', 0x2f3a36, 6.8).filter((q) => q.pos[0] < 38.5 || q.pos[0] > 45.5));
+  // a cut-through path across the green from High Street to Terrace Row, with a bench on it
+  plan.mat([21.3, 22.7], [11.65, 32.85], 'paving');
+  furn.push(bench(23.6, 22, 0, false, 1), litterBin(23.4, 24.6, 0));
+  // the shops' back yards: yard walls between them and a rear wall along the hoarding
+  const yardWall = (x: Range, z: Range) => world.push(block('brick', x, [0, 1.8], z, { tint: 0x9a5a46, anchored: true, group: 'yards' }));
+  yardWall([-4.3, -4.07], [-15.1, -9.95]);
+  yardWall([3.6, 3.83], [-15.1, -10.85]);
+  yardWall([10.55, 10.78], [-15.1, -10.85]);
+  yardWall([-4.07, 3.6], [-15.1, -14.87]);
+  yardWall([3.83, 10.55], [-15.1, -14.87]);
+  /* the cleared plots at the east end of Terrace Row: three houses already down to their floor slabs and footings,
+     the ground broken up and a heap of what came out of them */
+  plan.mat([36, 63], [44.5, 59.5], 'rubble');
+  for (const x0 of [37.5, 45, 52.5]) {
+    wall([x0, x0 + 6.4], [47.4, 55.2], 0.12, 'concrete', 0x8f8a80);
+    wall([x0 - 0.12, x0 + 6.52], [47.28, 47.52], 0.3, 'brick', 0x8e4e3a);
+    wall([x0 + 6.4, x0 + 6.64], [47.4, 51 + (x0 % 2)], 0.45, 'brick', 0x8e4e3a);
+  }
+  add(rubble(58.5, 52, 29));
 
   const pieces = [...world, ...g.ps, ...furn];
   for (const q of pieces) delete q.protected;
