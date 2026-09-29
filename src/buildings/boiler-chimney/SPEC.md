@@ -40,16 +40,21 @@ Top lift and cap sooted. Bricks 215 × 65 mm on a 225 × 75 module.
 - Pedestal lift (3.3 m) with the capping course as one body; six shaft lifts of 58-59 courses (~4.4 m); the cap.
 - Mortar welds between lifts (lime, 120 years, wet exposure).
 
-## Behaviour (headless; see the commit message for the runs)
+## Behaviour
 
-- Stands: settle 0 welds lost, 0 awake; Clearance 30 s idle 0/0.
-- Gob felling (four 2.5 kg charges at 0.6 m: two on the west face, one on each side face 0.7 m west of the axis): the
-  column leans over the east hinge as one body, breaks into sections just before and at impact and comes down as
-  lift-sized chunks and loose brick in a narrow pile along the fall line, about 1 H long. It falls within ~20° of the
-  notch's axis (it has drifted north in every run so far).
-- Too small a gob (1 kg charges) leaves brickwork under the notch side: the column rocks and stands.
-- A small blast inside the base (dev `boom`) loses a few joints and stands. Charges on all four faces blow the base
-  course out: the column sits down 1.2 m onto its pedestal lift and stands, and later its upper third breaks off.
+Gob: four 2.5 kg charges at 0.6 m (two on the west face, one on each side face 0.7 m west of the axis) and 1 kg on each
+side face 0.1 m west of it, fired after the joints have calibrated (~15 s in; fired at 1 s the shaft's joints are still
+unbreakable and it falls whole).
+- Headless (`sim.mjs`-style, Clearance): leans over the east hinge as one body, 5° at 1.6 s, 45° at 4.1 s, cracks
+  just above the base at ~20° and lands at 5.3 s due west; 95 % of the debris volume within 36 m of the base (1.1 H),
+  lift-sized chunks and loose brick along the fall line.
+- In the game (Browser pane, 20 fps): falls west as one body to ~8°, then breaks at about two-thirds height at 2.5 s
+  and the top third jack-knifes back as the rest goes on (collapse/chimney-felling tell 1 and the Frankfurt sequence);
+  down at ~5.5 s, chunks 7-30 m west. The game and the harness diverge (the engine's known E10 frame-slicing bug).
+- Too small a gob (1 kg side charges only, or side charges 1 m west of the axis) leaves brickwork under the notch
+  side: the column rocks and stands. Side charges on the axis at 2.5 kg take the hinge too and it telescopes.
+- A small blast inside the base (dev `boom`) loses a few joints and stands. 2.5 kg on all four faces blows the base
+  course out: the column sits down 1.2 m onto its pedestal lift and stands.
 
 ## Known gaps
 
