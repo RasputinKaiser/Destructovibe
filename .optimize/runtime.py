@@ -7,6 +7,7 @@ per-second PERF arrays to a few metrics per scenario, plus each run's RESULT (fi
 Windows are 60 steps (1 s); the blast (if any) fires at step 60, i.e. the start of window 1.
   idle_*    steady  = windows 5..9 (t 5-10 s)
   tower_D / terrace_S  collapse = windows 1..9 (t 1-10 s), aftermath = windows 15..19 (t 15-20 s, ~+15 s after blast)
+  chapel_S  settle_s = first second from which no body is awake; t10_20 = windows 10..19
 Metrics are ms per physics step (phys = b3World_Step + event dispatch, after = afterStep + terrain, frame = once-a-frame
 syncMeshes/maintain) and awake bodies; *_cpu = process CPU ms per step (user+sys, includes GC threads), steadier
 than wall time when other agents load the machine. Compare runs back to back only.
@@ -19,6 +20,8 @@ SCEN = {
     'idle_D':    (['D', '600'], 'idle'),
     'tower_D':   (['D', '1200', '-60,1.5,-55,5'], 'blast'),
     'terrace_S': (['S', '1200', '-3.6,1.2,50.8,5'], 'blast'),
+    # the viewer-independence test's chapel blast, run to 30 s: a collapse with no fire, so the pile can go to sleep
+    'chapel_S':  (['S', '1800', '-60.5,1.2,-8,5'], 'settle'),
 }
 def mean(a): return round(statistics.fmean(a), 3) if a else None
 def run(name):
@@ -40,6 +43,12 @@ def run(name):
         m.update(after_ms=mean(w('after', 5, 9)), phys_ms=mean(w('phys', 5, 9)), frame_ms=mean(w('frame', 5, 9)),
                  soft_ms=mean(w('soft', 5, 9)), joints_ms=mean(w('joints', 5, 9)), svc_ms=mean(w('svc', 5, 9)),
                  ter_ms=mean(w('ter', 5, 9)), after_cpu=mean(w('afterCpu', 5, 9)), awake_end=P['awake'][-1])
+    elif kind == 'settle':
+        a = P['awake']
+        settle = next((i for i in range(1, len(a)) if all(x == 0 for x in a[i:])), None)
+        m.update(settle_s=settle, t10_20_phys_ms=mean(w('phys', 10, 19)), t10_20_after_ms=mean(w('after', 10, 19)),
+                 t10_20_phys_cpu=mean(w('physCpu', 10, 19)), t10_20_after_cpu=mean(w('afterCpu', 10, 19)),
+                 collapse_total_ms=mean(tot[1:10]), awake_end=a[-1])
     else:
         m.update(collapse_phys_ms=mean(w('phys', 1, 9)), collapse_after_ms=mean(w('after', 1, 9)),
                  collapse_total_ms=mean(tot[1:10]), collapse_worst_s_ms=round(max(tot[1:10]), 2),

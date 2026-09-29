@@ -1,0 +1,271 @@
+
+> destructovibe@2.0.0 test
+> node --test tests/*.test.ts && node tests/fx-impact.mjs
+
+TAP version 13
+# Subtest: gen-buildings: folder filter, claims listing and deterministic, idempotent output
+ok 1 - gen-buildings: folder filter, claims listing and deterministic, idempotent output
+  ---
+  duration_ms: 606.148667
+  type: 'test'
+  ...
+# Subtest: claims: parse and refusal rules
+ok 2 - claims: parse and refusal rules
+  ---
+  duration_ms: 1.662083
+  type: 'test'
+  ...
+# Subtest: check-building: --part scoping, per-part baselines, stale entries, claims and package isolation
+ok 3 - check-building: --part scoping, per-part baselines, stale entries, claims and package isolation
+  ---
+  duration_ms: 16441.793875
+  type: 'test'
+  ...
+# Subtest: fingerprint is order-independent and ignores part tags
+ok 4 - fingerprint is order-independent and ignores part tags
+  ---
+  duration_ms: 3.191167
+  type: 'test'
+  ...
+# Subtest: fingerprint changes when geometry changes
+ok 5 - fingerprint changes when geometry changes
+  ---
+  duration_ms: 0.572959
+  type: 'test'
+  ...
+# Subtest: part inside detail is ignored
+ok 6 - part inside detail is ignored
+  ---
+  duration_ms: 1.323167
+  type: 'test'
+  ...
+# Subtest: detail order does not matter
+ok 7 - detail order does not matter
+  ---
+  duration_ms: 0.332875
+  type: 'test'
+  ...
+# Subtest: nested-object key order does not matter
+ok 8 - nested-object key order does not matter
+  ---
+  duration_ms: 0.841291
+  type: 'test'
+  ...
+# Subtest: sub-mm float noise inside nested arrays and objects is ignored
+ok 9 - sub-mm float noise inside nested arrays and objects is ignored
+  ---
+  duration_ms: 0.215333
+  type: 'test'
+  ...
+# Subtest: a real 1 mm change inside a nested object changes the hash
+ok 10 - a real 1 mm change inside a nested object changes the hash
+  ---
+  duration_ms: 0.186291
+  type: 'test'
+  ...
+# Subtest: NaN does not collide with null
+ok 11 - NaN does not collide with null
+  ---
+  duration_ms: 1.241917
+  type: 'test'
+  ...
+# Subtest: mass is order-independent
+ok 12 - mass is order-independent
+  ---
+  duration_ms: 1.331125
+  type: 'test'
+  ...
+# Subtest: buildParts tags every piece with building/part and merges params
+ok 13 - buildParts tags every piece with building/part and merges params
+  ---
+  duration_ms: 3.672541
+  type: 'test'
+  ...
+# Subtest: assemble places at (x, z), applies the group and keeps part tags
+ok 14 - assemble places at (x, z), applies the group and keeps part tags
+  ---
+  duration_ms: 0.461792
+  type: 'test'
+  ...
+# Subtest: bearings pass when roof sits on wall top
+ok 15 - bearings pass when roof sits on wall top
+  ---
+  duration_ms: 0.265833
+  type: 'test'
+  ...
+# Subtest: bearings fail when roof floats above the wall top
+ok 16 - bearings fail when roof floats above the wall top
+  ---
+  duration_ms: 0.131417
+  type: 'test'
+  ...
+# Subtest: bearings fail when a needed bearing is provided by no part
+ok 17 - bearings fail when a needed bearing is provided by no part
+  ---
+  duration_ms: 0.267708
+  type: 'test'
+  ...
+# Subtest: bearings fail when a provider does not reach the bearing
+ok 18 - bearings fail when a provider does not reach the bearing
+  ---
+  duration_ms: 0.164875
+  type: 'test'
+  ...
+# Subtest: bearings fail when the needing piece is outside the bearing range
+ok 19 - bearings fail when the needing piece is outside the bearing range
+  ---
+  duration_ms: 0.094
+  type: 'test'
+  ...
+# Subtest: inclined bearing passes when the plank lies on the sloped seat
+ok 20 - inclined bearing passes when the plank lies on the sloped seat
+  ---
+  duration_ms: 10.285875
+  type: 'test'
+  ...
+# Subtest: inclined bearing fails when the plank is lifted off the seat along its normal
+ok 21 - inclined bearing fails when the plank is lifted off the seat along its normal
+  ---
+  duration_ms: 2.785833
+  type: 'test'
+  ...
+# Subtest: the same seat declared horizontal cannot see the sloped contact
+ok 22 - the same seat declared horizontal cannot see the sloped contact
+  ---
+  duration_ms: 0.441333
+  type: 'test'
+  ...
+# Subtest: soil: dig and dump conserve mass; the bucket carries the bulked volume
+ok 23 - soil: dig and dump conserve mass; the bucket carries the bulked volume
+  ---
+  duration_ms: 222.179041
+  type: 'test'
+  ...
+# Subtest: soil: a crater lays back all it throws out (rim + blanket + clods)
+ok 24 - soil: a crater lays back all it throws out (rim + blanket + clods)
+  ---
+  duration_ms: 144.444583
+  type: 'test'
+  ...
+# Subtest: soil: dumped spoil of every kind comes to rest at its angle of repose
+ok 25 - soil: dumped spoil of every kind comes to rest at its angle of repose
+  ---
+  duration_ms: 56.062292
+  type: 'test'
+  ...
+# Subtest: soil: dry sand runs at once; clay stands on its undrained strength, then fails
+ok 26 - soil: dry sand runs at once; clay stands on its undrained strength, then fails
+  ---
+  duration_ms: 375.4445
+  type: 'test'
+  ...
+# Subtest: soil: an impact dents soft ground and heaves the rim, mass conserved
+ok 27 - soil: an impact dents soft ground and heaves the rim, mass conserved
+  ---
+  duration_ms: 5.890166
+  type: 'test'
+  ...
+# Subtest: soil: deterministic
+ok 28 - soil: deterministic
+  ---
+  duration_ms: 113.14
+  type: 'test'
+  ...
+# Subtest: soil: nothing rises into what lies on the ground; what is held comes back out when it goes
+ok 29 - soil: nothing rises into what lies on the ground; what is held comes back out when it goes
+  ---
+  duration_ms: 34.378084
+  type: 'test'
+  ...
+# Subtest: soil: a slipping face bulks into the cut, never up under what rests on its crest
+ok 30 - soil: a slipping face bulks into the cut, never up under what rests on its crest
+  ---
+  duration_ms: 56.648416
+  type: 'test'
+  ...
+# Subtest: soil: a body handed back to the ground pushes the soil out from under it, mass conserved
+ok 31 - soil: a body handed back to the ground pushes the soil out from under it, mass conserved
+  ---
+  duration_ms: 9.114541
+  type: 'test'
+  ...
+# Subtest: hitstop freezes the world for its duration, then real time resumes
+ok 32 - hitstop freezes the world for its duration, then real time resumes
+  ---
+  duration_ms: 1.436709
+  type: 'test'
+  ...
+# Subtest: hitstop is clamped short and the deepest request wins
+ok 33 - hitstop is clamped short and the deepest request wins
+  ---
+  duration_ms: 0.259209
+  type: 'test'
+  ...
+# Subtest: bullet time eases toward 0.3x and back
+ok 34 - bullet time eases toward 0.3x and back
+  ---
+  duration_ms: 0.223416
+  type: 'test'
+  ...
+# Subtest: a blast plays out identically for a near and a far viewer, at any frame rate
+ok 35 - a blast plays out identically for a near and a far viewer, at any frame rate
+  ---
+  duration_ms: 32602.606333
+  type: 'test'
+  ...
+1..35
+# tests 35
+# suites 0
+# pass 35
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 32793.407791
+single-impact samples: {
+  concrete: {
+    puffs: 13,
+    sparks: 2,
+    chips: 17,
+    meanChipSize: 0.11221225297714667,
+    positions: undefined
+  },
+  steel: {
+    puffs: 2,
+    sparks: 18,
+    chips: 3,
+    meanChipSize: 0.055489809430037305,
+    positions: undefined
+  },
+  drywall: {
+    puffs: 10,
+    sparks: 0,
+    chips: 44,
+    meanChipSize: 0.023666105417030903,
+    positions: undefined
+  }
+}
+{
+  "concrete": {
+    "puffs": 13,
+    "sparks": 2,
+    "chips": 17,
+    "meanChipSize": 0.11221225297714667
+  },
+  "steel": {
+    "puffs": 2,
+    "sparks": 18,
+    "chips": 3,
+    "meanChipSize": 0.055489809430037305
+  },
+  "drywall": {
+    "puffs": 10,
+    "sparks": 0,
+    "chips": 44,
+    "meanChipSize": 0.023666105417030903
+  },
+  "burst": {
+    "chips": 64,
+    "sparks": 64
+  }
+}

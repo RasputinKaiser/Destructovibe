@@ -2,7 +2,10 @@
 
 Machine: Apple M1, 16 GB, node v22.22.3. Shared with other agents: load average 12-32 during run 1, so wall times
 swing 2-3x (validate:levels 135 s quiet vs 396 s loaded). Runtime probes also record process-CPU ms per step
-(`*_cpu`), which is steadier under load. Compare runs back to back only. Exchange rate (tokens): 10k ≈ 60 s.
+(`*_cpu`), but CPU time is not load-proof either: the M1's 4 efficiency cores roughly double CPU time for the same
+work, and under load the scheduler puts work there. Use `buildMs` (code no fix touched) as the load control: when it
+moves, the timing comparison is confounded. Deterministic metrics (fingerprints, awake counts, settle_s, draw calls,
+triangles) are the load-proof ones. Compare runs back to back only. Exchange rate (tokens): 10k ≈ 60 s.
 
 Probes: `.optimize/probes.sh` (devloop wall times, measure.py), `.optimize/runtime.py` (sim.mjs PERF=1 ms/step,
 fingerprints), `.optimize/render-probe.mjs` (headless system Chrome via Playwright, Downtown High/Auto).
@@ -26,3 +29,55 @@ Baseline (0005557 + sim.mjs PERF output mode; fingerprints identical to plain si
 | terrace_S aftermath t15-20 s | phys 28.7 + after 11.1 = 43.0 ms/step, awake 1762 @16 s, 1743 @20 s |
 | render rest (Downtown High/Auto, M1 Metal) | 28.4 fps, p50 33.3 ms, p95 66.7 ms, 176 calls, 1.50 M tris, phys 3.3 ms, render 14.2 ms |
 | render +5 s after tower blast | 5.0 fps, p50 166.7 ms, 151 calls, 1.23 M tris, phys 134.3 ms (6 threads), render 17.0 ms |
+
+Baseline numbers above were taken under load average 12-32. The same probes on the same code later, at load ~5-13:
+types 5.3 s, test 21.6 s, build 6.0 s, checkbld 3.3 s (final-devloop.json). Never compare against the loaded baseline.
+
+Applied (each verified back to back, output or fingerprint checks listed):
+- `optimize: validate:levels builds each contract twice, not three times` (5cd39b1) and `optimize: validateBlueprint
+  memoises hull axes per point list and packs detail-grid keys into numbers` (73c6480). Measured together:
+  validate:levels 108.35 → 77.07 s (−28.9 %, ab1). A repeat A/B at higher load: 142.15 → 109.78 s (−22.8 %, abF).
+  Output byte-identical to baseline. check-building 3.96 → 3.79 s (−4 %, inside noise, not claimed).
+- `optimize: loose pieces creeping slower than 0.4 m/s for 3 s may sleep` (d2d7c6b). **Intended behaviour change**:
+  every blast fingerprint moves; idle fingerprints are unchanged. Result (ab2, sequential): chapel_S settle 17 → 12 s
+  and t10-20 s physics CPU 5.96 → 2.40 ms/step (−60 %). tower_D neutral: its collapse is still running at 20 s.
+  terrace_S aftermath went 19.9 → 25.3 ms CPU on the standard blast, a trajectory divergence (weldsLost 1213 → 1229).
+  Across 4 perturbed terrace blasts run in parallel, base aftermath was 27.5-31.8 ms; with the fix, 3 runs were
+  28.9-32.2 ms and 1 run slept the whole pile (10.3 ms, 0 awake at 16 s).
+- `optimize: terrain impacts() returns at once when no body moved in the last two steps` (79f5a9e). Output-identical
+  (idle S/D and chapel fingerprints the same). Idle terrain ms/step: S 0.091 → 0.010, D 0.338 → 0.021 (ab3).
+  idle_D after-step CPU 1.69 → 1.52 ms.
+- Harness: sim.mjs PERF=1 mode, runtime.py (5 scenarios incl. chapel_S settle), render-probe.mjs, cpuprof.py.
+
+Final A/B, base 70eec10 vs HEAD 79f5a9e (abF): **confounded by load.** buildMs, which no fix touched, rose +99 % on
+tower_D and +227 % on terrace_S. Timing deltas in that file are not evidence. Its deterministic parts agree with the
+A/Bs above: chapel settle 17 → 12 s, idle fingerprints SAME, blast fingerprints CHANGED (creep), ter_ms −89/−92 %.
+Render at HEAD under load 18: rest 19.4 fps (vs 28.4 at baseline under load ~12). Draw calls and triangles at rest are
+identical (176 / 1,497,735). After the blast: 3.6 fps, phys 178 ms. Not comparable; see Next run.
+
+Failed or inconclusive:
+- A first creep variant that covered only demolished pieces left terrace awake counts unchanged. Two undemolished
+  loose wood props creeping at 0.1 m/s held the pile, so the rule was widened to every loose piece.
+- The terrace pile does not sleep even when nothing moves above threshold (OVER=0 at 60 s, 1611 awake). Physics-only
+  steps sleep it within 40 steps, so afterStep wakes it. Suppressing b3Body_SetAwake/b3Joint_WakeBodies did not help.
+  The remaining wakers at 60 s are fire (updateFire scaleWeld → applyCaps; SetAwake), lamina delamination, and gas
+  deflagrations (b3World_Explode plus impulses). Backlog #1a.
+- Sim harness at texture tier low (−1.7 s per sim build) is blocked: materials.ts re-forces tier medium whenever
+  initMaterials was not called, and initMaterials would also change meshDetail, which drives the detail LOD (sim).
+
+Profiles (node --cpu-prof, summarised by .optimize/cpuprof.py):
+- Tower blast 1200 steps, 183 s sampled: Box3D wasm step 51 %, afterStep 18 % (stepAnalysis 5.9, onHit 4.3,
+  syncMeshes 4.5, terrainStep 3.7, stepVehicles 2.3), physics.step JS move loop 4.8 % self, GC 2.4 %.
+- validate:levels (before the fixes), 191 s: GC 24 %, validateBlueprint 34 % (checkDetail 27 %), builds 17 %+,
+  onMap's extra builds 9 %.
+- Downtown build (sim): buildBlueprint 8.8 s = calibrate 4.0, createPiece 3.5 (addPieceGfx → texSet 2.3), analysis 2.0.
+- Island mechanism (Box3D sleeps whole islands): diag in scratchpad/diag.mjs (ZERO / MOVERTHR / BISECT / NOWAKE /
+  CALLS / OVER modes). Worth promoting into scripts/ if the next run works on sleep.
+
+Backlog top 3: #1 collapse physics / wake scoping (fire and deflagration wakes keep piles awake); #2 multi-seed
+runtime.py so chaotic blasts can be judged; #3 procedural textures at load (2.3 s CPU).
+
+Next run: start with backlog #2. Interleave base and head (ABAB, ≥ 3 pairs) in runtime.py and report buildMs as a
+load control, because single sequential A/Bs on this shared M1 swung ±100 %. Then #1a (wake scoping for burning
+members). Dev server: port 5196 was taken by another agent's snap-recv tool; run 1 used 5206 (probes.sh names it).
+The probes are trusted; the render probe needs `npx -y playwright@1.63.0 --version` once, and it drives system Chrome.

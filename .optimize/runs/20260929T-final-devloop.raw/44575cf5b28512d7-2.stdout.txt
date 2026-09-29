@@ -1,0 +1,24 @@
+
+> destructovibe@2.0.0 build
+> node scripts/gen-buildings.ts && tsc && vite build
+
+registry: 58 buildings (unchanged)
+active claims: none
+vite v8.3.1 building client environment for production...
+transforming...
+✓ 331 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/assets/__vite-browser-external-CqGsXVYU.js      0.11 kB
+dist/index.html                                      2.63 kB │ gzip:   1.29 kB
+dist/assets/box3d.mt-DJ3DOH97.js                    45.93 kB
+dist/assets/box3d.mt-Cn0T0fjM.wasm                 852.44 kB │ gzip: 332.26 kB
+dist/assets/index-DFQr7B-N.css                      52.37 kB │ gzip:  11.80 kB
+dist/assets/__vite-browser-external-Cn0MOYvd.js      0.10 kB │ gzip:   0.11 kB
+dist/assets/rolldown-runtime-CbXtAM7H.js             0.58 kB │ gzip:   0.36 kB
+dist/assets/preload-helper-uBIymjUX.js               1.23 kB │ gzip:   0.68 kB
+dist/assets/box3d.mt-ByDjMTXK.js                    46.55 kB │ gzip:  16.33 kB
+dist/assets/box3d.inline-BoYsDmdS.js             1,142.27 kB │ gzip: 363.27 kB
+dist/assets/index-BQ3S4dba.js                    2,187.26 kB │ gzip: 744.08 kB
+
+✓ built in 679ms
