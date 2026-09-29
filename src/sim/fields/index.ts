@@ -335,7 +335,7 @@ function emitSmoke(): void {
       _vel[0] = b.f[F_U][i]; _vel[1] = b.f[F_V][i]; _vel[2] = b.f[F_W][i];
       const k = white ? 0 : Math.min(1, D[i] / Math.max(1e-6, sm));
       // timber and plastics burning in the open smoke grey-brown to charcoal, not black: only a fuel-rich fire goes darker
-      const col = white ? 0xeeeeea : mix(0x7c7064, 0x2c2a28, k * 0.85);
+      const col = white ? 0xeeeeea : mix(0x857a6e, 0x3a3632, k * 0.7);
       fx.fieldSmoke(_p, _vel, 0.9 + Math.min(1.2, dens), Math.min(0.75, 0.18 + dens * 0.5), col);
       budget--;
     }

@@ -619,7 +619,7 @@ function patchFinish(m: THREE.MeshStandardMaterial, f: SurfaceFinish): void {
       .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>\n${FIN_RM}`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${FIN_NORMAL}`)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n${FIN_COAT}`)
-      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${HEAT_EMIT}`);
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${f === 'joinery' ? EMBER_EMIT : HEAT_EMIT}`);
   };
   m.customProgramCacheKey = () => `dv-finish-${f}`;
 }

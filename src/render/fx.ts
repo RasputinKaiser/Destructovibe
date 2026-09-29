@@ -1484,7 +1484,8 @@ export const fx = {
     if (rng() < 0.35 * b) {
       pAt(pos[0] + rf(-0.2, 0.2) * sz, pos[1] + sz * 0.7, pos[2] + rf(-0.2, 0.2) * sz);
       P.vx = rf(-0.3, 0.3); P.vy = rf(1, 1.8); P.vz = rf(-0.3, 0.3); P.drag = 0.6; P.rise = 0.9;
-      P.life = rf(3, 5.5); P.s0 = sz * 0.5; P.s1 = sz * rf(2, 3); pColor(0x1a1612, rf(0.8, 1.2)); P.a = 0.42;
+      // timber burning in the open smokes grey-brown; soot-black is a fuel-rich fire's, not a building's
+      P.life = rf(3, 5.5); P.s0 = sz * 0.5; P.s1 = sz * rf(2.2, 3.2); pColor(0x4a4440, rf(0.85, 1.15)); P.a = 0.3;
       P.wind = 1.2; P.fadeIn = 0.4; P.heat = 1.2; P.heatDur = 0.3;
       emit();
     }
@@ -1871,7 +1872,8 @@ export const fx = {
     if (rng() < 0.5 * b) {
       pAt(x + dx * 1.4 * sz, y + dy * 1.4 * sz + 0.3 * sz, z + dz * 1.4 * sz);
       P.vx = dx * 1.5; P.vy = dy * 1.5 + 1; P.vz = dz * 1.5; P.drag = 0.8; P.rise = 0.9;
-      P.life = rf(2, 4); P.s0 = 0.3 * sz; P.s1 = rf(1.2, 1.8) * sz; pColor(0x1c1814, rf(0.8, 1.2)); P.a = 0.3;
+      // natural gas burns clean: a thin haze over the jet, not a smoke column
+      P.life = rf(2, 4); P.s0 = 0.3 * sz; P.s1 = rf(1.4, 2) * sz; pColor(0x5c5751, rf(0.85, 1.15)); P.a = 0.14;
       P.wind = 1.2; P.fadeIn = 0.3; P.heat = 1.5; P.heatDur = 0.3;
       emit();
     }
@@ -2439,7 +2441,7 @@ function updateFire(e: Emitter, dt: number, b: number): void {
     e.b -= 1;
     pAt(e.x + rf(-0.2, 0.2) * sz, e.y + sz * 0.9, e.z + rf(-0.2, 0.2) * sz);
     P.vx = rf(-0.3, 0.3); P.vy = rf(1.2, 2); P.vz = rf(-0.3, 0.3); P.drag = 0.6; P.rise = 0.9;
-    P.life = rf(6, 10); P.s0 = sz * 0.6; P.s1 = sz * rf(2.8, 4); pColor(0x16130f, rf(0.8, 1.2)); P.a = 0.62;
+    P.life = rf(5, 8); P.s0 = sz * 0.6; P.s1 = sz * rf(3, 4.4); pColor(0x4b4540, rf(0.85, 1.15)); P.a = 0.4;
     P.wind = 1.2; P.fadeIn = 0.4; P.heat = 1.5; P.heatDur = 0.3; P.curl = 0.3;
     emit();
   }
