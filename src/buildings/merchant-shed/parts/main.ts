@@ -12,7 +12,8 @@ import { frameDims, portalShed, roofY } from '../../portal-shed/parts/main.ts';
     office consumer unit on the west gable and a bay light off a conduit run along the rafters. */
 export function merchantShed(p: Placement): PieceSpec[] {
   const X = 10, Z = 6, H = 5.5;
-  const ps = portalShed({ x: 0, z: 0, X, Z, H, bays: 3, tint: 0x9aa3a8, roofTint: 0xa3a9ab, front: [[(-X + 0.05 + X / 3) / 2, X / 3 + X - 0.05, 4.6]], hoods: false });
+  // the lower band in slate blue: the default (the wall grey darkened) read brown in the site's warm light
+  const ps = portalShed({ x: 0, z: 0, X, Z, H, bays: 3, tint: 0x9aa3a8, roofTint: 0xa3a9ab, bandTint: 0x3c5c88, front: [[(-X + 0.05 + X / 3) / 2, X / 3 + X - 0.05, 4.6]], hoods: false });
   ps.push(supplyBox([-X, -X + 0.12], [1.4, 2.0], [-2.2, -1.7]));
   // the lighting conduit runs up the gable and along under the rafters' bottom flanges, clipped to each it passes
   const f = frameDims(X, Z, H), yc = roofY(f, 1.95) - f.dR / f.cs - 0.04;
@@ -22,7 +23,7 @@ export function merchantShed(p: Placement): PieceSpec[] {
   ps.push(racking([-2.9, 2.5], [-5.4, -4.3], ['cement', 'plaster', 'blocks', 'timber', 'cement', 'timber']));
   ps.push(timberPack([-6.5, -2.3], [0.6, 1.7]), timberPack([-1.5, 2.7], [0.6, 1.7]));
   // boxed stock by the racking
-  for (const x of [4.8, 5.4, 6.0, 6.6]) ps.push(carton(x, -4.6, 0, [0.45, 0.35, 0.35]));
+  for (const x of [4.9, 5.55, 6.2]) ps.push(carton(x, -4.6, 0, [0.5, 0.4, 0.4]));
   return put(ps, p, 'merchant');
 }
 
@@ -44,7 +45,21 @@ function stockUnits(kind: Stock, x: Range, y: Range, z: Range, d: PieceSpec[]): 
     // sawn softwood pack: courses of 47 × 150 boards on sticks
     for (const bx of [x[0] + 0.3, x[1] - 0.4]) u('wood', [bx, bx + 0.1], [y0, y0 + 0.08], z, 0x7a5c3e, 500);
     y0 += 0.08;
-    for (let yy = y0; yy + 0.047 <= y[1] - 0.001; yy += 0.049) for (let zz = z[0]; zz + 0.15 <= z[1] + 1e-6; zz += 0.152) u('wood', x, [yy, yy + 0.047], [zz, Math.min(zz + 0.15, z[1])], PINE, 480);
+    // every fourth course sits on a row of 25 mm sticks, and the boards are cut to random length, so the pack shows
+    // its board ends and the air gaps of a stickered pack instead of reading as one slab
+    let course = 0;
+    for (let yy = y0; yy + 0.047 <= y[1] - 0.001; course++) {
+      if (course && course % 4 === 0 && yy + 0.025 + 0.047 <= y[1] - 0.001) {
+        for (const bx of [x[0] + 0.3, (x[0] + x[1]) / 2 - 0.025, x[1] - 0.35]) u('wood', [bx, bx + 0.05], [yy, yy + 0.025], z, 0x8c6d48, 500);
+        yy += 0.026;
+      }
+      let k = 0;
+      for (let zz = z[0]; zz + 0.15 <= z[1] + 1e-6; zz += 0.152, k++) {
+        const r = ((course * 7 + k * 13) % 5) / 5, r2 = ((course * 11 + k * 3) % 4) / 4;
+        u('wood', [x[0] + 0.12 * r, x[1] - 0.09 * r2], [yy, yy + 0.047], [zz, Math.min(zz + 0.15, z[1])], (course + k) % 3 ? PINE : 0xbf9a66, 480);
+      }
+      yy += 0.049;
+    }
   } else if (kind === 'cement') {
     // 25 kg bags, five to a layer, wrapped
     const nx = Math.max(1, Math.floor(X / 0.45)), nz = Math.max(1, Math.floor(Zd / 0.62));

@@ -18,6 +18,8 @@ export interface PortalShedOpts {
   shutter?: number;
   /** two-tone band height (0 = single colour) */
   band?: number;
+  /** the lower band's colour (default: the wall colour darker) */
+  bandTint?: number;
   /** downpipes per eave */
   downpipes?: number;
   pitch?: number;
@@ -44,7 +46,8 @@ export function portalShed(p: Placement & PortalShedOpts): PieceSpec[] {
   const fx = xs.map((x, i) => (i === 0 ? x + B / 2 : i === p.bays ? x - B / 2 : x));
   const ps: PieceSpec[] = [];
   // portal frames
-  for (const x of fx) for (const s of [1, -1] as const) ps.push(column(f, x, s, steel), ...rafter(f, x, s, steel));
+  // (the gable frames' rafters are unhaunched: under the gable sheeting a haunch's kinked soffit read as a curved rafter)
+  fx.forEach((x, i) => { const mid = i > 0 && i < p.bays; for (const s of [1, -1] as const) ps.push(column(f, x, s, steel, mid), ...rafter(f, x, s, steel, mid)); });
   // roof, bay by bay, oversailing the gables by 100 mm
   for (let i = 0; i < p.bays; i++) {
     const xr: Range = [i === 0 ? -X - tw - 0.1 : xs[i], i === p.bays - 1 ? X + tw + 0.1 : xs[i + 1]];
@@ -60,14 +63,14 @@ export function portalShed(p: Placement & PortalShedOpts): PieceSpec[] {
     const zr: Range = s > 0 ? [Z, f.Ze] : [-f.Ze, -Z];
     for (const w of wallPanels(-X - tw, X + tw, xs, s > 0 ? front : [], Hg, 7.5)) {
       const endBay = w.full && (w.u[1] <= xs[1] + 1e-6 || w.u[0] >= xs[p.bays - 1] - 1e-6) && w.u[1] - w.u[0] > 3;
-      ps.push(claddingDetail(block('metal', w.u, w.y, zr, { tint: wallTint, joint: SCREWS }), true, s, { tint: wallTint, band, brace: endBay, eaves: true, corners }));
+      ps.push(claddingDetail(block('metal', w.u, w.y, zr, { tint: wallTint, joint: SCREWS }), true, s, { tint: wallTint, band, bandTint: p.bandTint, brace: endBay, eaves: true, corners }));
     }
   }
   // gable walls and their triangles
   for (const s of [1, -1] as const) {
     const xr: Range = s > 0 ? [X, X + tw] : [-X - tw, -X];
     for (const w of wallPanels(-Z, Z, [], s < 0 ? west : [], Hg, 8.5)) {
-      ps.push(claddingDetail(block('metal', xr, w.y, w.u, { tint: wallTint, joint: SCREWS }), false, s, { tint: wallTint, band }));
+      ps.push(claddingDetail(block('metal', xr, w.y, w.u, { tint: wallTint, joint: SCREWS }), false, s, { tint: wallTint, band, bandTint: p.bandTint }));
     }
     ps.push(gableTriangle(f, xr, s, { tint: wallTint }));
   }
