@@ -43,15 +43,19 @@ export function roofUnits(p: PieceSpec, o: { cover?: Covering; tint?: number } =
   const at = (a: number, b: number, c: number): V3 => [e[0] * a + dn[0] * b + top![0] * c, e[1] * a + dn[1] * b + top![1] * c, e[2] * a + dn[2] * b + top![2] * c];
   const inside = (x: number, y: number, z: number) => contains(poly, at(x, y, z), 0.0004);
   const out: PieceSpec[] = [];
-  /* shrink a unit's along-ridge (a) and down-slope (b) extents until all eight corners are inside the slab */
+  /* shrink a unit's along-ridge (a) and down-slope (b) extents until all eight corners are inside the slab. Only the
+     side the slab's edge crosses is cut: corners out along one course edge (a ridge, an eave) shorten the slate
+     down the slope and keep its width, so the course stays closed; corners out along one side (a verge, a stack
+     cut) narrow it; a single corner (a hip) is cut down the slope first. */
   const unit = (mat: MaterialId, a0: Range, b0: Range, c: Range, tint?: number, minA = 0.04, minB = 0.03): void => {
     const a: Range = [a0[0], a0[1]], b: Range = [b0[0], b0[1]];
     for (let it = 0; it < 80; it++) {
-      const mv = [false, false, false, false];
-      let bad = false;
-      for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) for (const z of c) if (!inside(a[i], b[j], z)) { bad = true; mv[i] = true; mv[2 + j] = true; }
-      if (!bad) break;
-      if (mv[0]) a[0] += 0.015; if (mv[1]) a[1] -= 0.015; if (mv[2]) b[0] += 0.015; if (mv[3]) b[1] -= 0.015;
+      const is = new Set<number>(), js = new Set<number>();
+      for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) for (const z of c) if (!inside(a[i], b[j], z)) { is.add(i); js.add(j); }
+      if (!is.size) break;
+      const all = is.size === 2 && js.size === 2, cutB = js.size === 1 || all, cutA = (is.size === 1 && js.size === 2) || all;
+      if (cutA) { if (is.has(0)) a[0] += 0.015; if (is.has(1)) a[1] -= 0.015; }
+      if (cutB) { if (js.has(0)) b[0] += 0.015; if (js.has(1)) b[1] -= 0.015; }
       if (a[1] - a[0] < minA || b[1] - b[0] < minB) return;
       if (it === 79) return;
     }
@@ -141,22 +145,28 @@ export function stackShaft(s: ShaftOpts): PieceSpec[] {
   const cap: PieceSpec[] = masonry(capSlab, capSlab.T, { mat: 'brick', tint: s.tint, unit: [BRICK[0], BRICK[1], (cz[1] - cz[0] - 0.01) / 2], joint: 0.01, kind: 'english' });
   for (const u of cap) u.tint = shadeTint(vary(s.tint, u, 0.2, 6), 0.42);
   const potD = s.potD ?? 0.21;
-  const fy = top + 0.077, fe = 0.004, cr = Math.min(potD / 2 + 0.01, (cz[1] - cz[0]) / 2 - 0.03);
-  const fl = hullPiece('concrete', [
-    ...[cz[0] + fe, cz[1] - fe].flatMap((z) => [[cx[0] + fe, fy, z], [cx[1] - fe, fy, z], [cx[0] + fe, fy + 0.01, z], [cx[1] - fe, fy + 0.01, z]] as Vec3[]),
-    ...[zc0 - cr, zc0 + cr].flatMap((z) => [[cx[0] + 0.02, top + 0.148, z], [cx[1] - 0.02, top + 0.148, z]] as Vec3[]),
+  /* the flaunching: a sand-and-cement bed thin at the oversailing course's edges, swept steeply up round the pots
+     (a matte cement skin, darkened by soot) */
+  const fy = top + 0.077, fe = 0.004, cr = Math.min(potD / 2 + 0.03, (cz[1] - cz[0]) / 2 - 0.02);
+  const fl = hullPiece('plaster', [
+    ...[cz[0] + fe, cz[1] - fe].flatMap((z) => [[cx[0] + fe, fy, z], [cx[1] - fe, fy, z], [cx[0] + fe, fy + 0.008, z], [cx[1] - fe, fy + 0.008, z]] as Vec3[]),
+    ...[zc0 - cr, zc0 + cr].flatMap((z) => [[cx[0] + 0.03, top + 0.148, z], [cx[1] - 0.03, top + 0.148, z]] as Vec3[]),
   ]);
-  fl.tint = shadeTint(vary(0x5a5650, fl, 0.1, 3), 1);
+  fl.tint = shadeTint(vary(0x6e6961, fl, 0.08, 3), 0.9);
   cap.push(fl);
   ps.push(withDetail(block('brick', cx, [top, top + 0.15], cz, { ...o, tint: shadeTint(s.tint, 0.55) }), cap));
-  const w = s.x[1] - s.x[0], zc = (s.z[0] + s.z[1]) / 2;
+  // the rim stands proud of the body; pots set close in a row keep 12 mm between rims
+  const w = s.x[1] - s.x[0], zc = (s.z[0] + s.z[1]) / 2, rimD = Math.min(potD + 0.035, w / s.pots - 0.012), bodyD = Math.min(potD, rimD - 0.03);
   for (let i = 0; i < s.pots; i++) {
-    const x = s.x[0] + ((i + 0.5) * w) / s.pots, y1 = top + (s.potH ?? 0.55) + 0.08 * (i % 2), tint = shadeTint(s.potTint ?? 0xb86a48, 0.5 + 0.08 * (i % 3));
-    // the pot's rim and upper third blackened by the flue gases, a grimy band where it is bedded in the flaunching
-    const soot = y1 - Math.min(0.2, (y1 - top - 0.15) * 0.35), bed = top + 0.21;
-    const pot = cyl('terracotta', potD, [top + 0.15, y1], x, zc, { tint, group: s.group });
-    ps.push(withDetail(pot, [cyl('ceramic', potD, [top + 0.15, bed], x, zc, { tint: 0x4a403a }), cyl('terracotta', potD, [bed, soot], x, zc, { tint }),
-      cyl('ceramic', potD, [soot, y1], x, zc, { tint: 0x2b2522 })]));
+    const x = s.x[0] + ((i + 0.5) * w) / s.pots, y1 = top + (s.potH ?? 0.55) + 0.08 * (i % 2), clay = shadeTint(s.potTint ?? 0xb86a48, 0.72 + 0.07 * (i % 3), 0.3);
+    /* a plain octagonal clay pot: a moulded rim at the top, sooted black-brown over the rim and a hand's width below
+       it, grimy where it is bedded in the flaunching. The pot stays fired clay; its skin is drawn in a plain matte
+       finish with hairline arrises (a faceted cylinder's chamfers read as a cage of stripes). */
+    const rim = y1 - 0.05, soot = rim - Math.min(0.14, (y1 - top - 0.15) * 0.25), bed = top + 0.2;
+    const pot = cyl('terracotta', rimD, [top + 0.15, y1], x, zc, { tint: clay, group: s.group });
+    const skin = (d: number, y: Range, tint: number): PieceSpec => ({ ...cyl('drywall', d, y, x, zc, { tint }), shape: 'prism', sides: 8 });
+    ps.push(withDetail(pot, [skin(bodyD, [top + 0.15, bed], 0x3e3833), skin(bodyD, [bed, soot], clay), skin(bodyD, [soot, rim], shadeTint(clay, 0.42)),
+      skin(rimD * 0.92, [rim, y1], 0x2e2824)]));
   }
   return ps;
 }
