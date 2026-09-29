@@ -1,0 +1,32 @@
+{
+  "runs": [
+    {
+      "ts": "2026-09-29T19:59:41+00:00",
+      "git": {
+        "rev": "0005557",
+        "dirty": true
+      },
+      "medians": {
+        "types": 18.673,
+        "test": 74.017,
+        "build": 46.353,
+        "checkbld": 15.938,
+        "levels": 395.79
+      },
+      "output_tokens": {
+        "types": 0,
+        "test": 1898,
+        "build": 1057,
+        "checkbld": 4,
+        "levels": 14032
+      },
+      "ok": {
+        "types": true,
+        "test": true,
+        "build": true,
+        "checkbld": true,
+        "levels": true
+      }
+    }
+  ]
+}
