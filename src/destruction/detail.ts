@@ -228,6 +228,7 @@ interface DetailSet extends PoolOwner {
   grid: Map<number, number[]> | null;
   d: number;
   chunk: boolean;
+  vol0: number;            // solid unit volume of the member as built (what a carved remnant is measured against)
   lm: Float32Array | null; // unit matrices in the body frame (3 × 4 each, scale folded in), built on first redraw
   drawn: number;           // frame the units were last posed
 }
@@ -243,7 +244,7 @@ function newSet(p: Piece, n: number): DetailSet {
     p, n, spec: new Array<PieceSpec>(n), kind: new Int32Array(n), lt: new Float64Array(n * 7), box: new Float64Array(n * 6),
     slots: new Int32Array(n).fill(-1), gone: new Uint8Array(n), layer: new Uint8Array(n), vol: new Float32Array(n), mass: new Float32Array(n),
     live: 0, k: 1, shown: false, pose: DEAD_POSE(), cen: [0, 0, 0], rad: 0, parts: null, pending: [], pendingVol: 0, carved: -1,
-    hit: { step: -9, at: [0, 0, 0], r: 0 }, grid: null, d: Infinity, chunk: false, lm: null, drawn: 0,
+    hit: { step: -9, at: [0, 0, 0], r: 0 }, grid: null, d: Infinity, chunk: false, lm: null, drawn: 0, vol0: 0,
   };
 }
 
@@ -297,6 +298,7 @@ export function attachDetail(p: Piece): void {
     vol += K.vol; mass += s.mass[i];
   }
   s.live = n;
+  for (let i = 0; i < n; i++) if (!kinds[s.kind[i]].cosmetic) s.vol0 += s.vol[i];
   s.k = vol > 0 ? Math.max(1, p.volume / vol) : 1;
   bounds(s, c);
   sets.set(p, s);
@@ -403,6 +405,7 @@ export function detachDetail(p: Piece): void {
 
 export function clearDetail(): void {
   sets.clear();
+  deferred.clear();
   for (const K of kinds) K.pool = null;
   rpools.clear();
   budgetStep = -1; spent = 0; spawned = 0; peakStep = 0;
@@ -790,6 +793,7 @@ function adopt(s: DetailSet, idx: number[], q: Piece, c: Vec3, parts: Part[] | n
   s.live -= idx.length;
   t.live = idx.length;
   t.k = s.k;
+  t.vol0 = s.vol0;
   t.parts = parts;
   t.shown = t.slots.some((v) => v >= 0);
   if (t.shown) setPieceVisible(q.gfx, false);
@@ -1187,11 +1191,11 @@ function reach(p: Piece, energy: number, blast: boolean): number {
 
 /** damagePiece: knock out the units within reach of the hit; carve the body once enough has gone.
     Returns the energy those units absorbed; only the rest counts toward fracturing the member. */
-export function detailDamage(p: Piece, point: Vec3, energy: number, blast: boolean): number {
+export function detailDamage(p: Piece, point: Vec3, energy: number, blast: boolean, dropOut = 0): number {
   const s = sets.get(p);
   if (!s || !host || p.dead || s.live === 0) return 0;
   rand.at(p.spawnPos[0], p.spawnPos[1], p.spawnPos[2], point[0], point[1], point[2], stepCount);
-  const r = reach(p, energy, blast);
+  const r = dropOut > 0 ? dropOut : reach(p, energy, blast);
   const m = motionOf(p);
   const li = toLocal(point, m.pos, m.rot);
   const core: number[] = [], rim = new Set<number>();
@@ -1216,17 +1220,24 @@ export function detailDamage(p: Piece, point: Vec3, energy: number, blast: boole
   for (const i of core) mass += s.mass[i];
   allowance();
   const willCarve = s.carved !== stepCount && carves < CARVES_PER_STEP && s.pendingVol + core.reduce((v, i) => v + s.vol[i], 0) >= CARVE_VOL;
-  const R: Release = { m, at: point, blast, speed: blast ? 0 : clamp(0.5 * Math.sqrt((2 * energy) / Math.max(mass, 1)), 0.5, 7), rim: willCarve ? rim : new Set(), filter: willCarve ? null : p };
+  const R: Release = { m, at: point, blast, speed: blast ? 0 : dropOut > 0 ? 0.3 : clamp(0.5 * Math.sqrt((2 * energy) / Math.max(mass, 1)), 0.5, 7), rim: willCarve ? rim : new Set(), filter: willCarve ? null : p };
   const made = release(s, core, R);
-  for (const x of made) s.pending.push(x.i);
-  for (const i of core) s.pendingVol += s.vol[i];
+  // every unit that went (as a body, in a clump or as dust) opens the hole the next re-cut makes
+  for (const i of core) { s.pending.push(i); s.pendingVol += s.vol[i]; }
   fx.debris(point, Math.min(30, 4 + core.length), MATS[p.mat].chips, blast ? 6 : 3);
-  if (!willCarve) { shrink(s); return spentE; }
+  if (!willCarve) {
+    shrink(s);
+    // the member was hit hard enough to be re-cut but others took this step's carving: it is re-cut on a later step,
+    // not left standing whole with full joints round units that have gone
+    if (s.pendingVol >= CARVE_VOL && sets.get(p) === s) deferred.add(s);
+    return spentE;
+  }
   carves++;
   const hs = holes(s, [...s.pending, ...core]);
   made.push(...fill(s, hs, R));
   const bodies = carve(s, { holes: hs }, false);
   if (!bodies) { shrink(s); return spentE; }
+  crumbleStubs(bodies);
   bondRims(s, made, R, bodies);
   // what the released units did not absorb carries on into whichever new body now stands at the hit
   let best: Piece | null = null, bd = Infinity;
@@ -1290,6 +1301,59 @@ function shrink(s: DetailSet): void {
   if (mass > 0 && mass < p.mass * 0.995) setMass(p, mass);
 }
 
+/* Members holding knocked-out units whose re-cut was put off (the per-step carving budget went on others), re-cut a
+   few a step in the order they were hit. */
+const deferred = new Set<DetailSet>();
+export function detailCarveDeferred(): void {
+  if (!deferred.size || !host) return;
+  allowance();
+  for (const s of deferred) {
+    if (carves >= CARVES_PER_STEP) return;
+    deferred.delete(s);
+    const p = s.p;
+    if (p.dead || sets.get(p) !== s || s.carved === stepCount || s.pendingVol < CARVE_VOL || !s.pending.length) continue;
+    carves++;
+    const m = motionOf(p);
+    const c: Vec3 = [0, 0, 0];
+    for (const i of s.pending) for (let k = 0; k < 3; k++) c[k] += (s.box[i * 6 + k] + s.box[i * 6 + 3 + k]) / 2 / s.pending.length;
+    const R: Release = { m, at: toWorld(c, m.pos, m.rot), blast: false, speed: 0, rim: new Set(), filter: null };
+    const hs = holes(s, s.pending);
+    const made = fill(s, hs, R);
+    const bodies = carve(s, { holes: hs }, false);
+    if (!bodies) { shrink(s); continue; }
+    crumbleStubs(bodies);
+    bondRims(s, made, R, bodies);
+  }
+}
+
+/* A masonry remnant carved down to a stub has lost the section that carried its load: what is left of a pier or a wall
+   panel after a blast is a heap of cracked, unbonded units, not a column. Below STUB_FRAC of the member's section it
+   stops bearing and comes apart where it stands; above it, it keeps its welds, which reweld already cut to the contact
+   it still has. */
+const STUB_FRAC = 0.3;
+const STUB_MATS = new Set<MaterialId>(['brick', 'stone', 'sandstone', 'cinderblock', 'adobe', 'terracotta']);
+function crumbleStubs(bodies: Body[]): void {
+  for (const B of bodies) {
+    const q = B.q, t = B.set;
+    if (!q || !t || q.dead || !q.welds.length || !STUB_MATS.has(q.mat) || q.pm.rebar || t.vol0 <= 0) continue;
+    let v = 0;
+    for (let i = 0; i < t.n; i++) if (!t.gone[i] && !kinds[t.kind[i]].cosmetic) v += t.vol[i];
+    if (v / t.vol0 >= STUB_FRAC) continue;
+    host!.counters.fractures++;
+    detailShatter(q, [q.curPos[0], q.curPos[1], q.curPos[2]]);
+  }
+}
+
+/** Masonry spanning a lost support: the units over the gap, inside the half-disc of radius `r` on its base at `at`
+    (the relieving arch that stands over an opening), fall out; the rest stays one body with that hole in it. */
+export function detailDropOut(p: Piece, at: Vec3, r: number): boolean {
+  const s = sets.get(p);
+  if (!s || !host || p.dead || s.live === 0) return false;
+  const before = s.live;
+  detailDamage(p, at, 0, false, r);
+  return (sets.get(p)?.live ?? 0) < before || !sets.has(p);
+}
+
 /** fracture: instead of Voronoi cells, the units in the struck region come out and the leaves part company. */
 export function detailFracture(p: Piece, point: Vec3, intensity: number, blast: boolean): boolean {
   rand.at(p.spawnPos[0], p.spawnPos[1], p.spawnPos[2], point[0], point[1], point[2], stepCount);
@@ -1322,6 +1386,7 @@ export function detailFracture(p: Piece, point: Vec3, intensity: number, blast: 
   const hs = [{ leaf: -1, lo: [...lo] as Vec3, hi: [...hi] as Vec3 }, ...holes(s, s.pending)];
   made.push(...fill(s, hs, R));
   const bodies = carve(s, { holes: hs }, true);
+  if (bodies) crumbleStubs(bodies);
   if (!bodies) {
     // too fragmented to hold together as parts: everything goes
     const rest: number[] = [];

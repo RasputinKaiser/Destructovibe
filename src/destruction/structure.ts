@@ -34,7 +34,7 @@ import {
 } from './services';
 import {
   setDetailHost, attachDetail, detachDetail, clearDetail, syncDetail, detailDamage, detailFracture, detailSever, detailCrack, detailHeat,
-  hasDetail, setDetailCamera, detailShatter, detailUnits,
+  hasDetail, setDetailCamera, detailShatter, detailUnits, detailDropOut, detailCarveDeferred,
 } from './detail';
 import { setServiceViewer as svcViewer } from './services';
 import { linkVehicles, stepVehicles, clearVehicles, pieceDamaged } from '../vehicles/vehicle';
@@ -267,7 +267,7 @@ let xrayCursor = 0;
 
 export const counters = {
   explosions: 0, fractures: 0, snaps: 0, props: 0, eventSnaps: 0, yields: 0, rebars: 0, spalls: 0, cracks: 0, buckles: 0,
-  slips: 0, fatigue: 0, creepFails: 0, melts: 0, delams: 0, crushes: 0, frozen: 0,
+  slips: 0, fatigue: 0, creepFails: 0, melts: 0, delams: 0, crushes: 0, frozen: 0, hangs: 0, relieved: 0,
 };
 
 export let onExplosion: (pos: Vec3, radius: number) => void = () => {};
@@ -712,6 +712,96 @@ function killWeld(w: Weld, destroyJoint: boolean): void {
   if (!w.a.welds.length) { freeSection(w.a); rubble(w.a); }
   if (destroyJoint && b3.b3Joint_IsValid(w.joint)) b3.b3DestroyJoint(w.joint, true);
   if (!w.b && !w.a.dead) groundLost(w.a);
+  // the member that lost what it stood on: is it left hanging off its sides?
+  if (!building) {
+    weldNormal(w, _hn);
+    if (_hn[1] <= -0.5) queueHang(w.a);
+    else if (_hn[1] >= 0.5 && w.b) queueHang(w.b);
+  }
+}
+
+/* Brickwork, stone and timber stand on what is below them. A member that has lost every connection beneath it and is
+   left held only by its sides or from above (a wall lift over a blown-out storey, a floor whose far bearing went, a
+   window frame over a lost sill) is hanging on mortar in shear and nails in withdrawal: it does not hang for seconds,
+   it shears off and drops. Steel and reinforced members can hang off their connections and are left to them. */
+/* what bears on what is below it: masonry, and timber floors, joists and roofs (glazing, cladding, fittings and
+   steel hang off their fixings by design) */
+const HANG_MATS = new Set<MaterialId>(['brick', 'stone', 'sandstone', 'cinderblock', 'adobe', 'terracotta', 'wood', 'plywood', 'roof']);
+const hangQueue = new Map<Piece, number>();   // piece -> the step to look at it
+const hangLooks = new WeakMap<Piece, number>();
+const HANG_PER_STEP = 24, HANG_RELOOK = 15, HANG_LOOKS = 4;
+const _hn: Vec3 = [0, 0, 0], _hb: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
+function queueHang(p: Piece, at = stepCount): void {
+  if (p.dead || building) return;
+  const due = hangQueue.get(p);
+  if (due === undefined || due > at) hangQueue.set(p, at);
+}
+function checkHanging(): void {
+  let n = 0;
+  for (const [p, due] of hangQueue) {
+    if (due > stepCount) continue;
+    if (++n > HANG_PER_STEP) break;
+    hangQueue.delete(p);
+    if (p.dead || !HANG_MATS.has(p.mat) || p.root.prop || p.mechs || p.ropes.length || p.hinged) continue;
+    // what it stood on may still be falling away when its joints go: look again a few times
+    const looks = (hangLooks.get(p) ?? 0) + 1;
+    hangLooks.set(p, looks);
+    if (looks < HANG_LOOKS && hasDetail(p)) queueHang(p, stepCount + HANG_RELOOK);
+    if (p.welds.length) {
+      let below = false, metal = false;
+      for (const w of p.welds) {
+        if (w.metal) { metal = true; break; }
+        weldNormal(w, _hn);
+        if ((w.a === p ? _hn[1] : -_hn[1]) <= -0.5) { below = true; break; }
+      }
+      if (metal) continue;
+      if (!below) {
+        counters.hangs++;
+        for (const w of p.welds.slice()) failWeld(w, 'overload', false);
+      }
+    }
+    if (!p.dead && hasDetail(p) && ARCH_MATS.has(p.mat)) relieve(p);
+  }
+}
+
+/* Masonry over a lost support does not bridge it as a rigid beam: the units over the gap, inside the relieving arch
+   (a half-disc on the gap), fall out, and what is left stands as an arch on the supports either side - or, with too
+   little left to arch, comes down. Supports are whatever lies under the member's bed, found by overlap. */
+const ARCH_MATS = new Set<MaterialId>(['brick', 'stone', 'sandstone', 'cinderblock', 'adobe']);
+const ARCH_GAP = 0.35;
+function relieve(p: Piece): void {
+  b3.b3Body_ComputeAABB(_hb, p.body);
+  const y0 = _hb[1];
+  if (y0 < 0.1) return;
+  b3.b3Body_GetLinearVelocity(_v, p.body);
+  if (vec3.squaredLength(_v) > 0.25) return;
+  const ax = _hb[3] - _hb[0] >= _hb[5] - _hb[2] ? 0 : 2, lo = _hb[ax], hi = _hb[ax + 3];
+  if (hi - lo < 2 * ARCH_GAP) return;
+  const cover: [number, number][] = [];
+  const bb: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
+  overlapAABB([_hb[0] + 0.02, y0 - 0.1, _hb[2] + 0.02], [_hb[3] - 0.02, y0 + 0.06, _hb[5] - 0.02], CAT.structure | CAT.debris | CAT.prop, shape => {
+    const e = entityOfShape(shape);
+    if (!e || e === p || e.kind !== 'piece' || (e as Piece).dead) return;
+    b3.b3Shape_GetAABB(bb, shape);
+    if (bb[4] < y0 - 0.1 || bb[4] > y0 + 0.12) return;
+    const a = Math.max(lo, bb[ax]), b = Math.min(hi, bb[ax + 3]);
+    if (b - a > 0.02) cover.push([a, b]);
+  });
+  if (!cover.length) return;
+  cover.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const gaps: [number, number][] = [];
+  let at = lo;
+  for (const [a, b] of cover) { if (a - at >= ARCH_GAP) gaps.push([at, a]); at = Math.max(at, b); }
+  if (hi - at >= ARCH_GAP) gaps.push([at, hi]);
+  const c: Vec3 = [(_hb[0] + _hb[3]) / 2, y0, (_hb[2] + _hb[5]) / 2];
+  for (const [a, b] of gaps) {
+    // a gap at the member's end is an overhang: what is over it drops, out to the width of the overhang
+    const end = a <= lo + 1e-6 || b >= hi - 1e-6;
+    const r = end ? b - a : (b - a) / 2;
+    c[ax] = end ? (a <= lo + 1e-6 ? a : b) : (a + b) / 2;
+    if (detailDropOut(p, [c[0], c[1], c[2]], Math.min(r, 2.4))) counters.relieved++;
+    if (p.dead) return;
+  }
 }
 
 export function weldPos(w: Weld, out: Vec3): Vec3 {
@@ -1441,6 +1531,7 @@ export function clearStructures(): void {
   latePending.length = 0;
   fusing.length = 0;
   fading.length = 0;
+  hangQueue.clear();
   frozenList.length = 0;
   roots = [];
   totalVol = 0; totalValueSum = 0; demolishedVol = 0; clock = 0;
@@ -3370,6 +3461,7 @@ export function afterStep(dt: number): void {
     if (p.mechs) for (const m of p.mechs.slice()) killMech(m, true);
   }
   checkTies();
+  if (hangQueue.size) checkHanging();
   if (bearings.size && stepCount % 10 === 3) checkBearings();
   if (settling.length && stepCount % 15 === 5) watchSettling();
   groanT -= dt;
@@ -3379,6 +3471,7 @@ export function afterStep(dt: number): void {
   if (stepCount % YIELD_EVERY === 1) updateYield();
   processFractures(FRACTURE_PER_STEP);
   if (shatterQueue.length) processShatter();
+  detailCarveDeferred();
   lateBlastPush();
   stepAnalysis(ANALYSIS_WORK);
   /* Only overstressed paths are revisited each step; a snapped column redistributes weight
