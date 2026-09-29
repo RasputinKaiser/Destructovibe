@@ -7,7 +7,7 @@ import {
   type StepHandlers,
 } from './physics/physics';
 import {
-  initStructures, buildBlueprint, clearStructures, demolitionFraction, totalValue, onHit, onJointBroken,
+  initStructures, buildBlueprint, clearStructures, demolitionFraction, onHit, onJointBroken,
   afterStep, maintain, syncMeshes, setStructureHooks, stats, explode, ignite, live, specVolume, setXrayMode, xrayMode, updateXray,
   setJointStrength, setWind, setFireSpread, setDebrisLimit, startQuake, clearDebris, extinguish, setFrozen, quakeActive,
   spawnPieces, removeConnected, pieceOf, setServiceViewer, setDetailQuality,
@@ -140,7 +140,7 @@ async function loadLevel(c: Contract, label: string, backdrop = false): Promise<
   targetMetAt = -1;
   quietT = 0;
   lastDemo = 0;
-  siteValue = goal?.groups ? blueprintValue(bp, goal.groups) : totalValue();
+  siteValue = blueprintValue(bp, goal?.groups);
   [stars2, stars3] = starThresholds(c, siteValue);
   audio.setAmbience(c.env);
   return true;
@@ -510,10 +510,13 @@ function flushDamage(): void {
   dmg.first = -1;
 }
 
+/* What the fee is reckoned on, counted the way demolition is credited (structure.ts credit): loose props and protected
+   pieces earn nothing, so they are not in it. The briefing and the results read the same number. */
 function blueprintValue(bp: Blueprint, groups?: string[]): number {
   let v = 0;
   for (const p of bp.pieces) {
-    if (p.protected || (groups && !(p.group && groups.includes(p.group) && !scoring.belowGrade(p)))) continue;
+    if (p.protected || (p.noWeld && !p.mech && !MATS[p.mat].explosive)) continue;
+    if (groups && !(p.group && groups.includes(p.group) && !scoring.belowGrade(p))) continue;
     v += specVolume(p) * MATS[p.mat].value;
   }
   return v;
