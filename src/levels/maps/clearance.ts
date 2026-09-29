@@ -246,11 +246,12 @@ export function clearanceZone(): Blueprint {
   // machines in the halls stand on their floors, the yard plant on the ground
   const hallKit = [M.conveyorLine({ x: 36.5, z: -41.5, len: 5, feed: 'grid' }), M.robotArm({ x: 45, z: -41.2, feed: 'grid' }), M.cncGantry({ x: 54.5, z: -39.2, rot: 1, feed: 'grid' }),
     M.pressLine({ x: 48, z: -54, presses: 3, feed: 'grid', group: 'pressline' })].map((m) => stand(m, DPC));
+  // the yard plant stands north of the chimney's felling lane (z -10), where a fall drifting off line cannot reach it
   const yard = [
     M.rotaryKiln({ x: 58.5, z: -22, rot: 1, feed: 'grid' }),
-    M.bucketElevator({ x: 51, z: -4.5, feed: 'grid' }),
-    M.coolingTowerFans({ x: 46, z: -4.2, cells: 1, feed: 'grid' }),
-    M.fanBank({ x: 38.5, z: -4.2, feed: 'grid' }),
+    M.bucketElevator({ x: 54.5, z: -20, feed: 'grid' }),
+    M.coolingTowerFans({ x: 51, z: -21, cells: 1, feed: 'grid' }),
+    M.fanBank({ x: 44.5, z: -20.5, feed: 'grid' }),
     M.ventStack({ x: 60.5, z: -29.5, feed: 'grid' }),
     // the builders' merchant's scrap corner: a grid-fed magnet crane working a scrap heap by the pavement
     EL.magnetCrane({ x: 59.5, z: 18.2, rot: 1, feed: 'grid', slew: 0.55 }),
