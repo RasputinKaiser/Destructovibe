@@ -352,6 +352,7 @@ function beginPlay(title: string): void {
   ui.showScreen(null);
   ui.showHud(true);
   ui.setHudTitle(title);
+  ui.resetHud();
   viewmodel.setVisible(true);
   viewmodel.setWeapon(loadout.current);
   audio.setPaused(false);

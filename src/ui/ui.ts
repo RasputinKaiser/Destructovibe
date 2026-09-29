@@ -1196,6 +1196,14 @@ const hc = {
 };
 const scoreSpring = spring.create(0);
 
+/** A fresh site: the score starts at 0 instead of counting back from the last job's, and no stale penalty flash. */
+export function resetHud(): void {
+  scoreSpring.value = 0;
+  scoreSpring.velocity = 0;
+  hc.scoreTarget = 0;
+  if (root) R.penalty.textContent = '';
+}
+
 export function updateHud(s: HudState, dt: number): void {
   if (!root) return;
   const d = clamp(dt, 0, 0.1);
