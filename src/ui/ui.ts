@@ -467,7 +467,11 @@ function onKey(e: KeyboardEvent): void {
     if ((e.target as Element | null)?.closest?.('button, input, select, textarea, label')) return;
     if (s === 'title') run('onCampaign');
     else if (s === 'briefing') run('onStartContract');
-    else if (s === 'results') run(resHasNext ? 'onNext' : 'onRetry');
+    else if (s === 'results') {
+      // an Enter meant for "sign off" that lands as the job signs itself off must not skip the report unread
+      if (performance.now() - resultsAt < 900) return;
+      run(resHasNext ? 'onNext' : 'onRetry');
+    }
     else return;
     e.preventDefault();
   }
@@ -530,6 +534,7 @@ export function showScreen(s: ScreenId | null): void {
     el.inert = !on;
   }
   if (s === 'results') {
+    resultsAt = performance.now();
     if (resPending) startResults();
   } else if (resFinish) finishResults();
 }
@@ -642,6 +647,7 @@ let resTimers: number[] = [];
 let resPending: ResultsView | null = null;
 let resFinish: (() => void) | null = null;
 let resHasNext = false;
+let resultsAt = -1e9;
 
 function countUp(el: HTMLElement, to: number, dur: number): void {
   tweens.push({ el, to, t0: performance.now(), dur, last: NaN });
