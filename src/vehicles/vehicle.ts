@@ -1,6 +1,6 @@
 import type { Vec3, Quat, VehicleModel } from '../types';
 import type { b3JointId, b3ShapeId } from 'box3d.js';
-import { b3, world, CAT, entityOfShape, stepCount, drive, type PhysEntity } from '../physics/physics';
+import { b3, world, CAT, entityOfShape, stepCount, drive, randomStream, type PhysEntity } from '../physics/physics';
 import type { Piece } from '../destruction/structure';
 import { spill } from '../destruction/services';
 import { surfaceOfHit } from '../terrain/terrain';
@@ -12,6 +12,9 @@ import { preset, engineTorque, engineDrag, type Preset } from './presets';
 import { newTyre, tyreStep, thermalGrip, U_PEAK, type TyreState } from './tyre';
 import { shellDamage, flushDents, notePanels, checkBuckling, clearShells } from './shell';
 import { rot, invRot, qmul, axisAngle, between, dot, cross, norm, integrate } from './math';
+
+/* punctures and sparks draw from a seeded stream, so a replayed crash ends the same way */
+const chance = randomStream(0x7e41c1e);
 
 /* Road vehicles as raycast vehicles. Each wheel casts a ray down its strut from the chassis; the suspension spring
    and damper and the tyre's road forces are applied to the chassis at the contact patch every step, and the wheel
@@ -560,7 +563,7 @@ function simulate(v: Vehicle, dt: number): void {
       const d = frac * len;
       w.delta = h0 - (d - reff);
       w.contact = true;
-      if (w.sharp && !w.flat && Math.random() < 0.004 * Math.abs(w.omega * w.r) * dt) puncture(v, w);
+      if (w.sharp && !w.flat && chance() < 0.004 * Math.abs(w.omega * w.r) * dt) puncture(v, w);
     } else {
       w.delta = -pre.droop;
       w.contact = false;
@@ -808,7 +811,7 @@ function holeRadiator(v: Vehicle): void {
 }
 
 function ignitionNear(v: Vehicle): boolean {
-  if (v.sparkT > 0 && Math.random() < (v.pre.fuel === 'petrol' ? 0.7 : 0.2)) return true;
+  if (v.sparkT > 0 && chance() < (v.pre.fuel === 'petrol' ? 0.7 : 0.2)) return true;
   for (const p of v.body) if (!p.dead && (p.burning || p.temp > 280)) return true;
   return false;
 }

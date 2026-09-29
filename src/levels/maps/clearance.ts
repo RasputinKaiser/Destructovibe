@@ -1,17 +1,25 @@
 import type { Blueprint, PieceSpec, UtilityKind } from '../../types.ts';
-import { airDome, awning, balloons, block, carton, crates, dunnageBag, envelopeFinish, extrude, panels, pitchedRoof, place, raise, sandbags, scaffold, splitRange, stockpile, tag, wallRun, type Range } from '../kit.ts';
-import { BORE, clipped, combiBoiler, conduit, lamp, LIGHT, radiatorPanel, route, sprinklerRanges, stopcock, supplyBox, SVC } from '../services.ts';
+import { airDome, block, dunnageBag, raise, sandbags, splitRange, stockpile, tag, type Range } from '../kit.ts';
+import { route, SVC } from '../services.ts';
 import { chipShop, cottageRow, dump, rotunda, stoneArchBridge, towerCrane, TINT, type Placement } from '../structures.ts';
 import { boilerHouse } from '../plant.ts';
 import * as M from '../machines.ts';
 import * as EL from '../electrical.ts';
-import { band, downpipe } from '../facade.ts';
 import { MAIN, SiteGrid, checkGrid, depthOf, intakes, kindOf, networks, pumpHall, substation, unsource } from '../grid.ts';
 import { bench, bollard, fence, litterBin, marker, phoneBox, postBox, sign, stand, stopFlag, wheelieBin } from './ground.ts';
 import { TerrainPlan } from '../../terrain/plan.ts';
 import { found, type FoundOpts } from '../../terrain/foundations.ts';
 import { groundFn, groundHeight } from '../../terrain/raster.ts';
 import { DPC, KERB_UP } from '../../terrain/spec.ts';
+import { highStreetUnit } from '../../buildings/high-street-unit/parts/main.ts';
+import { semiPair } from '../../buildings/semi-pair/parts/main.ts';
+import { chapelLite } from '../../buildings/chapel-lite/parts/main.ts';
+import { siteCabin } from '../../buildings/site-cabin/parts/main.ts';
+import { portalShed } from '../../buildings/portal-shed/parts/main.ts';
+import { worksHall } from '../../buildings/works-hall/parts/main.ts';
+import { merchantShed } from '../../buildings/merchant-shed/parts/main.ts';
+import { frameUnderConstruction } from '../../buildings/frame-under-construction/parts/main.ts';
+import { put } from '../../buildings/_shared/clearance-helpers.ts';
 
 /* Clearance Zone: an urban-edge district condemned whole, inside the site fence (±64 m; x east, +z south).
      Streets   High Street (E-W, z 2.5..9.5), the main road, with a raised crossing by the chip shop and signals at
@@ -33,242 +41,7 @@ const V = { power: 0.3, water: 1.0, gas: 1.65 };
 const HSN = 0.35, HSS = 11.65, MLW = -27.65, MLE = -16.35, TRS = 43.15;
 const at = { hsN: (k: keyof typeof V) => HSN - V[k], mlW: (k: keyof typeof V) => MLW - V[k], mlE: (k: keyof typeof V) => MLE + V[k], trS: (k: keyof typeof V) => TRS + V[k] };
 
-/* ---------------- local buildings ---------------- */
-
-function put(ps: PieceSpec[], p: Placement, fallback: string): PieceSpec[] {
-  return tag(place(envelopeFinish(ps), p.x, p.z, p.rot ?? 0), { group: p.group ?? fallback });
-}
-
-/** Sink base under a back-wall window at `c` (inner face `bi`, room toward +Z): two end panels and the sink, with the
-    stopcock at the foot of the wall inside it and the 15 mm rising main clipped up to the sink. */
-function kitchenSink(c: number, bi: number): PieceSpec[] {
-  const zc = bi + 0.048;
-  return [
-    block('wood', [c - 0.6, c - 0.55], [0, 0.87], [bi, bi + 0.6], { tint: 0xe8e2d4 }),
-    block('wood', [c + 0.55, c + 0.6], [0, 0.87], [bi, bi + 0.6], { tint: 0xe8e2d4 }),
-    block('steel', [c - 0.6, c + 0.6], [0.87, 0.95], [bi, bi + 0.6], { tint: 0xc9cdd0 }),
-    stopcock([c - 0.1, c + 0.15], [0.15, 0.45], [bi, bi + 0.2]),
-    ...clipped('water', 'copper', [[c + 0.025, 0.45, zc], [c + 0.025, 0.87, zc]], BORE.cu15, [0, 0, -1]),
-  ];
-}
-
-/** Two-storey high-street unit, front +Z: shopfront (or pub windows) and door below, flat over, flat roof, fascia.
-    Consumer unit by the back door, a shop light off the ceiling; a wall boiler in the back room heats a radiator on
-    the side wall, its gas leaving low through the back wall for the meter box outside; a stopcock under the back
-    room's sink takes the water main. */
-function highStreetUnit(p: Placement & { X?: number; Z?: number; tint?: number; fascia?: number; pub?: boolean }): PieceSpec[] {
-  const X = p.X ?? 3, Z = p.Z ?? 4, t = 0.25, g = 3.3, f = 2.7, s = 0.2;
-  const br = { mat: 'brick' as const, t, maxW: 4.5, lintel: 'rconcrete' as const, tint: p.tint ?? 0xa98474 };
-  const front = p.pub
-    ? [{ c: -X + 1.2, w: 1.0, y0: 0, h: 2.2 }, { c: -X + 3.0, w: 1.8, y0: 0.7, h: 1.8 }, { c: X - 2.0, w: 1.8, y0: 0.7, h: 1.8 }]
-    : [{ c: -X + 0.9, w: 0.9, y0: 0, h: 2.2 }, { c: 0.75, w: 2 * X - 2.5, y0: 0.45, h: 2.4 }];
-  const ps: PieceSpec[] = [
-    ...wallRun({ ...br, y0: 0, h: g, from: -X, to: X, at: Z - t / 2, glazing: 'tempered', mullion: 'aluminum', mullionTint: 0x2f3336, openings: front }),
-    ...wallRun({ ...br, y0: 0, h: g, from: -X, to: X, at: -Z + t / 2, out: -1, openings: [{ c: X - 1.4, w: 0.9, y0: 0, h: 2.1 }] }),
-    ...wallRun({ ...br, y0: 0, h: g, axis: 'z', from: -Z + t, to: Z - t, at: -X + t / 2, out: -1 }),
-    ...wallRun({ ...br, y0: 0, h: g, axis: 'z', from: -Z + t, to: Z - t, at: X - t / 2 }),
-    ...panels('rconcrete', [-X, 0, X], [g, g + s], [-Z, Z], { tint: 0xcfcfca }),
-    ...wallRun({ ...br, y0: g + s, h: f, from: -X, to: X, at: Z - t / 2, openings: [{ c: -X / 2, w: 1.1, y0: 0.8, h: 1.3 }, { c: X / 2, w: 1.1, y0: 0.8, h: 1.3 }] }),
-    ...wallRun({ ...br, y0: g + s, h: f, from: -X, to: X, at: -Z + t / 2, out: -1, openings: [{ c: 0, w: 1.0, y0: 0.9, h: 1.1 }] }),
-    ...wallRun({ ...br, y0: g + s, h: f, axis: 'z', from: -Z + t, to: Z - t, at: -X + t / 2, out: -1 }),
-    ...wallRun({ ...br, y0: g + s, h: f, axis: 'z', from: -Z + t, to: Z - t, at: X - t / 2 }),
-    ...panels('rconcrete', [-X, 0, X], [g + s + f, g + s + f + s], [-Z, Z], { tint: 0x9a9a96 }),
-    extrude('wood', [[Z, g - 0.42], [Z + 0.08, g - 0.42], [Z + 0.1, g - 0.38], [Z + 0.1, g - 0.1], [Z + 0.15, g - 0.06], [Z + 0.15, g - 0.02], [Z, g - 0.02]], 'x',
-      [-X + 0.2, X - 0.2], { tint: p.fascia ?? 0x2f4f3f, finish: 'paint' }),
-  ];
-  const bi = -Z + t, zb = bi + 0.048, xs = -X + t + 0.048;
-  ps.push(supplyBox([X - 0.65, X - 0.3], [1.5, 2.1], [bi, bi + 0.12]));
-  ps.push(...conduit([[X - 0.475, 2.1, bi + 0.06], [X - 0.475, g - 0.04, bi + 0.06], [X - 0.475, g - 0.04, 0], [0.2, g - 0.04, 0]]));
-  ps.push(lamp([-0.2, 0.2], [g - 0.24, g], [-0.2, 0.2], p.pub ? LIGHT.warm : LIGHT.cool));
-  ps.push(...combiBoiler([-X + 0.4, -X + 0.85], [1.3, 2.0], bi, 1, -Z));
-  ps.push(radiatorPanel([-X + t, -X + t + 0.1], [0.25, 0.75], [bi + 1.2, bi + 2.2]));
-  ps.push(...clipped('steam', 'copper', [[-X + 0.5, 1.3, zb], [-X + 0.5, 0.1, zb], [xs, 0.1, zb], [xs, 0.1, bi + 2.05], [xs, 0.25, bi + 2.05]], BORE.cu15, [0, 0, -1]));
-  ps.push(...clipped('gas', 'copper', [[-X + 0.75, 1.3, zb], [-X + 0.75, 0.3, zb], [-X + 1.5, 0.3, zb]], BORE.cu22, [0, 0, -1]));
-  ps.push(...kitchenSink(0.3, bi));
-  if (!p.pub) ps.push(...awning([-X + 1.5, X - 0.3], Z, 2.82, 2.4, 1.3, p.fascia ?? 0x2f4f3f));
-  // the pub's balloons tied under the fascia; the shop's stock in cartons at the back
-  if (p.pub) ps.push(...balloons(-1.0, Z + 0.2, g - 0.45, 5));
-  else ps.push(carton(X - 1.6, -Z + 0.9, 0), carton(X - 1.0, -Z + 0.9, 0, [0.4, 0.3, 0.3], 0xa87c4c), carton(X - 1.6, -Z + 1.4, 0, [0.35, 0.25, 0.3]));
-  return put(ps, p, p.pub ? 'pub' : 'shop');
-}
-
-/** Pair of two-storey semi-detached houses under one pitched roof, front +Z. Each half: a consumer unit on the front
-    wall by the door feeding the hall light along the ceiling; a combi boiler on the kitchen's back wall with its flue
-    through it, flow pipework clipped along the skirting to the living-room radiator under the front window (along the
-    party wall on the left, the gable on the right, so neither crosses a doorway); the boiler's gas leaving low
-    through the back wall for the meter box outside; a stopcock under the kitchen sink on the rising main. */
-function semiPair(p: Placement & { tint?: number }): PieceSpec[] {
-  const X = 5.5, Z = 4, t = 0.25, g = 2.6, f = 2.5, s = 0.18;
-  const br = { mat: 'brick' as const, t, maxW: 6, lintel: 'rconcrete' as const, tint: p.tint ?? 0xb07a62 };
-  const half = (c: number) => [{ c: c - 1.4, w: 0.9, y0: 0, h: 2.1 }, { c: c + 1.2, w: 1.4, y0: 0.8, h: 1.3 }];
-  const up = (c: number) => [{ c: c - 1.4, w: 0.9, y0: 0.8, h: 1.2 }, { c: c + 1.2, w: 1.4, y0: 0.8, h: 1.2 }];
-  const ps: PieceSpec[] = [];
-  for (const [y0, h, fr, bk] of [[0, g, [...half(-2.75), ...half(2.75)], [{ c: -2.75, w: 1.2, y0: 0.9, h: 1.1 }, { c: 2.75, w: 1.2, y0: 0.9, h: 1.1 }]],
-    [g + s, f, [...up(-2.75), ...up(2.75)], [{ c: -2.75, w: 1.0, y0: 0.9, h: 1.0 }, { c: 2.75, w: 1.0, y0: 0.9, h: 1.0 }]]] as const) {
-    ps.push(...wallRun({ ...br, y0, h, from: -X, to: X, at: Z - t / 2, openings: [...fr] }));
-    ps.push(...wallRun({ ...br, y0, h, from: -X, to: X, at: -Z + t / 2, out: -1, openings: [...bk] }));
-    for (const x of [-X + t / 2, X - t / 2]) ps.push(...wallRun({ ...br, y0, h, axis: 'z', from: -Z + t, to: Z - t, at: x, out: x < 0 ? -1 : 1 }));
-    ps.push(...wallRun({ ...br, y0, h, axis: 'z', from: -Z + t, to: Z - t, at: 0, t: 0.22 }));
-  }
-  ps.push(...panels('wood', [-X, 0, X], [g, g + s], [-Z, Z], { tint: 0xb89b72 }));
-  const top = g + s + f;
-  ps.push(...pitchedRoof({ mat: 'roof', x: [-X - 0.15, X + 0.15], z: [-Z, Z], y: top, rise: 2.6, thick: 0.32, seat: 0.22, tint: TINT.slate, maxW: 3.8,
-    gables: { mat: 'brick', x: [[-X, -X + t], [X - t, X]], tint: br.tint } }));
-  for (const c of [-2.75, 2.75]) {
-    const left = c < 0, bi = -Z + t, fi = Z - t, zb = bi + 0.048, zf = fi - 0.048;
-    const cu = left ? c - 2.2 : c - 2.3;
-    ps.push(supplyBox([cu - 0.2, cu + 0.2], [1.4, 2.0], [fi - 0.12, fi]));
-    ps.push(...conduit([[cu, 2.0, fi - 0.06], [cu, g - 0.04, fi - 0.06], [cu, g - 0.04, 1.0], [c - 0.2, g - 0.04, 1.0]]));
-    ps.push(lamp([c - 0.2, c + 0.2], [g - 0.22, g], [0.8, 1.2], LIGHT.warm));
-    const bx: Range = left ? [-0.7, -0.25] : [4.5, 4.95], flow = left ? -0.4 : 4.85, gas = left ? -0.62 : 4.6;
-    const wall = left ? -0.11 - 0.048 : X - t - 0.048, rad = c + 1.2;
-    ps.push(...combiBoiler(bx, [1.25, 1.95], bi, 1, -Z));
-    ps.push(radiatorPanel([rad - 0.5, rad + 0.5], [0.25, 0.75], [fi - 0.1, fi]));
-    ps.push(...clipped('steam', 'copper', [[flow, 1.25, zb], [flow, 0.1, zb], [wall, 0.1, zb], [wall, 0.1, zf], [rad + (left ? 0.35 : -0.35), 0.1, zf], [rad + (left ? 0.35 : -0.35), 0.25, zf]], BORE.cu15, [0, 0, -1]));
-    ps.push(...clipped('gas', 'copper', [[gas, 1.25, zb], [gas, 0.3, zb], [gas - 0.7, 0.3, zb]], BORE.cu22, [0, 0, -1]));
-    ps.push(...kitchenSink(c, bi));
-  }
-  // eaves gutters front and back to downpipes into back-inlet gullies below ground: the front pair on the front wall,
-  // the back pair turned onto the gables so the service trench along the back wall stays clear
-  const gy: Range = [top - 0.14, top];
-  for (const [z, out] of [[Z, 1], [-Z, -1]] as const) {
-    ps.push(...band({ mat: 'pvc', face: z, out, from: -X, to: X, y: gy, depth: 0.14, tint: 0x3a3d40 }));
-    for (const x of [-X, X]) ps.push(...(out > 0 ? downpipe({ face: z, out }, x - Math.sign(x) * 0.3, [0, gy[0]]) : downpipe({ axis: 'z', face: x, out: x > 0 ? 1 : -1 }, -Z + 0.2, [0, gy[0]])));
-  }
-  return put(ps, p, 'semis');
-}
-
-/** Parish chapel, front (west door) toward -X: stone nave with lancet windows under a slate roof, a solid stone
-    tower with its spire at the west end, consumer unit by the door and two nave lights. */
-function chapelLite(p: Placement): PieceSpec[] {
-  const X = 7, Z = 3.5, t = 0.45, h = 5.2, st = { tint: 0xc9bea6 };
-  const wall = { mat: 'stone' as const, t, y0: 0, h, maxW: 5, tint: st.tint, lintel: 'stone' as const };
-  const lancets = [-3.5, 0, 3.5].map((c) => ({ c, w: 0.9, y0: 1.6, h: 2.8 }));
-  const ps: PieceSpec[] = [
-    ...wallRun({ ...wall, from: -X, to: X, at: Z - t / 2, openings: lancets }),
-    ...wallRun({ ...wall, from: -X, to: X, at: -Z + t / 2, out: -1, openings: lancets }),
-    ...wallRun({ ...wall, axis: 'z', from: -Z + t, to: Z - t, at: X - t / 2, openings: [{ c: 0, w: 1.6, y0: 1.8, h: 3.0 }] }),
-    ...wallRun({ ...wall, axis: 'z', from: -Z + t, to: Z - t, at: -X + t / 2, out: -1, openings: [{ c: 0, w: 1.4, y0: 0, h: 2.8 }] }),
-    ...pitchedRoof({ mat: 'roof', x: [-X, X + 0.25], z: [-Z, Z], y: h, rise: 2.8, thick: 0.4, seat: 0.2, tint: TINT.slate, maxW: 3.6,
-      gables: { mat: 'stone', x: [[X - t, X]], tint: st.tint } }),
-    // west tower, clear of the nave gable, and its spire
-    block('stone', [-X - 3.2, -X - 0.05], [0, 4.5], [-1.6, 1.6], st),
-    block('stone', [-X - 3.2, -X - 0.05], [4.5, 9.0], [-1.6, 1.6], st),
-    block('stone', [-X - 3.3, -X + 0.05], [9.0, 9.3], [-1.7, 1.7], { tint: 0xd8cdb4 }),
-  ];
-  const tipX = -X - 1.625;
-  const spire = [[-X - 3.1, 9.3, -1.5], [-X - 3.1, 9.3, 1.5], [-X - 0.15, 9.3, -1.5], [-X - 0.15, 9.3, 1.5], [tipX, 16.5, 0]] as [number, number, number][];
-  ps.push(hullOf('roof', spire, TINT.slate));
-  // lightning protection: an air terminal on the spire tip, copper tape down its west face, the cap and the tower
-  ps.push(...EL.lightningRod([tipX, 16.5, 0], 1.2, [[-X - 3.16, 9.33, 0], [-X - 3.33, 9.33, 0], [-X - 3.33, 0, 0]], { slope: [-X - 3.1, 9.3, 0], out: [-0.98, 0.2, 0] }));
-  const wi = -X + t;
-  ps.push(supplyBox([wi, wi + 0.12], [1.3, 1.9], [2.2, 2.6]));
-  // lighting cable along the top of the south wall's inner face, the lamps hung off it
-  const zc = Z - t - 0.04;
-  ps.push(...conduit([[wi + 0.06, 1.9, 2.4], [wi + 0.06, h - 0.04, 2.4], [wi + 0.06, h - 0.04, zc], [5, h - 0.04, zc]]));
-  for (const x of [-2.5, 1.5]) ps.push(lamp([x - 0.25, x + 0.25], [h - 0.28, h - 0.08], [Z - t - 0.4, Z - t], LIGHT.warm));
-  return put(ps, p, 'chapel');
-}
-
-function hullOf(mat: 'roof', pts: [number, number, number][], tint: number): PieceSpec {
-  const min = [0, 1, 2].map((k) => Math.min(...pts.map((q) => q[k]))), max = [0, 1, 2].map((k) => Math.max(...pts.map((q) => q[k])));
-  const c = min.map((v, k) => (v + max[k]) / 2) as [number, number, number];
-  return { mat, shape: 'hull', pos: c, size: max.map((v, k) => v - min[k]) as [number, number, number], verts: pts.map((q) => [q[0] - c[0], q[1] - c[1], q[2] - c[2]] as [number, number, number]), tint };
-}
-
-/** Site cabin: a steel container office on sleepers with a window and door in its long side (+Z). */
-function siteCabin(p: Placement & { tint?: number }): PieceSpec[] {
-  const box = block('metal', [-3, 3], [0.15, 2.75], [-1.2, 1.2], { tint: p.tint ?? 0x3f6f9a });
-  box.density = 180;
-  return put([
-    block('wood', [-2.6, -2.3], [0, 0.15], [-1.2, 1.2], { tint: 0x7a5c3e }), block('wood', [2.3, 2.6], [0, 0.15], [-1.2, 1.2], { tint: 0x7a5c3e }),
-    box,
-    block('tempered', [-1.8, -0.4], [1.1, 2.1], [1.2, 1.26]),
-    block('wood', [1.2, 2.1], [0.2, 2.3], [1.2, 1.25], { tint: 0x5a4a3a }),
-  ], p, 'cabins');
-}
-
-/** Steel portal shed, front +Z: columns, rafters and eaves beams, profiled cladding with door openings, sheet roof.
-    `doors` are openings on the front (south) and west gable, as [x or z centre, width, height]. */
-function portalShed(p: Placement & { X: number; Z: number; H: number; bays: number; tint?: number; front?: [number, number, number][]; west?: [number, number, number][] }): PieceSpec[] {
-  const { X, Z, H } = p, c = 0.15, steel = { tint: 0x8d949b };
-  const xs = Array.from({ length: p.bays + 1 }, (_, i) => -X + (2 * X * i) / p.bays);
-  const ps: PieceSpec[] = [];
-  for (const x of xs) {
-    const xr: Range = [Math.max(-X, x - c), Math.min(X, x + c)];
-    for (const z of [-Z + c, Z - c]) ps.push(block('steel', xr, [0, H], [z - c, z + c], steel));
-    ps.push(block('steel', xr, [H, H + 0.4], [-Z, Z], steel));
-  }
-  for (let i = 0; i < p.bays; i++) for (const z of [-Z, Z - 2 * c]) ps.push(block('steel', [xs[i] + c, xs[i + 1] - c], [H, H + 0.4], [z, z + 2 * c], steel));
-  ps.push(...panels('metal', splitRange(-X - 0.1, X + 0.1, 4.5).flatMap((r, i) => (i === 0 ? r : [r[1]])), [H + 0.4, H + 0.5], [-Z - 0.1, 0, Z + 0.1], { tint: 0x7a8288 }));
-  const clad = { mat: 'metal' as const, t: 0.1, y0: 0, h: H + 0.4, maxW: 4.5, tint: p.tint ?? 0x7d9a86 };
-  const op = (d: [number, number, number][] = []) => d.map(([cc, w, h]) => ({ c: cc, w, y0: 0, h }));
-  ps.push(...wallRun({ ...clad, from: -X, to: X, at: Z + 0.05, openings: op(p.front) }));
-  ps.push(...wallRun({ ...clad, from: -X, to: X, at: -Z - 0.05, out: -1 }));
-  ps.push(...wallRun({ ...clad, axis: 'z', from: -Z - 0.1, to: Z + 0.1, at: -X - 0.05, out: -1, openings: op(p.west) }));
-  ps.push(...wallRun({ ...clad, axis: 'z', from: -Z - 0.1, to: Z + 0.1, at: X + 0.05 }));
-  return ps;
-}
-
-/** Works hall shell: portal shed with a north-wall lighting tray fed by a riser from the floor feeder (local z -5).
-    The floor feeder and the steam main are laid by the site grid through the west door and the south roller door;
-    its machines and unit heaters are placed with the map. A wet-pipe sprinkler installation (ordinary hazard, a head
-    per ~10 m²) hangs from the roof on drop rods: three ranges off a cross main, fed up the west gable from the
-    control valve set of its own tank-and-pump supply (a works' sprinkler water rarely comes off the town main). */
-function worksHall(p: Placement): PieceSpec[] {
-  const X = 13, Z = 7;
-  const ps = portalShed({ x: 0, z: 0, X, Z, H: 6, bays: 4, front: [[4, 4, 4.5]], west: [[-5, 1.2, 2.3]] });
-  // lighting tray on the north columns, fed by a riser from the floor feeder (local z -5)
-  ps.push(block('steel', [-X + 0.3, X - 0.3], [5.5, 5.6], [-Z + 0.3, -Z + 0.5], { tint: SVC.cable, util: 'power' }));
-  for (const x of [-9.75, -3.25, 3.25, 9.75]) ps.push(lamp([x - 0.25, x + 0.25], [5.28, 5.5], [-Z + 0.3, -Z + 0.5], LIGHT.bay));
-  // the floor feeder comes up into a distribution board on the north column; the lighting riser leaves its top
-  const db = block('machine', [-6.35, -5.75], [1.2, 2.0], [-6.9, -6.45], { tint: 0x9aa09c });
-  db.util = 'power';
-  db.svcPart = 'breaker';
-  // (the feeder and the steam main lie in the ground under the floor, which stands a damp course above it)
-  const yf = depthOf('power') - DPC;
-  ps.push(db, ...conduit([[-6.0, yf, -5 - MAIN.power.d / 2], [-6.0, yf, -6.675], [-6.0, 1.2, -6.675]]), ...conduit([[-6.0, 2.0, -Z + 0.4], [-6.0, 5.5, -Z + 0.4]]));
-  const valve = block('castiron', [-X, -X + 0.4], [0.3, 1.2], [1.5, 2.1], { tint: 0xb0302a, fixture: 'watermain' });
-  valve.bore = BORE.st100;
-  const rx = -X + 0.02 + 0.052, main = -12.2, rafters = [-13, -6.5, 0, 6.5, 13];
-  ps.push(valve, ...clipped('water', 'steel', [[rx, 1.2, 1.8], [rx, 5.6, 1.8], [main - 0.035, 5.6, 1.8]], BORE.st80, [-1, 0, 0]));
-  ps.push(...sprinklerRanges({ x: [main, X - 0.4], zs: [-3.5, 0, 3.5], y: 5.6, main, soffit: 6.4, rodAt: (x) => rafters.every((r) => Math.abs(x - r) > 0.3) }));
-  // unit heaters, each on a flow riser up through the floor from the steam main along local z 5.6
-  for (const x of [-9, -1, 3]) {
-    ps.push(radiatorPanel([x - 0.5, x + 0.5], [0, 1.0], [Z - 1.51 - 0.3, Z - 1.51]));
-    ps.push(block('steel', [x - 0.05, x + 0.05], [depthOf('steam') - DPC, 0], [Z - 1.61, Z - 1.51], { tint: SVC.steam, util: 'steam' }));
-  }
-  return put(ps, p, 'works');
-}
-
-/** Builders' merchant: an open-fronted portal shed with racking stock and its office consumer unit. */
-function merchantShed(p: Placement): PieceSpec[] {
-  const X = 10, Z = 6, H = 5.5;
-  const ps = portalShed({ x: 0, z: 0, X, Z, H, bays: 3, tint: 0x8a6d4e, front: [[-4, 5.5, 4.6], [4, 5.5, 4.6]] });
-  ps.push(supplyBox([-X, -X + 0.12], [1.4, 2.0], [-2.2, -1.7]));
-  ps.push(...conduit([[-X + 0.06, 2.0, -1.95], [-X + 0.06, 5.4, -1.95], [-0.25, 5.4, -1.95]]));
-  ps.push(lamp([-0.25, 0.25], [5.2, 5.44], [-2.2, -1.7], LIGHT.bay));
-  for (const x of [-6, -2, 2]) ps.push(...crates(x, -4, 0, 2, 1, 2, { tint: 0xb3833f }));
-  // boxed stock by the racking
-  for (const x of [4.8, 5.4, 6.0, 6.6]) ps.push(carton(x, -4.6, 0, [0.45, 0.35, 0.35]));
-  return put(ps, p, 'merchant');
-}
-
-/** Reinforced-concrete frame going up: two storeys of columns and slabs (the top one half cast) under a scaffold. */
-function frameUnderConstruction(p: Placement): PieceSpec[] {
-  const con = { tint: 0xc4c2ba }, s = 3.0, sl = 0.25;
-  const ps: PieceSpec[] = [];
-  for (const x of [-5, 0, 5]) for (const z of [-4, 4]) {
-    ps.push(block('rconcrete', [x - 0.2, x + 0.2], [0, s], [z - 0.2, z + 0.2], con));
-    ps.push(block('rconcrete', [x - 0.2, x + 0.2], [s + sl, 2 * s + sl], [z - 0.2, z + 0.2], con));
-  }
-  ps.push(...panels('rconcrete', [-5.25, 0, 5.25], [s, s + sl], [-4.25, 0, 4.25], con));
-  ps.push(...panels('rconcrete', [-5.25, 0], [2 * s + sl, 2 * s + 2 * sl], [-4.25, 0, 4.25], con));
-  // shuttering on the uncast half
-  ps.push(...panels('plywood', [0, 5.25], [2 * s + sl, 2 * s + sl + 0.05], [-4.25, 4.25], { tint: 0xc9a86e }));
-  ps.push(...scaffold({ from: -5.4, to: 5.4, face: 4.25, height: 4.6, bay: 3.6, tieEvery: 2, tint: 0x8d949b }));
-  return put(ps, p, 'frame');
-}
+/* ---------------- local buildings (stockpiles only; the buildings are packages under src/buildings) ---------------- */
 
 /** Stockpiles: brick pallets, a steel beam stack and block pallets, all loose. */
 function stockpiles(p: Placement): PieceSpec[] {

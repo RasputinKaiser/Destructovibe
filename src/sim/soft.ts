@@ -1,4 +1,4 @@
-import { b3, world, CAT, stepCount, raycast, overlapAABB, entityOfShape, FIXED_DT } from '../physics/physics';
+import { b3, world, CAT, stepCount, raycast, overlapAABB, entityOfShape, FIXED_DT, randomStream } from '../physics/physics';
 import * as P from '../destruction/polytope';
 import { live, heat, windVector, type Piece, type Root } from '../destruction/structure';
 import { fx } from '../render/fx';
@@ -33,6 +33,7 @@ const GRAIN_REST = 0.0012;
 const GRAIN_FREEZE = 20;
 const FIRE_TICK = 0.25;
 const AIR = 1.2;
+const chance = randomStream(0x50f7b0d);
 /** loose paper sheets and frayed threads alive at once (oldest go first) */
 const MAX_SHEETS = 24;
 const MAX_THREADS = 40;
@@ -446,7 +447,7 @@ function spawnFray(b: SoftBody, i: number): void {
   if (b.dead || !(pool.fl[i] & ALIVE) || SOFT_BUDGET - used < 8) return;
   while (threads.length >= MAX_THREADS) { const o = threads.shift()!; if (!o.dead) removeSoft(o); }
   const X = pool.x, x = X[i * 3], y = X[i * 3 + 1], z = X[i * 3 + 2];
-  const len = 0.04 + Math.random() * 0.05, a = Math.random() * 6.28, s = 0.3;
+  const len = 0.04 + chance() * 0.05, a = chance() * 6.28, s = 0.3;
   const t = createSoft({ kind: 'rope', fabric: 'thread', res: len / 2, tint: b.tint, pts: [[x, y, z], [x + Math.cos(a) * len * s, y - len, z + Math.sin(a) * len * s]] }, null);
   if (!t) return;
   for (let k = 0; k < t.n; k++) { const q = (t.p0 + k) * 3; pool.v[q] = pool.v[i * 3]; pool.v[q + 1] = pool.v[i * 3 + 1]; pool.v[q + 2] = pool.v[i * 3 + 2]; }
@@ -484,8 +485,8 @@ function release(s: Stack, n: number, vx: number, vy: number, vz: number, scatte
   s.left -= n;
   const p = stackPos(s);
   for (let k = 0; k < n; k++) {
-    const r = (): number => (Math.random() * 2 - 1) * scatter;
-    sheetQ.push({ x: p[0] + (Math.random() - 0.5) * 0.2, y: p[1] + k * 0.02, z: p[2] + (Math.random() - 0.5) * 0.2, vx: vx + r(), vy: vy + Math.abs(r()), vz: vz + r(), tint: s.tint });
+    const r = (): number => (chance() * 2 - 1) * scatter;
+    sheetQ.push({ x: p[0] + (chance() - 0.5) * 0.2, y: p[1] + k * 0.02, z: p[2] + (chance() - 0.5) * 0.2, vx: vx + r(), vy: vy + Math.abs(r()), vz: vz + r(), tint: s.tint });
   }
 }
 
@@ -507,14 +508,14 @@ function spawnSheet(q: { x: number; y: number; z: number; vx: number; vy: number
     if (!o.dead) removeSoft(o);
   }
   if (SOFT_BUDGET - used < 24) return;
-  const w = 0.21 / 2, l = 0.297 / 2, a = Math.random() * 6.28, t = (Math.random() - 0.5) * 1.2;
+  const w = 0.21 / 2, l = 0.297 / 2, a = chance() * 6.28, t = (chance() - 0.5) * 1.2;
   const ux = Math.cos(a), uz = Math.sin(a), ct = Math.cos(t), st = Math.sin(t);
   // u along (ux, 0, uz); v tilted out of the horizontal by t
   const vx = -uz * ct, vy = st, vz = ux * ct;
   const P = (su: number, sv: number): Vec3 => [q.x + ux * su + vx * sv, q.y + vy * sv, q.z + uz * su + vz * sv];
   const b = createSoft({ kind: 'cloth', fabric: 'paper', tint: q.tint, res: 0.075, pts: [P(-w, -l), P(w, -l), P(w, l), P(-w, l)] }, null);
   if (!b) return;
-  const spin = (Math.random() - 0.5) * 16;
+  const spin = (chance() - 0.5) * 16;
   for (let k = 0; k < b.n; k++) {
     const i = (b.p0 + k) * 3;
     const rx = pool.x[i] - q.x, rz = pool.x[i + 2] - q.z;
@@ -559,7 +560,7 @@ export function removeSoft(b: SoftBody): void {
 }
 
 export function wakeSoft(b: SoftBody): void {
-  if (!b.awake) { b.awake = true; b.still = 0; }
+  if (!b.awake) { b.awake = true; b.still = 0; sway.delete(b); }
 }
 
 function anyLive(root: Root): boolean {
@@ -829,7 +830,7 @@ function seamCheck(b: SoftBody): number {
     const d2 = (X[i * 3] - X[j * 3]) ** 2 + (X[i * 3 + 1] - X[j * 3 + 1]) ** 2 + (X[i * 3 + 2] - X[j * 3 + 2]) ** 2;
     if (d2 > g2 || !(pool.fl[i] & ALIVE) || !(pool.fl[j] & ALIVE)) {
       b.stOn[k] = 0; n++;
-      if (n % 3 === 1) { fraying = true; queueFray(b, Math.random() < 0.5 ? i : j); fraying = false; }
+      if (n % 3 === 1) { fraying = true; queueFray(b, chance() < 0.5 ? i : j); fraying = false; }
     }
   }
   if (n) b.tethersDirty = true;
@@ -857,7 +858,7 @@ export function killCell(b: SoftBody, c: number): void {
       pool.fl[p] &= ~ALIVE;
       pool.w[p] = 0;
       for (const pin of b.pins) if (pin.alive && pin.i === p) dropPin(b, pin);
-    } else if (weave && Math.random() < 0.35) queueFray(b, p);
+    } else if (weave && chance() < 0.35) queueFray(b, p);
   }
   b.tethersDirty = true;
 }
@@ -902,7 +903,7 @@ function burst(b: SoftBody): void {
   if (b.cSeam) for (let c = 0; c < b.nc; c++) if (b.cSeam[c] && b.cAlive[c]) seam.push(c);
   const list = seam.length ? seam : Array.from({ length: b.nc }, (_, c) => c);
   // unzip from a random seam cell through its seam neighbours
-  const start = list[Math.floor(Math.random() * list.length)];
+  const start = list[Math.floor(chance() * list.length)];
   const want = Math.max(3, Math.round(list.length * (b.fab.pop ? 0.5 : 0.2)));
   const inSeam = new Set(list), q = [start], seen = new Set([start]);
   let n = 0;
@@ -926,6 +927,29 @@ function burst(b: SoftBody): void {
   audio.snap(pos, Math.min(1, 0.3 + (dp * V0) / 400));
   fx.fabricShreds(pos, Math.min(24, 4 + n), b.tint);
   wakeSoft(b);
+}
+
+/* Wind keeps a tethered balloon or a pinned net swinging about the same pose for as long as it blows: never still,
+   but going nowhere. Out past arm's length that steady sway may rest in its pose; a change in the wind (not its
+   gusts), anything moving near or a load coming off wakes it. */
+const SWAY = 0.12, SWAY_STEPS = 180, SWAY_RANGE = 20;
+const sway = new WeakMap<SoftBody, { c: Vec3; t: number }>();
+function swaySettled(b: SoftBody, period: number, busy: boolean): boolean {
+  if (busy || b.burning > 0 || !(AERO_KINDS.has(b.kind) || b.tied > 0 || b.pins.length) || viewerDist2(b) < SWAY_RANGE * SWAY_RANGE) {
+    sway.delete(b);
+    return false;
+  }
+  const a = b.aabb, c: Vec3 = [(a[0] + a[3]) / 2, (a[1] + a[4]) / 2, (a[2] + a[5]) / 2];
+  const s = sway.get(b);
+  if (!s || Math.hypot(c[0] - s.c[0], c[1] - s.c[1], c[2] - s.c[2]) > SWAY) { sway.set(b, { c, t: 0 }); return false; }
+  s.t += period;
+  return s.t > SWAY_STEPS;
+}
+
+/** the wind a body stands in without its gusts */
+function baseWind(b: SoftBody): number {
+  const w = windVector(), ws = Math.hypot(w[0], w[1], w[2]);
+  return Math.max(ws, breeze) * b.shelter;
 }
 
 function sleepTest(b: SoftBody, windSpeed: number, period: number): void {
@@ -964,9 +988,9 @@ function sleepTest(b: SoftBody, windSpeed: number, period: number): void {
   // a leaking bag keeps going until it has emptied
   const leaking = b.gas && !b.gas.open && (b.gas.hole > b.gas.seal || b.gas.torn > 0) && Math.abs(b.gas.leak) > 1e-7;
   if (m2 < lim * lim && b.burning === 0 && !leaking) b.still++; else b.still = 0;
-  if (b.still * period > SLEEP_STEPS) {
+  if (b.still * period > SLEEP_STEPS || swaySettled(b, period, !!leaking)) {
     b.awake = false;
-    b.sleepWind = windSpeed;
+    b.sleepWind = AERO_KINDS.has(b.kind) ? baseWind(b) : windSpeed;
     b.bearers.length = 0;
     const c = b.cand;
     for (let k = 0; k < c.n; k++) if (c.touched[k] && c.dyn[k] && c.ent[k]?.kind === 'piece' && !b.bearers.includes(c.ent[k] as Piece)) b.bearers.push(c.ent[k] as Piece);
@@ -1005,10 +1029,7 @@ export function stepSoft(dt: number): void {
   for (const b of softBodies) {
     if (b.dead || !inRange(b)) continue;
     if (!b.awake) {
-      if (AERO_KINDS.has(b.kind)) {
-        const w = windFor(b, _wind);
-        if (Math.abs(w - b.sleepWind) > 1.5) wakeSoft(b);
-      }
+      if (AERO_KINDS.has(b.kind) && Math.abs(baseWind(b) - b.sleepWind) > 1.5) wakeSoft(b);
       if (!b.awake && (stepCount + b.id) % 10 === 0 && movingNear(b)) wakeSoft(b);
       // a load taken off it (or knocked) lets it spring back
       if (!b.awake && b.bearers.length && b.bearers.some((p) => p.dead || p.movedStep >= stepCount - 1)) wakeSoft(b);
@@ -1082,7 +1103,7 @@ function runGroup(list: SoftBody[], dtb: number, sub: number, dt: number, near: 
     gather(b.cand, b.aabb, margin);
     pinTargets(b);
     if (AERO_KINDS.has(b.kind)) {
-      if ((b.shelterT -= dtb) <= 0) { b.shelterT = 2 + Math.random(); updateShelter(b); }
+      if ((b.shelterT -= dtb) <= 0) { b.shelterT = 2 + chance(); updateShelter(b); }
       aero(b, dtb);
     }
     if (pool.fl[b.p0] & SOLID) {
@@ -1261,7 +1282,7 @@ export function softExplosion(pos: Vec3, radius: number, power: number, impulse:
       V[i * 3] += rx * inv * dv; V[i * 3 + 1] += (ry * inv + 0.35) * dv; V[i * 3 + 2] += rz * inv * dv;
       pool.temp[i] += 700 * f2;
       hit++;
-      if (sheet && f2 * shred > 1 && Math.random() < 0.85) killParticle(b, i);
+      if (sheet && f2 * shred > 1 && chance() < 0.85) killParticle(b, i);
       if (b.kind === 'softbody' && GRAIN_FABRICS.has(b.fabId) && f2 * power > 25e3) rupture = true;
     }
     fraying = false;
@@ -1401,7 +1422,7 @@ function fireTick(tick: number): void {
         shade = true;
         if (CH[i] >= 1) { FL[i] &= ~BURNING; killParticle(b, i); continue; }
         burning++;
-        if (flameAt.length < 3 && Math.random() < 0.3) flameAt.push(i);
+        if (flameAt.length < 3 && chance() < 0.3) flameAt.push(i);
       } else if (T[i] >= f.ignite && CH[i] < 1) {
         FL[i] |= BURNING; burning++; shade = true;
       } else if (T[i] > 20) {
@@ -1415,7 +1436,7 @@ function fireTick(tick: number): void {
     wakeSoft(b);
     for (const i of flameAt) {
       fx.flames([X[i * 3], X[i * 3 + 1], X[i * 3 + 2]], 0.25 + 0.1 * Math.min(4, Math.sqrt(burning) / 3), 1);
-      if (Math.random() < 0.3) audio.burn([X[i * 3], X[i * 3 + 1], X[i * 3 + 2]], Math.min(1, burning / 60));
+      if (chance() < 0.3) audio.burn([X[i * 3], X[i * 3 + 1], X[i * 3 + 2]], Math.min(1, burning / 60));
     }
     // and it heats what it touches
     for (let q = 0; q < b.cand.n; q++) {

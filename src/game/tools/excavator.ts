@@ -1,15 +1,17 @@
 /* Excavator remote: drives the nearest tracked excavator's own hydraulics (slew, boom, stick, bucket) through its
    valves. Held fire puts the bucket teeth where the crosshair is: the three arm axes are solved each step by damped
    least squares on the arm's live geometry, and each valve opens in proportion to what its axis still has to turn.
-   Teeth pushed into the ground dig it out at what the machine's hydraulic power buys in soil; the bucket fills to
-   its heaped capacity and dumps its spoil where it is emptied. */
+   Teeth pushed into the ground dig it out at what the machine's hydraulic power buys in soil (bank m³; it comes up
+   bulked, and the bucket's heaped capacity is loose m³); the bucket carries what it dug (its mass and kind, heaped
+   in the bucket for all to see) and tips it as a falling stream that lands and runs to its angle of repose. */
 import { vec3, quat, clamp } from 'math';
 import type { Vec3, Quat, ToolReadout } from '../../types';
 import { b3, raycast } from '../../physics/physics';
 import { live, pieceOf, type Piece } from '../../destruction/structure';
 import { mechCommand, mechPose } from '../../destruction/services';
-import { dig, mound, groundAt, surfaceAt } from '../../terrain/terrain';
+import { digGround, spill, groundAt, surfaceAt } from '../../terrain/terrain';
 import { SURFACE } from '../../terrain/surface';
+import { SOIL, carriers, type CarryView, type SoilId } from '../../terrain/soil';
 import { fx } from '../../render/fx';
 import { audio } from '../../audio/audio';
 import { NO_HIT } from './common';
@@ -23,7 +25,16 @@ const BITE = 0.12;
 
 export const excHooks = { notify: (_m: string): void => {} };
 
-interface Rig { low: number; sign: number[]; house: Piece; boom: Piece; stick: Piece; bucket: Piece; teeth: Piece | null; load: number; pending: number; digT: number; dug: number; dumped: number }
+interface Rig {
+  low: number; sign: number[]; house: Piece; boom: Piece; stick: Piece; bucket: Piece; teeth: Piece | null;
+  /** loose m³ in the bucket, its mass (kg) and kind */
+  load: number; mass: number; soil: SoilId;
+  pending: number; digT: number; dug: number; dumped: number;
+  /** kg/s while tipping */
+  pour: number;
+  /** the bucket's mouth in its spawn frame: centre, half-width, half-length */
+  mouth: { c: Vec3; hx: number; hz: number };
+}
 let rig: Rig | null = null;
 let skidT = -9, now = 0, heldAt = -9, dumpT = 0, curl = 0, fxT = 0, lastErr: string | null = null, digging = false, reachOk = true;
 const target: Vec3 = [0, 0, 0];
@@ -53,11 +64,21 @@ function findRig(at: Vec3, range: number): Rig | null {
     let teeth: Piece | null = null;
     for (const m of bucket.mechs ?? []) if (m.host === bucket && m.part !== bucket && !m.drive) teeth = m.part;
     bd = d;
-    best = { low: 0, sign: [0, 0, 0], house, boom, stick, bucket, teeth, load: 0, pending: 0, digT: 0, dug: 0, dumped: 0 };
+    best = { low: 0, sign: [0, 0, 0], house, boom, stick, bucket, teeth, load: 0, mass: 0, soil: 'topsoil', pending: 0, digT: 0, dug: 0, dumped: 0, pour: 0, mouth: mouthOf(bucket) };
   }
   if (!best) return null;
   for (const p of [best.house, best.boom, best.stick, best.bucket]) if (!mechCommand(p, 0)) return null;
   return best;
+}
+
+/* The bucket's open top as spawned: the highest face of its hull. */
+function mouthOf(p: Piece): Rig['mouth'] {
+  const sp = p.root.spec, vs = sp.verts;
+  if (!vs?.length) return { c: [sp.pos[0], sp.pos[1] + sp.size[1] / 2, sp.pos[2]], hx: sp.size[0] / 2, hz: sp.size[2] / 2 };
+  const top = Math.max(...vs.map(v => v[1]));
+  const lid = vs.filter(v => v[1] > top - 0.02);
+  const x0 = Math.min(...lid.map(v => v[0])), x1 = Math.max(...lid.map(v => v[0])), z0 = Math.min(...lid.map(v => v[2])), z1 = Math.max(...lid.map(v => v[2]));
+  return { c: [sp.pos[0] + (x0 + x1) / 2, sp.pos[1] + top, sp.pos[2] + (z0 + z1) / 2], hx: Math.max(0.1, (x1 - x0) / 2), hz: Math.max(0.1, (z1 - z0) / 2) };
 }
 
 const _dq: Quat = [0, 0, 0, 1];
@@ -111,7 +132,14 @@ export function excavatorHold(eye: Vec3, fwd: Vec3, fresh: boolean): string | nu
     if (!fresh) return lastErr;
     release();
     rig = findRig(eye, DIGGER.link);
-    if (!rig) return (lastErr = `No excavator within ${DIGGER.link} m to take over`);
+    if (!rig) {
+      // say where the nearest one is, so the remote is never a dead end
+      const far = findRig(eye, 2000);
+      if (!far) return (lastErr = 'No excavator on this site — spawn one (B, industrial) to drive by remote');
+      const dx = far.house.curPos[0] - eye[0], dz = far.house.curPos[2] - eye[2];
+      const dir = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360 / 45) % 8];
+      return (lastErr = `Nearest excavator ${Math.round(Math.hypot(dx, dz))} m ${dir} — get within ${DIGGER.link} m to take over`);
+    }
     excHooks.notify(`Excavator linked, ${vec3.distance(rig.house.curPos, eye).toFixed(0)} m away — hold fire to dig where you aim`);
     lastErr = null;
     heldAt = now;
@@ -212,13 +240,20 @@ export function excavatorStep(dt: number): void {
   if (dumpT > 0) {
     dumpT -= dt;
     bc = -1;
-    if (r.load > 0.02 && dumpT < 0.9) {
-      const gx = _t[0], gz = _t[2];
-      const laid = mound(gx, gz, 1.3, r.load);
-      fx.grainSpill([_t[0], _t[1] - 0.2, _t[2]], [0, -1, 0], 30, SURFACE.soil.dust);
-      audio.toolEvent('dump', _t);
-      r.dumped += laid || r.load;
-      r.load = 0;
+    // once the bucket has rolled open the spoil pours off its lip for ~0.8 s, clod by clod
+    if (r.mass > 0 && dumpT < 0.9) {
+      if (r.pour <= 0) { r.pour = r.mass / 0.8; audio.toolEvent('dump', _t); }
+      const m = dumpT <= dt ? r.mass : Math.min(r.mass, r.pour * dt);
+      const v = r.bucket.vel ?? [0, 0, 0], col = SOIL[r.soil].color;
+      for (let c = 0; c < 2; c++) {
+        const a = now * 37 + c * 2.4;
+        spill([_t[0] + 0.25 * Math.cos(a), _t[1] - 0.1, _t[2] + 0.25 * Math.sin(a)], [v[0] * 0.5 + 0.4 * Math.cos(a), Math.min(0, v[1]) - 0.5, v[2] * 0.5 + 0.4 * Math.sin(a)], m / 2, r.soil);
+      }
+      if ((fxT * 10 | 0) % 2 === 0) fx.grainSpill([_t[0], _t[1] - 0.2, _t[2]], [0, -1, 0], 6, col);
+      r.dumped += (r.load * m) / r.mass;
+      r.load -= (r.load * m) / r.mass;
+      r.mass -= m;
+      if (r.mass < 0.5) { r.mass = 0; r.load = 0; r.pour = 0; fx.dust([_t[0], groundAt(_t[0], _t[2]), _t[2]], 1.2, col); }
     }
   } else if (Math.abs(curl) > 0.01) {
     bc = Math.sign(curl);
@@ -239,14 +274,17 @@ export function excavatorStep(dt: number): void {
     r.digT -= dt;
     if (r.digT <= 0) {
       r.digT = 0.25;
-      const want = Math.min(r.pending, DIGGER.bucket - r.load);
-      const rad = 0.8;
-      const taken = dig(_t[0], _t[2], rad, want / (0.5 * Math.PI * rad * rad));
+      // bank m³ the power has bought, no more than the bucket has room for once it bulks (~25 %)
+      const want = Math.min(r.pending, (DIGGER.bucket - r.load) / 1.25);
+      const rad = 0.6;
+      const got = digGround(_t[0], _t[2], rad, want / (0.5 * Math.PI * rad * rad));
       r.pending = 0;
-      r.load = Math.min(DIGGER.bucket, r.load + taken);
-      r.dug += taken;
-      if (taken > 0) {
-        const col = SURFACE[surfaceAt(_t[0], _t[2])]?.dust ?? SURFACE.soil.dust;
+      if (got.mass > 0) {
+        if (got.mass > r.mass) r.soil = got.soil;
+        r.mass += got.mass;
+        r.load = Math.min(DIGGER.bucket, r.load + got.vol);
+        r.dug += got.vol;
+        const col = SOIL[got.soil].color;
         fx.debris([_t[0], gy + 0.1, _t[2]], 6, col, 2.5, [0, 1, 0]);
         fx.dust([_t[0], gy, _t[2]], 0.6, col);
       }
@@ -275,7 +313,7 @@ export function excavatorStatus(eye: Vec3): ToolReadout {
   return {
     title: `Excavator · ${vec3.distance(r.house.curPos, eye).toFixed(0)} m${digging ? ' · digging' : ''}`,
     progress: r.load / DIGGER.bucket,
-    detail: `bucket ${r.load.toFixed(2)}/${DIGGER.bucket.toFixed(1)} m³ · slew ${deg(r.house)}° boom ${deg(r.boom)}° stick ${deg(r.stick)}° · teeth ${below > 0 ? `${below.toFixed(2)} m below` : `${(-below).toFixed(1)} m above`} grade${reachOk ? '' : ' · OUT OF REACH'} · RMB dump · wheel curl`,
+    detail: `bucket ${r.load.toFixed(2)}/${DIGGER.bucket.toFixed(1)} m³${r.mass > 1 ? ` ${r.soil} ${(r.mass / 1000).toFixed(2)} t` : ''} · slew ${deg(r.house)}° boom ${deg(r.boom)}° stick ${deg(r.stick)}° · teeth ${below > 0 ? `${below.toFixed(2)} m below` : `${(-below).toFixed(1)} m above`} grade${reachOk ? '' : ' · OUT OF REACH'} · RMB dump · wheel curl`,
     warn: !reachOk,
   };
 }
@@ -295,3 +333,19 @@ export function clearExcavator(): void {
   curl = 0;
   lastErr = null;
 }
+
+/* The load heaped in the bucket, for the renderer: the mouth as the bucket now stands, and how full it is. */
+const _cv: CarryView = { pos: [0, 0, 0], rot: [0, 0, 0, 1], hx: 0, hz: 0, fill: 0, color: 0 };
+carriers.add(() => {
+  const r = rig;
+  if (!r || r.load < 0.02 || r.bucket.dead) return null;
+  const b = r.bucket;
+  quat.multiply(_cv.rot as Quat, b.curRot as Quat, quat.conjugate([0, 0, 0, 1], b.spawnRot));
+  vec3.sub(_cv.pos as Vec3, r.mouth.c, b.spawnPos);
+  vec3.transformQuat(_cv.pos as Vec3, _cv.pos as Vec3, _cv.rot as Quat);
+  vec3.add(_cv.pos as Vec3, _cv.pos as Vec3, b.curPos);
+  _cv.hx = r.mouth.hx; _cv.hz = r.mouth.hz;
+  _cv.fill = r.load / DIGGER.bucket;
+  _cv.color = SOIL[r.soil].color;
+  return _cv;
+});

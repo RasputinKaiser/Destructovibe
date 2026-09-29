@@ -2,6 +2,7 @@ import type {
   Box3DModule, b3WorldId, b3BodyId, b3ShapeId, b3JointId, b3QueryFilter, b3Filter,
   EventsBuffer, ContactHitEvent, ContactTouchEvent, JointEvent, BodyMoveEvent,
 } from 'box3d.js';
+import { mulberry32 } from 'math/random';
 import type { Vec3, Quat } from '../types';
 
 export type { b3BodyId, b3ShapeId, b3JointId };
@@ -42,6 +43,9 @@ export interface PhysEntity {
   vel?: Vec3;
   /** step it was last driven on purpose (a tool, a motor): the governor leaves it be */
   drivenStep?: number;
+  /** runaways caught in the last second, and the step of the latest */
+  runs?: number;
+  runStep?: number;
   /* hosted joints that may drive it (structure pieces) */
   ropes?: readonly unknown[];
   mechs?: readonly unknown[] | null;
@@ -60,6 +64,28 @@ let jointEv: JointEvent;
 let moveEv: BodyMoveEvent;
 
 export let threads = 0;
+
+/* Chance in the simulation draws from seeded streams that restart with each world, so the same shot on the same
+   level replays the same collapse. Each system keeps its own stream: soft bodies step by the viewer's distance, and
+   that must not reshuffle how the structure breaks. */
+const streams: { state: mulberry32.Mulberry32; seed: number }[] = [];
+/** A seeded stream; `at(...)` restarts it from a key (a place, a step), so an event draws the same numbers however many
+ * other events were handled before it in the step: the order things are listed or visited in stays out of the result. */
+export interface Stream { (): number; at(...key: number[]): void }
+export function randomStream(seed: number): Stream {
+  const st = { state: mulberry32.create(seed), seed };
+  streams.push(st);
+  const f = (() => mulberry32.sample(st.state)) as Stream;
+  f.at = (...key: number[]) => {
+    let h = seed >>> 0;
+    for (const k of key) {
+      h = Math.imul(h ^ (Math.round(k * 1000) | 0), 0x5bd1e995);
+      h ^= h >>> 15;
+    }
+    st.state = mulberry32.create(h >>> 0);
+  };
+  return f;
+}
 
 export async function initPhysics(): Promise<void> {
   const isolated = globalThis.crossOriginIsolated === true && typeof SharedArrayBuffer !== 'undefined';
@@ -87,11 +113,12 @@ export function createWorld(): void {
   byBody.clear();
   blasts.length = 0;
   stepCount = 0;
+  for (const st of streams) st.state = mulberry32.create(st.seed);
   const wd = b3.b3DefaultWorldDef();
   wd.gravity = [0, -9.81, 0];
   wd.hitEventThreshold = 2.5;
   wd.restitutionThreshold = 2;
-  wd.maximumLinearSpeed = 120;
+  wd.maximumLinearSpeed = MAX_SPEED;
   /* Contacts as stiff as the 240 Hz substep allows (Box2D's ¼-rate limit): heavy slabs and rubble piles sink and
      rock less and settle sooner. Overdamped, and a gentler push-out so fragments spawned slightly overlapping
      separate instead of spitting apart. */
@@ -198,10 +225,11 @@ export function step(h: StepHandlers): void {
 
 /* A stiff joint cluster can go numerically unstable in a violent collapse: its spin doubles every few
    steps until the state is NaN and the solver never returns. Nothing real turns faster than ~2 rad or
-   moves further than ~2.5 m in one 60 Hz step, so a body that does is put back where it was and
+   is driven into the solver's speed cap outside a blast, so a body that does is put back where it was and
    stopped (cheap: judged from the transforms the move event already carries), and the structure
    layer cuts it loose from the joints that drove it. */
-const RUNAWAY_TURN = Math.cos(2 / 2), RUNAWAY_MOVE = 2.5;
+const MAX_SPEED = 120;
+const RUNAWAY_TURN = Math.cos(2 / 2), RUNAWAY_MOVE = MAX_SPEED * FIXED_DT * 0.97;
 export let runaways = 0;
 /** caught runaways, for the structure layer to cut loose from whatever joint drove them */
 export const runawayQueue: PhysEntity[] = [];
@@ -210,10 +238,17 @@ const _z: Vec3 = [0, 0, 0];
 function runaway(e: PhysEntity, force = false): boolean {
   const p = e.curPos, q = e.curRot, dx = p[0] - e.prevPos[0], dy = p[1] - e.prevPos[1], dz = p[2] - e.prevPos[2];
   const dot = Math.abs(q[0] * e.prevRot[0] + q[1] * e.prevRot[1] + q[2] * e.prevRot[2] + q[3] * e.prevRot[3]);
-  if (!force && dot >= RUNAWAY_TURN && dx * dx + dy * dy + dz * dz <= RUNAWAY_MOVE * RUNAWAY_MOVE) return false;
+  if (!force && dot >= RUNAWAY_TURN && (dx * dx + dy * dy + dz * dz <= RUNAWAY_MOVE * RUNAWAY_MOVE || (blasts.length && inBlast(p)))) return false;
   runaways++;
   if (runawayQueue.length < 64) runawayQueue.push(e);
-  copy3(e.curPos, e.prevPos); copy4(e.curRot, e.prevRot);
+  /* Caught again and again, the place it keeps being put back to is itself the trouble (inside the ground or another
+     body, which throws it out at the solver's speed every step): from the third time in a second it keeps the ground it
+     gained and only loses its speed, so it works its way clear instead of being reset sixty times a second. */
+  e.runs = stepCount - (e.runStep ?? -999) < 60 ? (e.runs ?? 0) + 1 : 1;
+  e.runStep = stepCount;
+  const sane = Number.isFinite(p[0] + p[1] + p[2] + q[0] + q[1] + q[2] + q[3]);
+  if (e.runs < 3 || !sane) { copy3(e.curPos, e.prevPos); copy4(e.curRot, e.prevRot); }
+  else { copy3(e.prevPos, e.curPos); copy4(e.prevRot, e.curRot); }
   b3.b3Body_SetTransform(e.body, e.curPos, e.curRot);
   b3.b3Body_SetLinearVelocity(e.body, _z);
   b3.b3Body_SetAngularVelocity(e.body, _z);

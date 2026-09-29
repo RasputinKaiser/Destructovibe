@@ -21,6 +21,7 @@ export const operating = {
 const LEVER_RATE = 3;        // lever travel per second: a tap is a nudge
 const HOIST_SPEED = 0.6;     // m/s line speed
 const lever = [0, 0, 0, 0];
+let hoistLever = 0;
 
 const NAMES: Record<string, string[]> = {
   excavator: ['slew', 'boom', 'stick', 'bucket'],
@@ -56,6 +57,7 @@ export function enterMachine(m: Machine): void {
   operating.yaw = 0;
   operating.pitch = -0.25;
   lever.fill(0);
+  hoistLever = 0;
   for (const p of m.axes) mechCommand(p, 0);
 }
 
@@ -86,8 +88,11 @@ export function operateControls(down: ReadonlySet<string>, dt: number): void {
     mechCommand(p, lever[i]);
   });
   if (m.hoist) {
+    // the drum ramps to line speed over a second or so: a snatched load is a real overload
     const h = (down.has('Space') ? 1 : 0) - (down.has('KeyC') ? 1 : 0);
-    if (h) hoistRope(m.hoist, h * HOIST_SPEED * dt);
+    hoistLever += (h - hoistLever) * Math.min(1, dt * (h === 0 ? 4 : 1));
+    if (h === 0 && Math.abs(hoistLever) < 0.02) hoistLever = 0;
+    hoistRope(m.hoist, hoistLever * HOIST_SPEED, dt);
   }
 }
 

@@ -199,7 +199,8 @@ const DV_DUST = /* glsl */`
   float dvDust = dvCov.a * ( 0.15 + 0.85 * smoothstep( -0.1, 0.75, dvNd.y ) )
     * smoothstep( 0.25, 0.6, texture2D( uDvNoise, vDvW.xz * 0.37 + vDvW.y * 0.05 ).r + dvCov.a * 0.45 )
     * ( 1.0 - smoothstep( 30.0, 90.0, vDvW.y ) );
-  diffuseColor.rgb = mix( diffuseColor.rgb, dvCov.rgb, clamp( dvDust, 0.0, 0.9 ) );`;
+  // a film over the brick, greying it, never a white-out: the units still read through
+  diffuseColor.rgb = mix( diffuseColor.rgb, dvCov.rgb * 0.85, clamp( dvDust, 0.0, 0.5 ) );`;
 const DV_DUST_ROUGH = /* glsl */`
   roughnessFactor = mix( roughnessFactor, 0.95, clamp( dvDust, 0.0, 1.0 ) * 0.8 );
   metalnessFactor *= 1.0 - 0.7 * clamp( dvDust, 0.0, 1.0 );`;
@@ -268,7 +269,7 @@ varying vec3 vDvW;
 varying vec3 vDvN;
 varying float vDvId;
 float dvHash( float n ) { return fract( sin( n * 91.3458 + 17.13 ) * 47453.5453 ); }
-vec3 dvRoom( vec2 f, vec2 sz, vec3 rd, float h1, float h2 ) {
+vec3 dvRoom( vec2 f, vec2 sz, vec3 rd, float h1, float h2, float hl ) {
   float depth = sz.x * ( 1.1 + 1.3 * h1 );
   float tx = ( rd.x > 0.0 ? sz.x - f.x : f.x ) / max( abs( rd.x ), 1e-4 );
   float ty = ( rd.y > 0.0 ? sz.y - f.y : f.y ) / max( abs( rd.y ), 1e-4 );
@@ -283,7 +284,7 @@ vec3 dvRoom( vec2 f, vec2 sz, vec3 rd, float h1, float h2 ) {
       panel = step( 0.72, fract( hp.x * 0.42 + h1 ) ) * step( 0.55, fract( hp.z * 0.5 ) );
     } else alb = mix( vec3( 0.12, 0.12, 0.13 ), vec3( 0.2, 0.14, 0.09 ), h2 );
   } else if ( t == tz ) alb *= 0.85;
-  float lit = step( fract( h2 * 7.13 ), 0.12 + 0.6 * uDvRoom.a );
+  float lit = step( hl, 0.12 + 0.6 * uDvRoom.a );
   vec3 lamp = mix( vec3( 1.0, 0.8, 0.58 ), vec3( 0.86, 0.93, 1.0 ), step( 0.5, fract( h1 * 5.7 ) ) );
   vec3 c = uDvRoom.rgb * alb * ( 0.05 + 0.45 * exp( - hp.z * 0.35 ) );
   c += lit * lamp * ( alb * ( 0.12 + 0.2 * exp( - t * 0.08 ) ) + panel * 2.5 );
@@ -330,27 +331,54 @@ const GLASS_ROOM = /* glsl */`
     vec2 dvCell = floor( dvP );
     float dvH1 = dvHash( dvCell.x * 7.31 + dvCell.y * 131.7 + floor( dot( vDvW, dvNw ) * 0.25 ) * 17.9 );
     float dvH2 = dvHash( dvH1 * 311.0 + 5.0 );
+    // lights go on by runs of four bays along a floor (a tenancy), not room by room: per-room coin flips read as a QR code
+    float dvHl = dvHash( floor( dvCell.x / 4.0 ) * 3.71 + dvCell.y * 57.1 + floor( dot( vDvW, dvNw ) * 0.25 ) * 17.9 );
+    if ( dvHash( dvH1 * 17.0 + 3.0 ) > 0.88 ) dvHl = 1.0 - dvHl;
     vec3 dvIn;
-    if ( uDvQ > 0.5 ) dvIn = dvRoom( ( dvP - dvCell ) * dvSz, dvSz, vec3( dot( dvV, dvT ), dvV.y, max( - dot( dvV, dvNw ), 1e-3 ) ), dvH1, dvH2 );
-    else dvIn = uDvRoom.rgb * vec3( 0.07, 0.068, 0.064 ) + step( dvH2, 0.12 + 0.6 * uDvRoom.a ) * vec3( 0.12, 0.1, 0.08 );
-    totalEmissiveRadiance += dvIn * mix( vec3( 1.0 ), dvTint, 0.6 ) * ( 1.0 - dvFr ) * dvVert;
-    diffuseColor.a = mix( diffuseColor.a, 0.93, dvVert * ( 1.0 - dvFr ) );
+    if ( uDvQ > 0.5 ) dvIn = dvRoom( ( dvP - dvCell ) * dvSz, dvSz, vec3( dot( dvV, dvT ), dvV.y, max( - dot( dvV, dvNw ), 1e-3 ) ), dvH1, dvH2, dvHl );
+    else dvIn = uDvRoom.rgb * vec3( 0.07, 0.068, 0.064 ) + step( dvHl, 0.12 + 0.6 * uDvRoom.a ) * vec3( 0.12, 0.1, 0.08 );
+    // far off, a pane averages over more of the room than the ray sample shows: pull toward the mean
+    float dvFar = smoothstep( 50.0, 240.0, distance( vDvW, cameraPosition ) );
+    vec3 dvMean = uDvRoom.rgb * 0.05 + vec3( 1.0, 0.86, 0.66 ) * ( 0.12 + 0.6 * uDvRoom.a ) * 0.09;
+    dvIn = mix( dvIn, dvMean, dvFar * 0.55 );
+    float dvClear = 1.0;
+    #ifdef DV_CURTAIN
+    {
+      // unitised curtain wall above the ground floor: mullions every 1.2 m (three lights to a bay), a back-painted
+      // spandrel over each slab edge, framed by transoms
+      float dvCw = dvVert * smoothstep( 3.6, 4.2, vDvW.y );
+      vec2 dvM = vec2( dot( vDvW, dvT ), vDvW.y );
+      vec2 dvQ = abs( fract( dvM / vec2( 1.2, 3.8 ) + 0.5 ) - 0.5 ) * vec2( 1.2, 3.8 );
+      vec2 dvFw = max( fwidth( dvM ), vec2( 1e-4 ) );
+      float dvSpan = ( 1.0 - smoothstep( 0.45, 0.45 + dvFw.y, dvQ.y ) ) * dvCw;
+      float dvFrame = max( 1.0 - smoothstep( 0.035, 0.035 + dvFw.x, dvQ.x ), 1.0 - smoothstep( 0.03, 0.03 + dvFw.y, abs( dvQ.y - 0.45 ) ) ) * dvCw;
+      dvClear = ( 1.0 - dvSpan ) * ( 1.0 - dvFrame );
+      diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.018, 0.022, 0.026 ), dvSpan );
+      diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.2, 0.21, 0.22 ), dvFrame );
+      roughnessFactor = mix( roughnessFactor, 0.38, dvFrame );
+      metalnessFactor = mix( metalnessFactor, 0.85, dvFrame );
+      diffuseColor.a = mix( diffuseColor.a, 0.97, dvSpan );
+      diffuseColor.a = mix( diffuseColor.a, 1.0, dvFrame );
+    }
+    #endif
+    totalEmissiveRadiance += dvIn * mix( vec3( 1.0 ), dvTint, 0.6 ) * ( 1.0 - dvFr ) * dvVert * dvClear;
+    diffuseColor.a = mix( diffuseColor.a, 0.93, dvVert * ( 1.0 - dvFr ) * dvClear );
   }
   #endif`;
 
-function patchGlass(m: THREE.MeshStandardMaterial, mode: 'room' | 'smoked'): void {
+function patchGlass(m: THREE.MeshStandardMaterial, mode: 'room' | 'smoked', curtain = false): void {
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, roomU, qualU);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vDvW;\nvarying vec3 vDvN;\nvarying float vDvId;')
       .replace('#include <project_vertex>', `#include <project_vertex>\n${GLASS_VERT}`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>\n#define ${mode === 'room' ? 'DV_ROOM' : 'DV_SMOKED'}\n${HEAT_PARS}\n${GLASS_PARS}`)
+      .replace('#include <common>', `#include <common>\n#define ${mode === 'room' ? 'DV_ROOM' : 'DV_SMOKED'}\n${curtain ? '#define DV_CURTAIN\n' : ''}${HEAT_PARS}\n${GLASS_PARS}`)
       .replace('#include <color_fragment>', GLASS_COLOR)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${GLASS_FRESNEL}`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${HEAT_EMIT}\n${GLASS_ROOM}`);
   };
-  m.customProgramCacheKey = () => `dv-glass-${mode}`;
+  m.customProgramCacheKey = () => `dv-glass-${mode}${curtain ? '-cw' : ''}`;
 }
 
 function glass(tint: number | undefined, interior: boolean, tempered: boolean, smoked = false): THREE.MeshStandardMaterial {
@@ -369,7 +397,7 @@ function glass(tint: number | undefined, interior: boolean, tempered: boolean, s
   m.blendSrc = THREE.OneFactor;
   m.blendDst = THREE.OneMinusSrcAlphaFactor;
   if (interior) patchPiece(m);
-  else patchGlass(m, smoked ? 'smoked' : 'room');
+  else patchGlass(m, smoked ? 'smoked' : 'room', tempered && !smoked);
   return m;
 }
 
@@ -444,8 +472,10 @@ vec3 dvBump( vec3 n, float h ) {
   vec3 dx = dFdx( p ), dy = dFdy( p );
   vec3 r1 = cross( dy, n ), r2 = cross( n, dx );
   float det = dot( dx, r1 );
-  vec3 g = sign( det ) * ( dFdx( h ) * r1 + dFdy( h ) * r2 );
-  return normalize( abs( det ) * n - g );
+  vec3 g = abs( det ) * n - sign( det ) * ( dFdx( h ) * r1 + dFdy( h ) * r2 );
+  // zero on degenerate quads (det == 0): normalize would return NaN and bloom spreads it frame-wide
+  float l2 = dot( g, g );
+  return l2 > 1e-24 ? g * inversesqrt( l2 ) : n;
 }`;
 const FIN_COLOR = /* glsl */`
   float dvId = floor( vDvId + 0.5 );
@@ -479,7 +509,14 @@ const FIN_COLOR = /* glsl */`
     dvChip = vDvWear * smoothstep( 0.4, 0.5, dvCn + 0.15 * dvHash( dvId + 2.0 ) );
     dvChip = max( dvChip, smoothstep( 0.8, 0.84, texture2D( uDvNoise, vDvUv * 0.9 + 0.3 ).g ) * dvLow );
     dvBare = dvChip * smoothstep( 0.62, 0.7, dvCn );
-    diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.3, 0.09, 0.05 ), dvChip );
+    vec3 dvUnder = vec3( 0.3, 0.09, 0.05 );
+    #ifdef DV_F_JOINERY
+      dvChip = 0.6 * max( vDvWear * smoothstep( 0.66, 0.74, dvCn + 0.1 * dvHash( dvId + 2.0 ) ),
+        smoothstep( 0.8, 0.84, texture2D( uDvNoise, vDvUv * 0.9 + 0.3 ).g ) * dvLow );
+      dvBare = 0.0;
+      dvUnder = vec3( 0.56, 0.54, 0.49 );
+    #endif
+    diffuseColor.rgb = mix( diffuseColor.rgb, dvUnder, dvChip );
     diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.36, 0.37, 0.38 ), dvBare );
     diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.07, 0.055, 0.04 ), 0.55 * dvLow * ( 0.5 + 0.5 * texture2D( uDvNoise, vDvUv * 0.5 ).g ) );
   #endif
@@ -553,7 +590,7 @@ const FIN_COAT = /* glsl */`
   #endif`;
 
 function patchFinish(m: THREE.MeshStandardMaterial, f: SurfaceFinish): void {
-  const defs = f === 'wheel' ? ['DV_F_RUBBER', 'DV_F_WHEEL'] : [`DV_F_${f.toUpperCase()}`];
+  const defs = f === 'wheel' ? ['DV_F_RUBBER', 'DV_F_WHEEL'] : f === 'joinery' ? ['DV_F_SATIN', 'DV_F_JOINERY'] : [`DV_F_${f.toUpperCase()}`];
   m.defines = { ...m.defines, ...Object.fromEntries(defs.map(d => [d, ''])) };
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uDvNoise = { value: sharedNoise() };

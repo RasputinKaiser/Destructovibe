@@ -1,7 +1,7 @@
 import { vec3 } from 'math';
-import { mulberry32 } from 'math/random';
 import { quickhull3 } from 'math/geometry';
 import type { MaterialId, Vec3 } from '../types';
+import { randomStream } from '../physics/physics.ts';
 
 /* Convex polyhedra as explicit face lists (CCW from outside). Fracture = clipping the
    parent by Voronoi bisector planes, which keeps faces exact and lets every face remember
@@ -28,8 +28,8 @@ export interface Cell {
 }
 
 const EPS = 1e-6;
-const rng = mulberry32.create(0x5eed1234);
-export const rand = (): number => mulberry32.sample(rng);
+/* fracture seeds draw from a stream that restarts with each world, so a level replays its breaks */
+export const rand = randomStream(0x5eed1234);
 
 export function boxPoly(hx: number, hy: number, hz: number): Poly {
   const f = (n: Vec3, d: number, pts: number[]): Face => ({ pts, n, d, ext: true, tag: -1 });

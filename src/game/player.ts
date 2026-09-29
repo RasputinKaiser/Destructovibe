@@ -70,6 +70,8 @@ export const player = {
   sensitivity: 1,
   invertY: false,
   baseFov: 100,
+  /** camera-shake multiplier from settings (0 = off) */
+  shake: 1,
   lookDelta: [0, 0] as [number, number],
   /** cost of the last mover step, ms */
   moverMs: 0,
@@ -345,8 +347,9 @@ export function toggleFly(): boolean {
 }
 
 export function addTrauma(a: number): void { trauma = Math.min(1, trauma + a); }
-export function kickRecoil(a: number): void { recoil.velocity += a; }
-export function kickFov(a: number): void { fovKick.velocity += a; }
+/* With camera shake off the aim still kicks a little (it says the shot went off), the lens punch not at all. */
+export function kickRecoil(a: number): void { recoil.velocity += a * (0.35 + 0.65 * player.shake); }
+export function kickFov(a: number): void { fovKick.velocity += a * player.shake; }
 export function knockback(seconds: number): void { player.knock = Math.max(player.knock, seconds); }
 
 function setCrouch(on: boolean, force = false): boolean {
@@ -730,7 +733,7 @@ export function updateCamera(camera: THREE.PerspectiveCamera, alpha: number, dt:
   const bobAmp = moving ? clamp(speed / WALK, 0, 1.6) * (player.crouch ? 0.02 : 0.03) : 0;
 
   eyePosition(eye, alpha);
-  const sh = trauma * trauma;
+  const sh = trauma * trauma * player.shake;
   const n = (o: number): number => simplex3d.sample(noise, t * 18, o, 0);
   camera.position.set(
     eye[0] + n(10) * sh * 0.12,

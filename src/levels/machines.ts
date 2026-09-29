@@ -1,6 +1,6 @@
 import type { MechMotor, PieceSpec, Vec3, VehicleModel } from '../types.ts';
 import { MACHINE_KG, MATS, envelopeVolume } from '../destruction/materials.ts';
-import { block, chamfer, cyl, extrude, hull, hullVolume, loft, place, prism, ringCourse, rod, splitRange, tag, tankX, vessel, weldParts, type PieceOpts, type Range } from './kit.ts';
+import { block, chamfer, cyl, extrude, hull, hullVolume, loft, place, prism, raise, ringCourse, rod, splitRange, tag, tankX, vessel, weldParts, type PieceOpts, type Range } from './kit.ts';
 import { partsVolume } from '../destruction/compound.ts';
 import { conduit, disc, lamp, LIGHT, pipe, SVC } from './services.ts';
 import type { Placement } from './structures.ts';
@@ -535,15 +535,15 @@ export function mobileCrane(p: Placement & { load?: number }): PieceSpec[] {
       cycle: { period: T, keys: [[0, 0.06], [4, -0.05], [9, -0.05], [13, 0.06], [24, 0.06], [28, -0.05], [33, -0.05], [37, 0.06]] } });
   const boomRam = locked(rod('steel', [1.25, 2.25, 0], [3.4, lo(3.4) - 0.13, 0], 0.18, { tint: 0xd6d9dc, finish: 'chrome' }), [3.3, (lo(3.3) + hi(3.3)) / 2, 0]);
   const sheave = locked(disc('steel', 'z', [8.9, 9.2, 0], 0.24, 0.4, d), [8.55, 9.2, 0]);
-  // hook block a short drop under the head on its hoist line (multi-fall, ~60 t breaking)
-  const hook = { ...chamfer('castiron', [8.62, 9.04], [8.1, 8.6], [-0.2, 0.2], 0.07, stripe), noWeld: true };
+  // hook block down on its hoist line (multi-fall, ~60 t breaking) over the slung bundle, the line a little slack
+  const hook = { ...chamfer('castiron', [8.62, 9.04], [1.25, 1.75], [-0.2, 0.2], 0.07, stripe), noWeld: true };
   hook.density = 3000;
-  sheave.ropeTo = { end: [...hook.pos], slack: 0.05, strength: 6e5, kind: 'rope' };
+  sheave.ropeTo = { end: [...hook.pos], slack: 0.3, strength: 6e5, kind: 'rope' };
   ps[0].outriggers = true;
   ps.push(house, cw, boom, boomRam, sheave, hook);
-  /* set up on its outriggers: the road wheels just hang on their parked hubs */
+  /* set up on its outriggers: jacked up clear of the road, the wheels hang on their parked hubs */
   const b = park(MACHINE_KG.mobileCrane / 3, r);
-  ps.push(...axle(3.4, 1.0, r, 0.35, 'machine', b), ...axle(-1.4, 1.0, r, 0.35, 'machine', b), ...axle(-2.8, 1.0, r, 0.35, 'machine', b));
+  ps.push(...raise([...axle(3.4, 1.0, r, 0.35, 'machine', b), ...axle(-1.4, 1.0, r, 0.35, 'machine', b), ...axle(-2.8, 1.0, r, 0.35, 'machine', b)], 0.12));
   house.density = 800;
   cw.density = 800;
   // the tapered boom weighs what the old parallel one did
@@ -554,7 +554,7 @@ export function mobileCrane(p: Placement & { load?: number }): PieceSpec[] {
     // a slung bundle of steel sections resting on dunnage under the head
     const load = { ...block('steel', [8.3, 9.5], [0.02, 0.52], [-0.9, 0.9], { tint: 0x7a4a32, finish: 'satin' }), noWeld: true };
     load.density = Math.round(kgLoad / (1.2 * 0.5 * 1.8));
-    hook.ropeTo = { end: [...load.pos], slack: 0.3, strength: 6e5, kind: 'chain' };
+    hook.ropeTo = { end: [...load.pos], slack: 0.15, strength: 6e5, kind: 'chain' };
     out.push(load);
   }
   return put(out, p, 'mobilecrane');
@@ -676,17 +676,19 @@ export function conveyorLine(p: MachinePlacement & { len?: number }): PieceSpec[
   }
   ps.push(motorBox([c + 0.14, c + 0.7], [0.35, 0.85], [0.56, 0.9]));
   /* one 1.1 kW gearmotor turns the middle roller; the rest follow on roller chain */
-  const n = Math.max(2, Math.floor((len - 0.3) / 0.6)), mid = Math.floor(n / 2);
+  // roller pitch under a third of the shortest load's length, so a carton always rides on at least three
+  const n = Math.max(2, Math.ceil((len - 0.6) / 0.3) + 1), mid = Math.floor(n / 2);
   for (let i = 0; i < n; i++) {
     const x = 0.3 + (i * (len - 0.6)) / (n - 1);
+    // turning clockwise about +Z seen from +Z, so the roller tops carry the load toward +X
     ps.push(hinge(hull('steel', octZ(x, 0.8, [-0.4, 0.4], 0.1), { tint: 0xa8adb0, finish: 'chrome' }), [x, 0.8, 0.5], [0, 0, 1],
-      i === mid ? { motor: gearmotor(3, 1.1) } : { drivenBy: { ratio: 1, kind: 'chain' } }));
+      i === mid ? { motor: gearmotor(-3, 1.1) } : { drivenBy: { ratio: 1, kind: 'chain' } }));
   }
   ps.push(...conduit([[c + 0.42, 0.6, 0.9], [c + 0.42, 0.6, 1.3]]), isolator([c + 0.17, c + 0.67], [1.3, 1.6], p.feed));
-  // cartons riding the rollers, taken off at the tail and fed on again at the head
-  for (let x = 0.35; x + 0.45 < len - 0.3; x += 1.3) {
-    ps.push({ ...block('cardboard', [x, x + 0.45], [0.91, 1.21], [-0.2, 0.2], { tint: 0xb08a5a }), noWeld: true, density: 160,
-      carry: { from: [0.35 + 0.225, 1.07, 0], to: [len - 0.05, 1.07, 0] } });
+  // crates of stock riding the rollers, taken off at the tail and fed on again at the head
+  for (let x = 0.3; x + 0.9 < len - 0.3; x += 1.6) {
+    ps.push({ ...block('crate', [x, x + 0.9], [0.91, 1.21], [-0.22, 0.22], { tint: 0xb08a5a }), noWeld: true, density: 120,
+      carry: { from: [0.3 + 0.45, 1.07, 0], to: [len - 0.05, 1.07, 0] } });
   }
   return put(ps, p, 'conveyor');
 }
@@ -765,8 +767,8 @@ function pressUnit(): PieceSpec[] {
   // a 100 t press: the ram (a fabricated box, ~2 t) is driven hard both ways
   // stroke (5 s): dwell open while a blank is loaded, close fast onto it, hold the squeeze, return
   const head = slider(chamfer('steel', [-0.48, 0.48], [1.9, 2.94], [-0.35, 0.35], 0.06, { tint: GREY, finish: 'satin' }, 'vert'), [0, 3.1, 0], [0, 1, 0],
-    { lower: -0.3, upper: 0, motor: { ...ram(0.25, 0.18, 210, 880), always: undefined, shuttle: false, speed: -0.3 },
-      cycle: { period: 5, keys: [[0, 0], [1.6, 0], [2.3, -0.28], [2.8, -0.28], [3.8, 0]], thump: -0.255 } });
+    { lower: -0.32, upper: 0, motor: { ...ram(0.25, 0.18, 210, 880), always: undefined, shuttle: false, speed: -0.3 },
+      cycle: { period: 5, keys: [[0, 0], [1.6, 0], [2.3, -0.29], [2.8, -0.29], [3.8, 0]], thump: -0.245 } });
   head.density = 3000;
   return [
     // the straight-side frame is one iron casting: bed, two columns and crown
@@ -779,7 +781,7 @@ function pressUnit(): PieceSpec[] {
     block('steel', [-0.4, 0.4], [0.9, 1.05], [-0.3, 0.3], { tint: 0x161616, finish: 'decal' }),
     // lower die on the bolster and a sheet blank on it
     block('steel', [-0.42, 0.42], [1.05, 1.6], [-0.3, 0.3], { tint: 0x4a4f53, finish: 'satin' }),
-    { ...block('steel', [-0.3, 0.3], [1.6, 1.625], [-0.22, 0.22], { tint: 0xb9bec2, finish: 'galv' }), noWeld: true },
+    { ...block('steel', [-0.3, 0.3], [1.6, 1.65], [-0.22, 0.22], { tint: 0xb9bec2, finish: 'galv' }), noWeld: true },
     motorBox([-0.45, 0.45], [3.6, 4.1], [-0.35, 0.35]),
     head,
   ];

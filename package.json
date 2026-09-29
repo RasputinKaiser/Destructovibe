@@ -6,10 +6,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "node scripts/gen-buildings.ts && tsc && vite build",
     "typecheck": "tsc",
     "preview": "vite preview",
-    "test": "node tests/fx-impact.mjs",
+    "buildings": "node scripts/gen-buildings.ts",
+    "test": "node --test tests/*.test.ts && node tests/fx-impact.mjs",
     "validate:fractures": "node scripts/validate-fractures.ts",
     "validate:levels": "node scripts/validate-levels.ts",
     "validate:grid": "node scripts/validate-grid.ts",

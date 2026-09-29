@@ -5,9 +5,21 @@ import {
   spiralFolly, towerBlock, van, warehouse, waterTower, TINT,
 } from './structures.ts';
 import { poleLineSite, windTurbineSite } from './plant.ts';
+import { raise } from './kit.ts';
 import { clearanceZone } from './maps/clearance.ts';
 import { heritageYard } from './maps/heritage.ts';
 import { downtown } from './maps/downtown.ts';
+import { railwayQuarter, RQ } from './maps/railway.ts';
+import { excavator } from './machines.ts';
+import { pieceAabb } from './validate.ts';
+import { DPC } from '../terrain/spec.ts';
+import type { Goal } from '../game/scoring.ts';
+
+/** A campaign contract: filed under a chapter on the job board, with what it asks beyond the demolition target. */
+export interface Job extends Contract {
+  chapter: string;
+  goal?: Goal;
+}
 
 const bp = (spawn: Vec3, ...parts: PieceSpec[][]): Blueprint => ({ pieces: parts.flat(), spawn: { pos: spawn, yaw: 0 } });
 
@@ -20,7 +32,7 @@ const ALL_TOOLS: Record<WeaponId, number> = {
   planner: -1, excavator: -1, breaker: -1, hose: -1, splitter: -1, wiresaw: -1,
 };
 
-export const CONTRACTS: Contract[] = [
+const ODD_JOBS: Contract[] = [
   {
     id: 'garden-variety',
     name: 'Garden Variety',
@@ -181,6 +193,249 @@ export const CONTRACTS: Contract[] = [
   },
 ];
 
+/* ---------------- contracts on the free-play maps ---------------- */
+
+/** A contract's cut of a free-play map. `clear`: building groups taken down to what lies below the damp course
+    (footings, basements, the slab), the plot already cleared; `retag`: pieces moved into a new group by test, in
+    order; `protect`: groups on the fee; `spawn`: where the crew is set down (y on the level it names). */
+function scoped(bp: Blueprint, o: { clear?: string[]; retag?: [string, (p: PieceSpec) => boolean][]; protect?: string[]; spawn?: [number, number, number, number] }): Blueprint {
+  const clear = new Set(o.clear ?? []), guard = new Set(o.protect ?? []);
+  const pieces = bp.pieces
+    .filter((p) => !p.group || !clear.has(p.group) || pieceAabb(p).max[1] <= DPC + 0.01)
+    .map((p) => {
+      const q = { ...p };
+      for (const [g, test] of o.retag ?? []) if (test(q)) { q.group = g; break; }
+      if (q.group && guard.has(q.group)) q.protected = true;
+      return q;
+    });
+  const spawn = o.spawn ? { pos: [o.spawn[0], o.spawn[1], o.spawn[2]] as Vec3, yaw: o.spawn[3] } : bp.spawn;
+  return { ...bp, pieces, spawn };
+}
+
+const low = (p: PieceSpec) => pieceAabb(p).min[1];
+const DT_BLOCKS = ['tower', 'skyscraper2', 'office', 'stand', 'store', 'carpark', 'flats', 'flats2', 'gasholder'];
+const except = (all: string[], ...keep: string[]) => all.filter((g) => !keep.includes(g));
+
+const HERITAGE_JOBS: Job[] = [
+  {
+    id: 'hot-works',
+    chapter: 'The Heritage Yard',
+    name: 'Hot Works',
+    location: 'Heritage Yard, canal footbridge · 06:20',
+    brief: 'The museum\'s steel truss footbridge failed its inspection: the bottom chords are more rust than rivet. It comes out for '
+      + 'scrap, and it comes out quietly: no explosives on a heritage site. Disc cutter, torch, plasma and shears. Cut the chords '
+      + 'and the end posts at the bearings and the span drops into the dry cut on its own weight.',
+    target: 0.6,
+    par: 240,
+    stars: [0, 0],
+    ammo: { hammer: -1, grinder: 10, torch: 4, plasma: 8, shears: 3 },
+    env: 'noon',
+    protectedNote: 'PROTECTED: the listed stone arch bridge and the mill wheel turning beside the footbridge.',
+    unlockText: 'WRECKING BALL UNLOCKED',
+    goal: { groups: ['trussbridge'], what: 'the truss footbridge' },
+    build: () => scoped(heritageYard(), { protect: ['archbridge', 'millwheel'], spawn: [19, 0, 6, -1.25] }),
+  },
+  {
+    id: 'swing-time',
+    chapter: 'The Heritage Yard',
+    name: 'Swing Time',
+    location: 'Heritage Yard, Market Street terrace · 10:30',
+    brief: 'A Victorian terrace with a pub on the end, moved here brick by numbered brick in 1978 and not loved since. The crane is on '
+      + 'hire by the hour: swing the ball through the front walls, let the floors fold, and break out what is left standing. '
+      + 'The boiler house is three metres from the gable and the rotunda is listed; both are staying.',
+    target: 0.7,
+    par: 240,
+    stars: [0, 0],
+    ammo: { hammer: -1, wrecker: 16, breaker: -1 },
+    env: 'golden',
+    protectedNote: 'PROTECTED: the boiler house off the west gable, and the rotunda across Museum Street.',
+    unlockText: 'FIREBOMBS UNLOCKED',
+    goal: { groups: ['terrace'], what: 'the terrace and pub' },
+    build: () => scoped(heritageYard(), { protect: ['boilerhouse', 'rotunda'], spawn: [-5, 0, 30, 0] }),
+  },
+  {
+    id: 'slow-burn',
+    chapter: 'The Heritage Yard',
+    name: 'Slow Burn',
+    location: 'Heritage Yard, tithe barn · 19:45',
+    brief: 'The oak barn has death-watch beetle, dry rot and a preservation order that lapsed at midnight. The brigade will allow a '
+      + 'controlled burn on one condition: the mill next door does not so much as singe. Firebombs to light it, the chainsaw for '
+      + 'the posts, and the water cannon to keep the fire on your side of the yard.',
+    target: 0.65,
+    par: 300,
+    stars: [0, 0],
+    ammo: { hammer: -1, incendiary: 6, saw: 4, hose: -1 },
+    env: 'dusk',
+    protectedNote: 'PROTECTED: the mill and its stock, eight metres west of the barn. Nothing of it burns.',
+    unlockText: 'WIRE SAW UNLOCKED',
+    goal: { groups: ['barn'], what: 'the barn' },
+    build: () => scoped(heritageYard(), { protect: ['mill'], spawn: [35, 0, -13, 0.15] }),
+  },
+  {
+    id: 'sanctuary',
+    chapter: 'The Heritage Yard',
+    name: 'Sanctuary',
+    location: 'Heritage Yard, St Oswald\'s · 07:00',
+    brief: 'The church comes down to its crypt, and the diocese wants it down inside its own churchyard: the mill is ten metres off '
+      + 'the chancel. Stone does not bend, it lets go, so plan it. Drill and split the pier bases, wire-saw the tower, sequence the '
+      + 'charges on the detonator panel and lay the spire along the nave.',
+    target: 0.7,
+    par: 360,
+    stars: [0, 0],
+    ammo: { hammer: -1, drill: 6, splitter: -1, wiresaw: -1, planner: -1, charge: 12, cutter: 6 },
+    env: 'overcast',
+    protectedNote: 'PROTECTED: the mill east of the chancel and the arch bridge over the cut.',
+    unlockText: 'RAILWAY QUARTER OPEN',
+    goal: { groups: ['cathedral'], what: 'the church', footprint: [-48, -4, -47, -11] },
+    build: () => scoped(heritageYard(), { protect: ['mill', 'archbridge'], spawn: [-26, 0, 6, 0] }),
+  },
+];
+
+const RAILWAY_JOBS: Job[] = [
+  {
+    id: 'half-measures',
+    chapter: 'The Railway Quarter',
+    name: 'Half Measures',
+    location: 'Viaduct Road bridge · 04:50',
+    brief: 'Half the Viaduct Road bridge is being replaced; the other half carries the diversion from six o\'clock. Drop the west '
+      + 'span into the dry river bed and leave the east span, its bearings and its half of the pier as they are. The spans share '
+      + 'nothing but a movement joint: cut at the west bearings and the portal and let it go.',
+    target: 0.55,
+    par: 300,
+    stars: [0, 0],
+    ammo: { hammer: -1, torch: 4, plasma: 8, cutter: 6, wiresaw: -1 },
+    env: 'night',
+    protectedNote: 'PROTECTED: the east span, its bearings and its half of the river pier.',
+    unlockText: 'EXCAVATOR UNLOCKED',
+    goal: { groups: ['westspan'], what: 'the west span' },
+    build: () => scoped(railwayQuarter(), {
+      clear: ['station', 'stadium'],
+      retag: [['westspan', (p) => p.group === 'roadbridge' && p.pos[0] < RQ.bridge.x && p.pos[0] > RQ.bridge.x - 42.4 && low(p) >= 2.0],
+        ['eastspan', (p) => p.group === 'roadbridge' && p.pos[0] > RQ.bridge.x]],
+      protect: ['eastspan'],
+      spawn: [-20, 0, -52, 0],
+    }),
+  },
+  {
+    id: 'dust-to-dust',
+    chapter: 'The Railway Quarter',
+    name: 'Dust to Dust',
+    location: 'Railway Terrace, nos. 1–4 · 09:00',
+    brief: 'Four railway cottages, empty since the line closed, and four more next door with people in them. This is a machine job: '
+      + 'walk the excavator up, pull them down into their own plots, break out what is left with the breaker, and keep the hose '
+      + 'on the dust. The neighbours have the council on speed dial.',
+    target: 0.6,
+    par: 360,
+    stars: [0, 0],
+    ammo: { hammer: -1, excavator: -1, breaker: -1, hose: -1 },
+    env: 'noon',
+    protectedNote: 'PROTECTED: nos. 5–8, the occupied cottages east of the gap.',
+    unlockText: 'THERMITE UNLOCKED',
+    goal: { groups: ['cottages-west'], what: 'nos. 1–4' },
+    build: () => scoped(railwayQuarter((lv) => raise(excavator({ x: -70, z: 55, rot: 1 }), lv(-70, 55))), {
+      clear: ['stadium', 'millworks'],
+      retag: [['cottages-west', (p) => p.group === 'cottages' && p.pos[0] < -57]],
+      protect: ['cottages'],
+      spawn: [-57, 0, 50.8, Math.PI],
+    }),
+  },
+  {
+    id: 'final-whistle',
+    chapter: 'The Railway Quarter',
+    name: 'Final Whistle',
+    location: 'Medlock Road ground · 15:00',
+    brief: 'The club has moved to a shed by the ring road. Both stand roofs and the four masts come off before the terraces are '
+      + 'broken out, and the steel goes for scrap. Thermite the columns behind the rakers, cut the cantilevers, winch what hangs. '
+      + 'A 40 m mast falls 40 m: lay them on the pitch, not across Mill Street. The scrap lorries arrive at twenty to five.',
+    target: 0.7,
+    par: 300,
+    stars: [0, 0],
+    ammo: { hammer: -1, thermite: 16, torch: 4, cutter: 4, winch: 4 },
+    env: 'overcast',
+    protectedNote: 'PROTECTED: the cotton mill across Mill Street, under the north masts.',
+    unlockText: 'GRAVITY GUN UNLOCKED',
+    goal: { groups: ['roofs'], what: 'the stand roofs and masts', limit: 480 },
+    build: () => scoped(railwayQuarter(), {
+      clear: ['station', 'cottages'],
+      retag: [['roofs', (p) => p.group === 'stadium' && p.mat !== 'rconcrete' && p.mat !== 'concrete']],
+      protect: ['millworks'],
+      spawn: [RQ.stadium.x, 0, RQ.stadium.z, 0],
+    }),
+  },
+  {
+    id: 'lost-property',
+    chapter: 'The Railway Quarter',
+    name: 'Lost Property',
+    location: 'Victoria Road terminus · 13:10',
+    brief: 'The train shed is coming down; the booking hall is listed and is not. First the lost-property store has to be emptied: '
+      + 'crates and gas bottles left all along the island platform. Carry them out into the goods yard with the gravity gun. '
+      + 'Anything still under the roof when the charges go will not be coming out in one piece.',
+    target: 0.5,
+    par: 420,
+    stars: [0, 0],
+    ammo: { hammer: -1, gravgun: -1, charge: 12, cutter: 6, planner: -1 },
+    env: 'golden',
+    protectedNote: 'PROTECTED: the booking hall and clock tower, hard against the south end of the shed.',
+    unlockText: 'MEGABOMB UNLOCKED',
+    goal: {
+      groups: ['shed'], what: 'the train shed',
+      salvage: { group: 'salvage', zone: [-80, -26, -60, -45], need: 0.75, what: 'lost-property items', where: 'the goods yard' },
+    },
+    build: () => {
+      const s = RQ.station;
+      const stock = (lz: number, i: number) => dump({ x: s.x - 4, z: s.z + lz, y: 0.9 + DPC, crates: [1, 1, 1 + (i & 1)], propane: [2, 1], group: 'salvage' });
+      return scoped(railwayQuarter(() => [-24, -32, -46].flatMap(stock)), {
+        clear: ['stadium', 'millworks'],
+        retag: [['shed', (p) => p.group === 'station' && p.pos[2] < s.z - 8 && low(p) > 1.0],
+          ['bookinghall', (p) => p.group === 'station' && p.pos[2] > s.z - 0.1]],
+        protect: ['bookinghall'],
+        spawn: [s.x, 0, -50, Math.PI],
+      });
+    },
+  },
+];
+
+const DOWNTOWN_JOBS: Job[] = [
+  {
+    id: 'steel-nerve',
+    chapter: 'Downtown',
+    name: 'Steel Nerve',
+    location: 'Tower Street, Downtown · 02:00',
+    brief: 'Five storeys of steel-framed office over a basement, glazed on every face, in the middle of a district that is still '
+      + 'lived in. Tower Street reopens at six. Thermite eats through a column in under a minute and leaves the beams to sort '
+      + 'themselves out; cutting charges finish what it starts. The flats across the street and the tower next door are occupied.',
+    target: 0.65,
+    par: 300,
+    stars: [0, 0],
+    ammo: { hammer: -1, thermite: 14, cutter: 6, torch: 3 },
+    env: 'night',
+    protectedNote: 'PROTECTED: the flats across Tower Street and the Tower Street tower to the west.',
+    goal: { groups: ['office'], what: 'the office', limit: 540 },
+    build: () => scoped(downtown(), { clear: except(DT_BLOCKS, 'office', 'flats', 'skyscraper2'), protect: ['flats', 'skyscraper2'], spawn: [18, 0, -31.5, 0] }),
+  },
+  {
+    id: 'big-finish',
+    chapter: 'Downtown',
+    name: 'The Big Finish',
+    location: 'Carrow Tower, Downtown · 20:00',
+    brief: 'Thirty-four storeys on a piled raft, and a developer who wants it gone in one evening for the cameras. One megabomb, two '
+      + 'airstrikes and a crate of charges. The Art Deco store across the road is listed and full of shop fittings: put the '
+      + 'tower down north, into the cleared plots, and keep every storey of it out of the store.',
+    target: 0.6,
+    par: 300,
+    stars: [0, 0],
+    ammo: { hammer: -1, megabomb: 1, airstrike: 2, charge: 12, planner: -1 },
+    env: 'dusk',
+    protectedNote: 'PROTECTED: the department store south of the tower. It is listed; it is also full of glass.',
+    goal: { groups: ['tower'], what: 'the tower' },
+    build: () => scoped(downtown(), { clear: except(DT_BLOCKS, 'tower', 'store'), protect: ['store'], spawn: [-29, 0, -31.5, 0.8] }),
+  },
+];
+
+const filed = (chapter: string, list: Contract[]): Job[] => list.map((c) => ({ ...c, chapter }));
+
+export const CONTRACTS: Job[] = [...filed('Odd Jobs', ODD_JOBS), ...HERITAGE_JOBS, ...RAILWAY_JOBS, ...DOWNTOWN_JOBS];
+
 /* Site plan and utility grid: see maps/clearance.ts. */
 export const SANDBOX: Contract = {
   id: 'sandbox',
@@ -225,4 +480,20 @@ export const DOWNTOWN: Contract = {
   ammo: ALL_TOOLS,
   env: 'dusk',
   build: downtown,
+};
+
+/* The Railway Quarter: terminus, mill, football ground and road bridge, site plan in maps/railway.ts. */
+export const RAILWAY: Contract = {
+  id: 'railway',
+  name: 'Railway Quarter',
+  location: 'Medlock goods district, closed for regeneration · any time',
+  brief: 'The terminus and its train shed, the cotton mill with its engine house and sixty-metre chimney, the football ground, and '
+    + 'the riveted road bridge over the dry river, in one quarter the regeneration board wants flat by spring. One substation '
+    + 'lights the streets. No targets, no clock, no invoices.',
+  target: 0,
+  par: 0,
+  stars: [0, 0],
+  ammo: ALL_TOOLS,
+  env: 'overcast',
+  build: () => railwayQuarter(),
 };

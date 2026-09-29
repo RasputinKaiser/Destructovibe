@@ -10,16 +10,21 @@ import {
   initStructures, buildBlueprint, clearStructures, demolitionFraction, totalValue, onHit, onJointBroken,
   afterStep, maintain, syncMeshes, setStructureHooks, stats, explode, ignite, live, specVolume, setXrayMode, xrayMode, updateXray,
   setJointStrength, setWind, setFireSpread, setDebrisLimit, startQuake, clearDebris, extinguish, setFrozen, quakeActive,
-  spawnPieces, removeConnected, pieceOf, setServiceViewer,
+  spawnPieces, removeConnected, pieceOf, setServiceViewer, setDetailQuality,
 } from './destruction/structure';
 import { initXray } from './render/xray';
 import { lightningStrike, setStorm, stormOn } from './destruction/electrical';
 import { initGhost, ghost } from './render/ghost';
-import { initAim } from './render/aim';
+import { initAim, aim as marks } from './render/aim';
+import { replay } from './render/replay';
+import { tags } from './render/tags';
+import { hitstop, simScale, toggleBulletTime, bulletTime, resetTime } from './game/timefx';
+import { initGuards, setGuards, guardAt, flagGuard, updateGuards, type Guarded } from './render/guard';
 import { initCables, cables } from './render/cables';
 import { initLampLights, lampLights, updateLampLights } from './render/lights';
 import { initWater, updateWater, clearWaterMeshes } from './render/water';
 import { initTerrainGfx, updateTerrainGfx } from './render/terrain';
+import { terrainStep } from './terrain/terrain';
 import { stand } from './levels/maps/ground';
 import { PREFABS, prefabView, type Prefab } from './levels/prefabs';
 import {
@@ -29,23 +34,26 @@ import {
 import {
   initWeapons, setLoadout, select, cycle, tryFire, detonate, weaponsPreStep, weaponsAfterStep, syncProjectiles,
   clearWeapons, weaponViews, chargesPlaced, liveOrdnance, rangedAmmoLeft, onProjectileHit, loadout, WEAPONS,
-  setWeaponHooks, weaponName, BANK_COUNT, releaseFire, toolWheel, toolSecondary, toolReadout, timelineView,
+  setWeaponHooks, weaponName, BANK_COUNT, releaseFire, toolWheel, toolSecondary, toolReadout, timelineView, weaponsDebug,
+  devices, setDelay, fired,
 } from './game/weapons';
 import * as scoring from './game/scoring';
 import { driving, vehicleNear, enterVehicle, exitVehicle, driveControls, driveLook, driveCamera, driveHud } from './vehicles/drive';
 import { operating, machineNear, enterMachine, exitMachine, operateControls, operateLook, operateCamera, operateHud, vehicleGear, releaseVehicleGear } from './vehicles/operate';
 import { svcInfo, svcNearestGate, svcOperate } from './destruction/services';
 import { input, initInput, requestLock, releaseLock, endFrame } from './core/input';
-import { loadSave, writeSave, type SaveData } from './core/save';
-import { initRenderer, setQuality, setEnvironment, setShadowFocus, renderFrame, type Gfx } from './render/renderer';
+import { loadSave, writeSave, WORLD_DEFAULTS, type SaveData } from './core/save';
+import {
+  initRenderer, setQuality, setEnvironment, setShadowFocus, renderFrame, setRenderScale, setPostFx, onDetailTier, renderStats, type Gfx,
+} from './render/renderer';
 import { initMaterials, getPieceMaterials } from './render/materials';
 import { initRebar } from './render/rebar';
 import { initFx, fx } from './render/fx';
-import { initViewmodel, viewmodel } from './render/viewmodel';
+import { initViewmodel, viewmodel, tuneViewmodel } from './render/viewmodel';
 import { buildScenery } from './render/scenery';
 import { audio } from './audio/audio';
 import * as ui from './ui/ui';
-import { CONTRACTS, SANDBOX, SHOWCASE, DOWNTOWN } from './levels/contracts';
+import { CONTRACTS, SANDBOX, SHOWCASE, DOWNTOWN, RAILWAY, type Job } from './levels/contracts';
 
 type State = 'loading' | 'title' | 'contracts' | 'briefing' | 'settings' | 'playing' | 'paused' | 'results';
 
@@ -61,10 +69,15 @@ let quietT = 0;
 let lastDemo = 0;
 let lastWon = false;
 let stars2 = 0, stars3 = 0;
+/** what the active contract's fee is reckoned on: its target groups' worth, or the whole site's */
+let siteValue = 0;
 let hint: string | null = null;
 let hintT = 0;
 let fpsAvg = 60;
-const perf = { phys: 0, render: 0, fx: 0, sync: 0 };
+const perf = { phys: 0, render: 0, fx: 0, sync: 0, rec: 0 };
+let recMs = 0;
+/** how fast the world runs this frame (bullet time, hitstop, replay speed): particles and the viewmodel follow it */
+let fxScale = 1;
 
 /* ---------------- level lifecycle ---------------- */
 
@@ -84,6 +97,7 @@ async function loadLevel(c: Contract, label: string): Promise<boolean> {
   await nextFrame();
   if (seq !== loadSeq) return false;
   if (operating.machine) exitMachine();
+  endReplay();
   clearStructures();
   clearWeapons();
   cancelSpawn();
@@ -95,11 +109,11 @@ async function loadLevel(c: Contract, label: string): Promise<boolean> {
   applyWorld(WORLD_DEFAULTS);
   audio.setScene((o, t) => raycast(o, t, CAT.structure | CAT.ground)?.fraction ?? null);
   const bp = c.build();
-  if ((c === SANDBOX || c === SHOWCASE || c === DOWNTOWN) && !save.settings.explosives) bp.pieces = bp.pieces.filter(p => !MATS[p.mat].explosive);
+  if ((c === SANDBOX || c === SHOWCASE || c === DOWNTOWN || c === RAILWAY) && !save.settings.explosives) bp.pieces = bp.pieces.filter(p => !MATS[p.mat].explosive);
   const spawn = bp.spawn ?? { pos: [0, 0, 26] as Vec3, yaw: 0 };
   createPlayer(spawn.pos, spawn.yaw);
   setEnvironment(c.env);
-  buildScenery(gfx.scene, c.env);
+  buildScenery(gfx.scene, c.env, bp.terrain?.half);
   ui.setLoading(0.3, 'Mixing materials');
   await nextFrame();
   for (const m of new Set(bp.pieces.map(p => p.mat))) getPieceMaterials(m);
@@ -107,14 +121,24 @@ async function loadLevel(c: Contract, label: string): Promise<boolean> {
   await nextFrame();
   if (seq !== loadSeq) return false;
   buildBlueprint(bp);
+  setGuards(guardsOf(bp));
+  const goal = goalOf(c);
+  scoring.setGoal(goal, bp.pieces, i => specVolume(bp.pieces[i]));
+  markPlans(goal);
   ui.setLoading(1, 'Site secured');
   scoring.resetScore();
+  dmg.names.clear();
+  dmg.first = -1;
+  dmg.shown = 0;
   setLoadout(c.ammo);
+  replay.reset();
+  resetTime();
   active = c;
   targetMetAt = -1;
   quietT = 0;
   lastDemo = 0;
-  [stars2, stars3] = starThresholds(c, totalValue());
+  siteValue = goal?.groups ? blueprintValue(bp, goal.groups) : totalValue();
+  [stars2, stars3] = starThresholds(c, siteValue);
   audio.setAmbience(c.env);
   return true;
 }
@@ -141,12 +165,12 @@ function showContracts(): void {
   ui.showScreen('contracts');
 }
 
-function contractCards(): ContractCard[] {
+function contractCards(): ui.JobCard[] {
   return CONTRACTS.map((c, i) => {
     const pr = save.progress[c.id];
     const prev = i > 0 ? save.progress[CONTRACTS[i - 1].id] : undefined;
     return {
-      index: i, id: c.id, name: c.name, location: c.location,
+      index: i, id: c.id, name: c.name, location: c.location, chapter: c.chapter,
       stars: pr?.stars ?? 0, best: pr?.best ?? 0,
       locked: i > 0 && !(prev && prev.stars > 0),
     };
@@ -157,8 +181,9 @@ function showBriefing(i: number): void {
   contractIdx = i;
   const c = CONTRACTS[i];
   state = 'briefing';
-  const thresholds = starThresholds(c, blueprintValue(c.build()));
+  const thresholds = starThresholds(c, blueprintValue(c.build(), c.goal?.groups));
   ui.renderBriefing({
+    terms: termsOf(c),
     index: i, name: c.name, location: c.location, brief: c.brief, target: c.target, par: c.par,
     stars: thresholds,
     ammo: WEAPONS.filter(w => c.ammo[w.id] !== undefined).map(w => ({ id: w.id, name: w.name, count: c.ammo[w.id]! })),
@@ -177,7 +202,6 @@ async function startContract(i: number): Promise<void> {
 
 let freeSite: Contract = SANDBOX;
 let bank = 0;
-const WORLD_DEFAULTS: SandboxSettings = { timeScale: 1, gravity: 1, jointStrength: 1, wind: 0, fireSpread: true, debrisLimit: 1400 };
 const sandbox: SandboxSettings = { ...WORLD_DEFAULTS };
 
 function applyWorld(s: SandboxSettings): void {
@@ -361,14 +385,14 @@ function finish(won: boolean): void {
   ui.showHud(false);
   viewmodel.setVisible(false);
   const c = active;
-  const pct = demolitionFraction();
+  const pct = scoring.objective.frac;
   const raw = scoring.score.points + scoring.score.penalty;
   const rows: ResultsView['rows'] = [{ label: `Demolition — ${Math.round(pct * 100)}%`, value: raw }];
   if (scoring.score.penalty > 0) rows.push({ label: 'Property damage', value: -scoring.score.penalty });
   let total = scoring.score.points;
   if (won) {
     /* bonuses scale with the site's value so stars mean the same thing on a shed and a tower block */
-    const v = totalValue();
+    const v = siteValue;
     const timeBonus = Math.round(v * 0.5 * Math.max(0, 1 - scoring.score.elapsed / c.par));
     const worth: Record<WeaponId, number> = {
       hammer: 0, cannon: 1, rocket: 2, charge: 2, airstrike: 5, thermite: 2, cutter: 2, wrecker: 3, winch: 1, gravgun: 0, incendiary: 1, megabomb: 8,
@@ -387,6 +411,13 @@ function finish(won: boolean): void {
     rows.push({ label: 'Unused ordnance', value: ammoBonus });
     if (chainBonus) rows.push({ label: `Longest chain ×${scoring.score.bestChain}`, value: chainBonus });
     total += timeBonus + ammoBonus + chainBonus;
+    /* fly-tipping: the target's volume lying outside its footprint, charged at twice the site's worth */
+    const out = goalOf(c)?.footprint ? scoring.objective.outside : 0;
+    if (out > 0.005) {
+      const tip = Math.round(v * 2 * out);
+      rows.push({ label: `Outside the footprint — ${Math.round(out * 100)}%`, value: -tip });
+      total -= tip;
+    }
   }
   total = Math.max(0, total);
   let stars = 0;
@@ -415,10 +446,64 @@ function finish(won: boolean): void {
   ui.showScreen('results');
 }
 
-function blueprintValue(bp: Blueprint): number {
+/* ---------------- protected property ---------------- */
+
+const GUARD_LABEL: Record<string, string> = {
+  office: 'site office', van: 'foreman’s van', car: 'parked car', cottages: 'cottage terrace', terrace: 'terrace',
+  shelter: 'bus shelter', chipshop: 'chip shop',
+  archbridge: 'listed arch bridge', millwheel: 'mill wheel', boilerhouse: 'boiler house', rotunda: 'rotunda', mill: 'mill',
+  eastspan: 'east span', millworks: 'cotton mill', bookinghall: 'booking hall', flats: 'occupied flats',
+  skyscraper2: 'Tower Street tower', store: 'department store',
+};
+
+/* One outline per protected structure: pieces of a group, split where they stand apart (two parked cars). */
+function guardsOf(bp: Blueprint): Guarded[] {
+  const boxes = new Map<string, { lo: Vec3; hi: Vec3 }[]>();
+  for (const p of bp.pieces) {
+    if (!p.protected) continue;
+    const sx = p.size[0] / 2, sz = (p.shape === 'cylinder' || p.shape === 'prism' ? p.size[0] : p.size[2]) / 2;
+    const cs = Math.abs(Math.cos(p.rotY ?? 0)), sn = Math.abs(Math.sin(p.rotY ?? 0));
+    const hx = cs * sx + sn * sz, hz = sn * sx + cs * sz, hy = p.size[1] / 2;
+    const b = { lo: [p.pos[0] - hx, p.pos[1] - hy, p.pos[2] - hz] as Vec3, hi: [p.pos[0] + hx, p.pos[1] + hy, p.pos[2] + hz] as Vec3 };
+    const key = p.group ?? '';
+    const list = boxes.get(key) ?? [];
+    // merge with every cluster it comes within 1.5 m of
+    const near = list.filter(c => [0, 1, 2].every(i => b.lo[i] - 1.5 <= c.hi[i] && c.lo[i] - 1.5 <= b.hi[i]));
+    for (const c of near) for (let i = 0; i < 3; i++) { b.lo[i] = Math.min(b.lo[i], c.lo[i]); b.hi[i] = Math.max(b.hi[i], c.hi[i]); }
+    boxes.set(key, [...list.filter(c => !near.includes(c)), b]);
+  }
+  const out: Guarded[] = [];
+  for (const [key, list] of boxes) for (const b of list) out.push({ label: GUARD_LABEL[key] ?? (key || 'protected property'), lo: b.lo, hi: b.hi });
+  return out;
+}
+
+/* Penalties arrive per damaged piece; the player hears about it once per structure hit, with the running cost. */
+const dmg = { names: new Set<string>(), first: -1, last: 0, shown: 0, toastAt: -1e9 };
+function protectedHit(pos: Vec3): void {
+  const g = guardAt(pos);
+  if (g) flagGuard(g);
+  dmg.names.add(g ? g.label : 'protected property');
+  const now = performance.now();
+  if (dmg.first < 0) dmg.first = now;
+  dmg.last = now;
+}
+
+function flushDamage(): void {
+  if (dmg.first < 0) return;
+  const now = performance.now();
+  if ((now - dmg.last < 450 && now - dmg.first < 1500) || now - dmg.toastAt < 3500) return;
+  const amount = scoring.score.penalty - dmg.shown;
+  dmg.shown = scoring.score.penalty;
+  dmg.toastAt = now;
+  ui.toast(`PROPERTY DAMAGE — ${[...dmg.names].join(', ').toUpperCase()} · −${amount.toLocaleString()}`, 'bad', 3400);
+  dmg.names.clear();
+  dmg.first = -1;
+}
+
+function blueprintValue(bp: Blueprint, groups?: string[]): number {
   let v = 0;
   for (const p of bp.pieces) {
-    if (p.protected) continue;
+    if (p.protected || (groups && !(p.group && groups.includes(p.group) && !scoring.belowGrade(p)))) continue;
     v += specVolume(p) * MATS[p.mat].value;
   }
   return v;
@@ -431,6 +516,47 @@ function starThresholds(c: Contract, v: number): [number, number] {
     Math.round((v * (c.target * 1.3 + 0.25)) / 50) * 50,
     Math.round((v * (Math.min(1, c.target + 0.25) * 1.6 + 0.45)) / 50) * 50,
   ];
+}
+
+/* ---------------- contract objectives ---------------- */
+
+function goalOf(c: Contract): scoring.Goal | undefined {
+  return (c as Partial<Job>).goal;
+}
+
+/** The goal's conditions in the briefing's words. */
+function termsOf(c: Job): string[] {
+  const g = c.goal;
+  if (!g) return [];
+  const out: string[] = [];
+  if (g.groups) out.push(`The ${Math.round(c.target * 100)}% target counts ${g.what ?? g.groups.join(', ')} only; the rest of the site is not on this order.`);
+  if (g.footprint) out.push(`It comes down inside the marked footprint. Whatever of it lies outside at the end is fly-tipping, deducted from the fee.`);
+  if (g.limit) out.push(`Hard limit ${fmtTime(g.limit)}: not met by then and the contract is forfeit.`);
+  if (g.salvage) out.push(`Salvage first: ${Math.ceil(g.salvage.need * 100)}% of the ${g.salvage.what} carried into ${g.salvage.where} (marked) before the job is signed off.`);
+  return out;
+}
+
+/* The footprint and the salvage zone, pegged out on site: a hazard-yellow rope at knee height on corner posts. */
+let plans: THREE.Group | null = null;
+function markPlans(g: scoring.Goal | undefined): void {
+  if (plans) { gfx.scene.remove(plans); plans.traverse(o => { if (o instanceof THREE.Line || o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } }); plans = null; }
+  const boxes = [g?.footprint, g?.salvage?.zone].filter((b): b is scoring.Plan => !!b);
+  if (!boxes.length) return;
+  plans = new THREE.Group();
+  plans.name = 'contract-plans';
+  for (const [x0, x1, z0, z1] of boxes) {
+    const y = 0.6;
+    const rope = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([x0, x1, x1, x0].map((x, i) => new THREE.Vector3(x, y, i < 2 ? z0 : z1))),
+      new THREE.LineDashedMaterial({ color: 0xffc400, dashSize: 0.8, gapSize: 0.5 }));
+    rope.computeLineDistances();
+    plans.add(rope);
+    for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.2, 6), new THREE.MeshBasicMaterial({ color: 0xffc400 }));
+      post.position.set(x, 0.6, z);
+      plans.add(post);
+    }
+  }
+  gfx.scene.add(plans);
 }
 
 function fmtTime(s: number): string {
@@ -448,7 +574,7 @@ function flashHint(text: string, seconds: number): void {
 const handlers: StepHandlers = {
   hit(a, b, point, normal, speed) {
     onHit(a, b, point, normal, speed);
-    onProjectileHit(a, b, point, speed);
+    onProjectileHit(a, b, point, speed, normal);
   },
   begin() {},
   jointBroken(id) { onJointBroken(id); },
@@ -515,6 +641,25 @@ function aimService(): void {
 
 let fireHeld = false;
 
+/* V: freeze the world and watch the last ~12 s back from any angle; V again (or a level change) puts it all back. */
+function startReplay(): void {
+  if (driving.vehicle || operating.machine) { flashHint('Replay — step out of the cab first', 1.6); return; }
+  if (fireHeld) { releaseFire(); fireHeld = false; }
+  if (!replay.start(gfx.camera)) { audio.ui('deny'); flashHint('Nothing to replay yet — knock something down first', 1.8); return; }
+  audio.ui('click');
+  viewmodel.setVisible(false);
+  marks.begin(); marks.end();
+  tags.begin(); tags.end();
+  ui.setReplay(replay.view());
+}
+
+function endReplay(): void {
+  if (!replay.playing) return;
+  replay.stop();
+  ui.setReplay(null);
+  if (state === 'playing' || state === 'paused') viewmodel.setVisible(true);
+}
+
 function handleInput(): void {
   if (handleDriving()) return;
   if (input.mouseDX || input.mouseDY) applyLook(input.mouseDX, input.mouseDY);
@@ -541,9 +686,14 @@ function handleInput(): void {
   if ((input.pressed.has('Backspace') || input.pressed.has('Delete')) && mode === 'sandbox') deleteAimed();
   if (input.pressed.has('KeyR')) restart();
   if (input.pressed.has('KeyF') && mode === 'sandbox') flashHint(toggleFly() ? 'Fly mode — Space up, C down' : 'Fly mode off', 2);
-  if (input.pressed.has('Enter') && mode === 'campaign') finish(demolitionFraction() >= active.target);
+  if (input.pressed.has('Enter') && mode === 'campaign') finish(scoring.goalMet(active.target));
   if (input.pressed.has('KeyP')) respawn();
   if (input.pressed.has('KeyU')) useService();
+  if (input.pressed.has('KeyT')) {
+    audio.ui('click');
+    flashHint(toggleBulletTime() ? 'Bullet time — T to return to real time' : 'Real time', 1.6);
+  }
+  if (input.pressed.has('KeyV')) startReplay();
   if (input.pressed.has('KeyX')) {
     const next = ({ off: 'stress', stress: 'thermal', thermal: 'services', services: 'fields', fields: 'off' } as const)[xrayMode()];
     setXrayMode(next);
@@ -554,9 +704,27 @@ function handleInput(): void {
 
 function checkContract(dt: number): void {
   if (mode !== 'campaign') return;
-  const pct = demolitionFraction();
+  scoring.trackGoal(live, demolitionFraction());
+  const pct = scoring.objective.frac;
   if (pct > lastDemo + 0.002) { lastDemo = pct; quietT = 0; } else quietT += dt;
+  const goal = goalOf(active);
+  if (scoring.goalExpired(active.target)) {
+    ui.toast('OUT OF TIME — THE SITE IS HANDED BACK', 'bad', 3500);
+    finish(false);
+    return;
+  }
+  if (goal?.salvage && scoring.salvageLost()) {
+    ui.toast(`SALVAGE LOST — TOO FEW ${goal.salvage.what.toUpperCase()} LEFT TO SIGN OFF`, 'bad', 3500);
+    finish(false);
+    return;
+  }
+  if (goal?.limit && goal.limit - scoring.score.elapsed < 60 && !scoring.goalMet(active.target)) flashHint(`${Math.ceil(goal.limit - scoring.score.elapsed)} s left on the clock`, 0.5);
   if (pct >= active.target) {
+    const owed = scoring.salvageOwed();
+    if (owed > 0) {
+      if (quietT > 2) flashHint(`Target met — ${owed} more ${goal!.salvage!.what} to carry into ${goal!.salvage!.where}`, 0.5);
+      return;
+    }
     if (targetMetAt < 0) {
       targetMetAt = scoring.score.elapsed;
       audio.ui('target');
@@ -576,6 +744,7 @@ function checkContract(dt: number): void {
 }
 
 const _eye: Vec3 = [0, 0, 0], _fwd: Vec3 = [0, 0, 0];
+const _camDir = new THREE.Vector3();
 const _ce: Vec3 = [0, 0, 0], _cl: Vec3 = [0, 0, 0];
 const hud: HudState = {
   demolition: 0, target: null, score: 0, combo: 1, comboTime: 0, time: 0, par: null, weapon: 'hammer',
@@ -583,7 +752,13 @@ const hud: HudState = {
 };
 
 let nearVehicle = false, nearMachine = false, nearT = 0;
+let bankFor: WeaponId | null = null;
 function updateHudState(): void {
+  // whatever changed the tool (wheel, a new loadout), the number keys must address the bank it sits in
+  if (loadout.current !== bankFor) {
+    bankFor = loadout.current;
+    bank = WEAPONS.find(w => w.id === bankFor)?.bank ?? bank;
+  }
   if (++nearT % 10 === 0) {
     eyePosition(_eye, 1);
     const free = !driving.vehicle && !operating.machine;
@@ -591,7 +766,7 @@ function updateHudState(): void {
     nearMachine = free && !nearVehicle && !!machineNear(_eye);
     if (free) aimService(); else svcHint = null;
   }
-  hud.demolition = demolitionFraction();
+  hud.demolition = mode === 'campaign' ? scoring.objective.frac : demolitionFraction();
   hud.target = mode === 'campaign' ? active.target : null;
   hud.score = scoring.score.points;
   hud.combo = scoring.comboMult();
@@ -601,7 +776,7 @@ function updateHudState(): void {
   hud.weapon = loadout.current;
   hud.weapons = weaponViews();
   hud.bank = bank;
-  hud.timeScale = mode === 'sandbox' ? sandbox.timeScale : 1;
+  hud.timeScale = (mode === 'sandbox' ? sandbox.timeScale : 1) * (bulletTime() ? 0.3 : 1);
   hud.chargesPlaced = chargesPlaced();
   hud.penalty = scoring.score.penalty;
   const dh = driving.vehicle ? driveHud() : null;
@@ -615,7 +790,7 @@ function updateHudState(): void {
     : xrayMode() === 'stress' ? 'X-RAY · joints: green idle · yellow loaded · red at capacity · magenta yielding · X to cycle'
     : xrayMode() === 'thermal' ? 'X-RAY · thermal: blue ambient → purple → orange 500 °C → white 1000 °C · X to cycle'
     : xrayMode() === 'fields' ? 'X-RAY · fields: temperature, smoke and fuel gas around the action · X to cycle'
-    : xrayMode() === 'services' ? 'X-RAY · services: yellow power · orange gas · blue water · white steam · grey dead · pulsing = live break · green = running machine'
+    : xrayMode() === 'services' ? 'X-RAY · services: yellow power · orange gas · blue water · white steam · grey dead · beads run from supply to load · red shut (blinking: tripped) · amber standby set · white on battery · pulsing = live break · green = running machine'
     : hud.chargesPlaced > 0 ? `${hud.chargesPlaced} charge${hud.chargesPlaced > 1 ? 's' : ''} armed — G${loadout.current === 'charge' || loadout.current === 'cutter' || loadout.current === 'planner' ? ' / right-click' : ''} to detonate` : null;
   hud.fps = Math.round(fpsAvg);
   hud.tool = driving.vehicle || operating.machine ? null : toolReadout();
@@ -646,17 +821,30 @@ function frame(dt: number): void {
   hintT -= dt;
   const cam = gfx.camera;
 
-  if (state === 'playing') {
+  if (state === 'playing' && replay.playing) {
+    if (input.pressed.has('KeyV') || input.pressed.has('Escape')) endReplay();
+    else {
+      replay.update(dt, cam);
+      ui.setReplay(replay.view());
+    }
+    const v = replay.view();
+    fxScale = v ? (v.paused ? 0 : v.speed) : 1;
+  } else if (state === 'playing') {
     frameDt = dt;
     handleInput();
-    acc += dt * (mode === 'sandbox' ? sandbox.timeScale : 1);
+    fxScale = simScale(dt);
+    acc += dt * (mode === 'sandbox' ? sandbox.timeScale : 1) * fxScale;
     let steps = 0;
     const tp = performance.now();
     while (acc >= FIXED_DT && steps < 4) {
       if (!driving.vehicle && !operating.machine) { playerPreStep(FIXED_DT); weaponsPreStep(); }
       physicsStep(handlers);
       afterStep(FIXED_DT);
+      terrainStep(live);
       weaponsAfterStep(FIXED_DT);
+      const tr0 = performance.now();
+      replay.recordStep();
+      recMs += performance.now() - tr0;
       playerPostStep();
       scoring.tickScore(FIXED_DT);
       acc -= FIXED_DT;
@@ -664,6 +852,8 @@ function frame(dt: number): void {
     }
     if (steps === 4) acc = Math.min(acc, FIXED_DT);
     perf.phys += (performance.now() - tp - perf.phys) * 0.1;
+    perf.rec += (recMs - perf.rec) * 0.1;
+    recMs = 0;
     const alpha = acc / FIXED_DT;
     const ts = performance.now();
     syncMeshes(alpha);
@@ -675,7 +865,7 @@ function frame(dt: number): void {
     if (driveCamera(alpha, _ce, _cl) || operateCamera(_ce, _cl)) { cam.position.set(_ce[0], _ce[1], _ce[2]); cam.lookAt(_cl[0], _cl[1], _cl[2]); }
     updateXray(dt);
     setServiceViewer([cam.position.x, cam.position.y, cam.position.z]);
-    viewmodel.update(dt, { move: player.move, grounded: player.grounded, sprint: player.sprint, lookDelta: player.lookDelta });
+    viewmodel.update(dt * fxScale, { move: player.move, grounded: player.grounded, sprint: player.sprint, lookDelta: player.lookDelta });
     player.lookDelta[0] = player.lookDelta[1] = 0;
   } else if (state === 'title' || state === 'contracts' || state === 'briefing' || (state === 'settings' && settingsReturn !== 'paused') || state === 'loading') {
     orbitT += dt * 0.05;
@@ -689,17 +879,23 @@ function frame(dt: number): void {
   audio.wind(inPlay && mode === 'sandbox' ? sandbox.wind : 0);
   if (inPlay) {
     eyePosition(_eye, 1);
-    setShadowFocus([_eye[0] + forward(_fwd)[0] * 18, 0, _eye[2] + _fwd[2] * 18]);
-    audio.setListener([cam.position.x, cam.position.y, cam.position.z], forward(_fwd));
+    if (replay.playing) {
+      cam.getWorldDirection(_camDir);
+      _fwd[0] = _camDir.x; _fwd[1] = _camDir.y; _fwd[2] = _camDir.z;
+      setShadowFocus([cam.position.x + _fwd[0] * 18, 0, cam.position.z + _fwd[2] * 18]);
+    } else setShadowFocus([_eye[0] + forward(_fwd)[0] * 18, 0, _eye[2] + _fwd[2] * 18]);
+    audio.setListener([cam.position.x, cam.position.y, cam.position.z], _fwd);
     updateHudState();
     ui.updateHud(hud, dt);
+    flushDamage();
   } else {
     setShadowFocus([0, 0, 0]);
     audio.setListener([cam.position.x, cam.position.y, cam.position.z], [-cam.position.x, 0, -cam.position.z]);
   }
 
+  updateGuards(cam.position, inPlay, dt);
   const tr = performance.now();
-  fx.update(dt);
+  fx.update(state === 'playing' ? dt * fxScale : dt);
   updateLampLights(dt);
   updateWater();
   updateTerrainGfx(cam.position);
@@ -720,9 +916,16 @@ function applySettings(s: Settings): void {
   writeSave(save);
   audio.setVolume(s.volume);
   setQuality(s.quality);
+  applyDisplay(s);
   player.sensitivity = s.sensitivity;
   player.invertY = s.invertY;
   player.baseFov = s.fov;
+}
+
+function applyDisplay(s: Settings): void {
+  setRenderScale(s.renderScale);
+  setPostFx({ grain: s.grain, aberration: s.aberration });
+  player.shake = s.shake ? 1 : 0;
 }
 
 function wire(): void {
@@ -730,10 +933,12 @@ function wire(): void {
     (pos, radius) => {
       eyePosition(_eye, 1);
       const d = Math.hypot(pos[0] - _eye[0], pos[1] - _eye[1], pos[2] - _eye[2]);
+      replay.noteBlast(pos, radius);
       const k = Math.max(0, 1 - d / (radius * 6));
       if (k <= 0) return;
       addTrauma(k * k * 0.9);
       kickFov(k * 10);
+      if (k > 0.35) hitstop(0.03 + 0.06 * k * k);
       if (d < radius * 1.6) {
         const close = 1 - d / (radius * 1.6);
         ui.blastVignette(close);
@@ -741,7 +946,7 @@ function wire(): void {
         knockback(0.25 + close * 0.4);
       }
     },
-    () => ui.toast('PROPERTY DAMAGE — penalty applied', 'bad', 2600),
+    pos => protectedHit(pos),
   );
   scoring.setScoreHooks(
     (pts, label) => ui.scorePop(pts, label),
@@ -757,6 +962,7 @@ async function boot(): Promise<void> {
     onSandbox: () => void startSandbox(SANDBOX),
     onShowcase: () => void startSandbox(SHOWCASE),
     onDowntown: () => void startSandbox(DOWNTOWN),
+    onRailway: () => void startSandbox(RAILWAY),
     onPickContract: i => showBriefing(i),
     onStartContract: () => void startContract(contractIdx),
     onBack: () => {
@@ -792,6 +998,8 @@ async function boot(): Promise<void> {
   ui.setLoading(0.05, 'Starting renderer');
 
   gfx = initRenderer(ui.getViewport(), save.settings.quality);
+  onDetailTier(q => setDetailQuality(q));
+  applyDisplay(save.settings);
   initMaterials(gfx.renderer, save.settings.quality);
   initRebar(gfx.scene);
   initCables(gfx.scene);
@@ -800,6 +1008,7 @@ async function boot(): Promise<void> {
   initTerrainGfx(gfx.scene);
   initGhost(gfx.scene);
   initAim(gfx.scene);
+  initGuards(gfx.scene);
   initXray(gfx.scene);
   initFx(gfx.scene, gfx.camera);
   initViewmodel();
@@ -831,6 +1040,7 @@ async function boot(): Promise<void> {
 
 /* Playtest hooks (dev server only): drive the game without pointer lock. */
 declare global { interface Window { __dv: unknown } }
+if (import.meta.env.DEV) void import('./render/photo').then((m) => m.installPhoto());
 if (import.meta.env.DEV) window.__dv = {
   get state() { return state; },
   get stats() { return { ...stats(), demolition: demolitionFraction(), score: scoring.score.points, step: stepCount, fps: Math.round(fpsAvg) }; },
@@ -839,26 +1049,46 @@ if (import.meta.env.DEV) window.__dv = {
   sandbox: () => startSandbox(SANDBOX),
   showcase: () => startSandbox(SHOWCASE),
   downtown: () => startSandbox(DOWNTOWN),
+  railway: () => startSandbox(RAILWAY),
+  get objective() { return { ...scoring.objective, target: active.target, met: scoring.goalMet(active.target), id: active.id }; },
   look: (dx: number, dy: number) => applyLook(dx, dy),
   fire: () => tryFire(),
   select: (id: WeaponId) => select(id),
   detonate: () => detonate(),
   setPlaying: () => { if (state === 'paused') { state = 'playing'; ui.showScreen(null); } },
-  get perf() { return { phys: +perf.phys.toFixed(2), render: +perf.render.toFixed(2), fx: +perf.fx.toFixed(2), sync: +perf.sync.toFixed(2), calls: gfx.renderer.info.render.calls, tris: gfx.renderer.info.render.triangles }; },
+  get perf() { return { phys: +perf.phys.toFixed(2), render: +perf.render.toFixed(2), fx: +perf.fx.toFixed(2), sync: +perf.sync.toFixed(2), rec: +perf.rec.toFixed(3), calls: gfx.renderer.info.render.calls, tris: gfx.renderer.info.render.triangles, ...renderStats() }; },
   spawnPrefab: (id: string, x: number, z: number, quarter = 0) => {
     const prefab = PREFABS.find(p => p.id === id);
     if (!prefab) throw Error(`Unknown prefab: ${id}`);
     return spawnPieces(prefab.build(x, z, quarter));
   },
   removeConnected: (piece: Parameters<typeof removeConnected>[0]) => removeConnected(piece),
+  spawn: (specs: Parameters<typeof spawnPieces>[0]) => spawnPieces(specs),
+  clearDebris: () => clearDebris(),
+  release: () => releaseFire(),
+  weaponsDebug: () => weaponsDebug(),
+  replay: {
+    start: () => { startReplay(); return replay.playing; },
+    stop: () => endReplay(),
+    seek: (f: number) => replay.seek(f),
+    view: () => replay.view(),
+    stats: () => replay.stats(),
+    setRecording: (on: boolean) => replay.setRecording(on),
+  },
+  bulletTime: () => toggleBulletTime(),
+  devices: () => devices().map(p => ({ type: p.type, delay: p.delay, pos: [...p.curPos] })),
+  setDelay: (i: number, ms: number) => { const p = devices()[i]; if (p) setDelay(p as Parameters<typeof setDelay>[0], ms); },
+  fired: () => fired.map(f => ({ ...f })),
+  vm: (id: WeaponId, pos?: Vec3, rot?: Vec3, scale?: number) => tuneViewmodel(id, pos, rot, scale),
   teleport: (x: number, y: number, z: number, yaw = player.yaw, pitch = 0) => teleportPlayer([x, y, z], yaw, pitch),
   hint: (v: boolean) => ui.setPointerHint(v),
   xray: (m?: 'off' | 'stress' | 'thermal' | 'services' | 'fields') => { if (m) setXrayMode(m); return xrayMode(); },
   get scene() { return gfx.scene; },
+  get gfx() { return gfx; },
   get threads() { return { threads, isolated: globalThis.crossOriginIsolated }; },
   boom: (x: number, y: number, z: number, r = 5) => explode([x, y, z], r, 90e3, 3200),
   ignite: (x: number, y: number, z: number, r = 1.5) => { let n = 0; for (const p of live) if (Math.hypot(p.curPos[0] - x, p.curPos[1] - y, p.curPos[2] - z) < r) { ignite(p); n++; } return n; },
-  finish: (won?: boolean) => finish(won ?? demolitionFraction() >= active.target),
+  finish: (won?: boolean) => finish(won ?? scoring.goalMet(active.target)),
   THREE,
   weaponName,
 };

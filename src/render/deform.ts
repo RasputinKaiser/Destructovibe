@@ -10,7 +10,7 @@ import type { Piece } from '../destruction/structure';
    up when displaced. Deformed pieces own their geometry; untouched pieces keep the shared batch path. */
 
 export const MAX_DEFORMED = 200;
-const MAX_VERTS = 7000;
+const MAX_VERTS = 4000;
 
 interface Deformed {
   p: Piece;
@@ -43,13 +43,24 @@ function meshOf(p: Piece): P.MeshData {
 interface Soup { pos: number[]; uv: number[]; wear: number[]; tri: number[] }
 
 const q = (x: number) => Math.round(x * 2e4);
-const pk = (pos: number[], i: number) => `${q(pos[i * 3])},${q(pos[i * 3 + 1])},${q(pos[i * 3 + 2])}`;
-const ek = (pos: number[], a: number, b: number) => { const ka = pk(pos, a), kb = pk(pos, b); return ka < kb ? ka + '|' + kb : kb + '|' + ka; };
 
 /* Conforming longest-edge bisection until every edge is shorter than L (or the vertex budget runs out). */
 function refine(s: Soup, L: number): void {
-  const marked = new Set<string>();
-  const mids = new Map<string, number>();
+  /* an edge is keyed by its end positions, not its vertex indices, so the faces either side of a crease (which have
+     their own vertices, for their own normals) split together: positions are numbered once, edges by the pair */
+  const posId = new Map<string, number>(), ids: number[] = [];
+  const idOf = (i: number): number => {
+    let k: number | undefined = ids[i];
+    if (k !== undefined) return k;
+    const key = `${q(s.pos[i * 3])},${q(s.pos[i * 3 + 1])},${q(s.pos[i * 3 + 2])}`;
+    k = posId.get(key);
+    if (k === undefined) { k = posId.size; posId.set(key, k); }
+    ids[i] = k;
+    return k;
+  };
+  const ek = (_pos: number[], a: number, b: number): number => { const ka = idOf(a), kb = idOf(b); return ka < kb ? ka * 0x100000 + kb : kb * 0x100000 + ka; };
+  const marked = new Set<number>();
+  const mids = new Map<number, number>();
   const len2 = (a: number, b: number) => {
     const dx = s.pos[a * 3] - s.pos[b * 3], dy = s.pos[a * 3 + 1] - s.pos[b * 3 + 1], dz = s.pos[a * 3 + 2] - s.pos[b * 3 + 2];
     return dx * dx + dy * dy + dz * dz;
@@ -74,7 +85,7 @@ function refine(s: Soup, L: number): void {
       const e = longest(t), a = v[e], b = v[(e + 1) % 3], c = v[(e + 2) % 3];
       const key = ek(s.pos, a, b);
       marked.add(key);
-      const ik = a < b ? `${a}:${b}` : `${b}:${a}`;
+      const ik = a < b ? a * 0x100000 + b : b * 0x100000 + a;
       let m = mids.get(ik);
       if (m === undefined) {
         m = s.pos.length / 3;
@@ -196,16 +207,31 @@ function commit(d: Deformed): void {
   if (!d.p.dead) setPieceGeometry(d.p.gfx, d.ext, d.int);
 }
 
+/* A dent is plastic deformation of the piece itself: it is recorded as it happens, and that record (not the mesh, which
+   follows under a budget) is what work-hardens the spot against the next blow, so how a panel crumples does not
+   depend on how much the renderer could reshape this step. */
+interface DentRec { pt: Vec3; dir: Vec3; R: number; d: number }
+const records = new WeakMap<Piece, DentRec[]>();
+const MAX_RECORDS = 24;
+/** dents recorded but not yet on the piece's mesh */
+const pending = new Map<Piece, DentRec[]>();
+/* reshaping costs by the vertex (refining a mesh the first time, then its normals): a collapse raining on cars and
+   cladding spreads the work over the next steps, at least one piece a step */
+const BUILD_VERTS = 2000, COMMIT_VERTS = 6000;
+
+const falloff = (r2: number, R: number): number => { const f = 1 - r2 / (R * R); return f > 0 ? f * f : 0; };
+
 /** Deepest existing dent within r of a body-frame point (m): the work-hardened region resists further denting. */
 export function dentDepthAt(p: Piece, pt: Vec3, r: number): number {
-  const d = states.get(p);
-  if (!d) return 0;
+  const list = records.get(p);
+  if (!list) return 0;
   let best = 0;
-  const rr = r * r, a = d.rest, dn = d.dent;
-  for (let j = 0; j < a.length; j += 3) {
-    const dx = a[j] - pt[0], dy = a[j + 1] - pt[1], dz = a[j + 2] - pt[2];
-    if (dx * dx + dy * dy + dz * dz > rr) continue;
-    const m = Math.hypot(dn[j], dn[j + 1], dn[j + 2]);
+  for (const k of list) {
+    // the point within r of pt nearest this dent's centre, where the dents there add up
+    const dx = k.pt[0] - pt[0], dy = k.pt[1] - pt[1], dz = k.pt[2] - pt[2], l = Math.hypot(dx, dy, dz);
+    const t = l > r ? (l - r) / l : 0, x = pt[0] + dx * (1 - t), y = pt[1] + dy * (1 - t), z = pt[2] + dz * (1 - t);
+    let m = 0;
+    for (const j of list) m += j.d * falloff((j.pt[0] - x) ** 2 + (j.pt[1] - y) ** 2 + (j.pt[2] - z) ** 2, j.R);
     if (m > best) best = m;
   }
   return best;
@@ -213,18 +239,53 @@ export function dentDepthAt(p: Piece, pt: Vec3, r: number): number {
 
 /** Ball dent: push the surface within `radius` of the body-frame point along `dir` by up to `depth` (smooth falloff). */
 export function dent(p: Piece, pt: Vec3, dir: Vec3, radius: number, depth: number): boolean {
-  const d = stateOf(p);
-  if (!d || depth <= 0) return false;
-  const a = d.rest, dn = d.dent, rr = radius * radius;
-  for (let j = 0; j < a.length; j += 3) {
-    const dx = a[j] - pt[0], dy = a[j + 1] - pt[1], dz = a[j + 2] - pt[2];
-    const r2 = dx * dx + dy * dy + dz * dz;
-    if (r2 >= rr) continue;
-    const f = 1 - r2 / rr, w = depth * f * f;
-    dn[j] += dir[0] * w; dn[j + 1] += dir[1] * w; dn[j + 2] += dir[2] * w;
+  if (p.dead || depth <= 0 || p.cyl) return false;
+  const rec: DentRec = { pt: [pt[0], pt[1], pt[2]], dir: [dir[0], dir[1], dir[2]], R: radius, d: depth };
+  let list = records.get(p);
+  if (!list) records.set(p, list = []);
+  if (list.length < MAX_RECORDS) list.push(rec);
+  else {
+    // a panel beaten all over: the new dent deepens the nearest old one
+    let near = list[0], bd = Infinity;
+    for (const k of list) { const d2 = (k.pt[0] - pt[0]) ** 2 + (k.pt[1] - pt[1]) ** 2 + (k.pt[2] - pt[2]) ** 2; if (d2 < bd) { bd = d2; near = k; } }
+    near.d += depth; near.R = Math.max(near.R, radius);
   }
-  commit(d);
+  const q = pending.get(p);
+  if (q) q.push(rec); else pending.set(p, [rec]);
   return true;
+}
+
+function applyDent(d: Deformed, k: DentRec): void {
+  const a = d.rest, dn = d.dent;
+  for (let j = 0; j < a.length; j += 3) {
+    const w = k.d * falloff((a[j] - k.pt[0]) ** 2 + (a[j + 1] - k.pt[1]) ** 2 + (a[j + 2] - k.pt[2]) ** 2, k.R);
+    if (w === 0) continue;
+    dn[j] += k.dir[0] * w; dn[j + 1] += k.dir[1] * w; dn[j + 2] += k.dir[2] * w;
+  }
+}
+
+/** Once a step: carry recorded dents onto meshes, a few pieces at a time. */
+export function flushDeform(): void {
+  let built = 0, committed = 0;
+  for (const [p, list] of pending) {
+    if (committed >= COMMIT_VERTS) break;
+    if (p.dead) { pending.delete(p); continue; }
+    let d = states.get(p);
+    if (!d) {
+      if (built >= BUILD_VERTS) continue;
+      d = stateOf(p) ?? undefined;
+      built += d ? d.rest.length / 3 : 0;
+      pending.delete(p);
+      if (!d) continue;
+      // a fresh mesh starts from rest: everything recorded goes on (merged records included)
+      for (const k of records.get(p) ?? list) applyDent(d, k);
+    } else {
+      pending.delete(p);
+      for (const k of list) applyDent(d, k);
+    }
+    commit(d);
+    committed += d.rest.length / 3;
+  }
 }
 
 /** Crumple: the piece is shortened by `amount` along body-frame `axis` (pointing from the struck face into the vehicle),
@@ -359,5 +420,6 @@ export function crackCount(p?: Piece): number {
 
 export function clearDeform(): void {
   states.clear();
+  pending.clear();
   while (cracks.length) dropCrack(cracks.length - 1);
 }

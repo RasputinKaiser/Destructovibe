@@ -218,6 +218,34 @@ export function sprinklerRanges(o: { x: Range; zs: number[]; y: number; main: nu
   return ps;
 }
 
+/** Flanged gate valve on a pipe of drawn diameter `d` running along `axis` through `at`: body, bolted flanges each end,
+    bonnet and handwheel, one casting. Its flange faces are `VALVE_L` apart, centred on `at`; the pipe runs butt them.
+    An isolating valve: U on it shuts or opens the line. */
+export const VALVE_L = 0.44;
+export function flangedValve(kind: UtilityKind, at: Vec3, axis: 'x' | 'z', d: number, bore?: number): PieceSpec {
+  // body and flange rims only a little proud of the pipe: valves stand where the pipe runs close to a wall
+  const [x, y, z] = at, h = VALVE_L / 2, w = d / 2 + 0.01, R = d / 2 + 0.015;
+  const along = (a: number, b: number, cy: number, cz: number, r: number): PieceSpec => {
+    const pts: Vec3[] = [];
+    for (const e of [a, b]) for (let i = 0; i < 8; i++) {
+      const u = r * Math.cos((i + 0.5) * Math.PI / 4), v = r * Math.sin((i + 0.5) * Math.PI / 4);
+      pts.push(axis === 'x' ? [e, cy + u, cz + v] : [cz + v, cy + u, e]);
+    }
+    return hull('castiron', pts);
+  };
+  const c = axis === 'x' ? x : z, cz = axis === 'x' ? z : x;
+  const span = (a: number, b: number): [Range, Range] => (axis === 'x' ? [[a, b], [z - w, z + w]] : [[x - w, x + w], [a, b]]);
+  const [bx, bz] = span(c - h + 0.05, c + h - 0.05);
+  const v = weldParts([
+    block('castiron', bx, [y - w, y + w], bz),
+    along(c - h, c - h + 0.05, y, cz, R), along(c + h - 0.05, c + h, y, cz, R),
+    block('castiron', axis === 'x' ? [x - w * 0.6, x + w * 0.6] : [x - w * 0.6, x + w * 0.6], [y + w, y + w + 0.25], axis === 'x' ? [z - w * 0.6, z + w * 0.6] : [z - w * 0.6, z + w * 0.6]),
+    cyl('castiron', Math.min(2.4 * d, 0.38), [y + w + 0.25, y + w + 0.3], x, z),
+  ], { tint: kind === 'gas' ? SVC.gas : kind === 'water' ? SVC.hydrant : 0x4a4f53, finish: 'satin', util: kind, svcPart: 'valve' });
+  if (bore !== undefined) v.bore = bore;
+  return v;
+}
+
 /* ---------------- fixtures ---------------- */
 
 /** Consumer unit / meter cabinet: the building's power supply point (a source), wall-hung. */
@@ -281,6 +309,17 @@ export function generatorSet(): PieceSpec[] {
     block('metal', [-1.4, -1.2], [0.2, 1.3], [-0.55, 0.55], { tint: 0x5b5f63 }),
     cyl('steel', 0.18, [1.3, 2.4], -0.7, 0.2, { tint: 0x5b5f63 }),
   ];
+}
+
+/** Standby generator in its acoustic enclosure (a power source behind an automatic transfer switch): it starts when
+    the bus its lead reaches goes dead and hands back when the supply returns. */
+export function standbySet(x: Range, y: Range, z: Range, o: PieceOpts = {}): PieceSpec {
+  return { ...block('machine', x, y, z, { tint: 0x5f7f5a, finish: 'satin', ...o, fixture: 'generator' }), standby: true };
+}
+
+/** Maintained emergency luminaire: a lamp with its own battery that stays lit (dimmer) for `hours` after the supply fails. */
+export function emergencyLamp(x: Range, y: Range, z: Range, l: Light = LIGHT.cool, hours = 3, o: PieceOpts = {}): PieceSpec {
+  return { ...lamp(x, y, z, l, o), emergency: hours };
 }
 
 /* ---------------- lighting ---------------- */

@@ -10,6 +10,7 @@ import { fx } from '../../render/fx';
 import { audio } from '../../audio/audio';
 import { hitmarker } from '../../ui/ui';
 import { player, addTrauma } from '../player';
+import { hitstop } from '../timefx';
 import { NO_HIT, PIECES, GROUND_Y, interpPoint, slerpDir, ropeSag } from './common';
 
 const RADIUS = 0.55;
@@ -324,6 +325,8 @@ export function wreckerHit(a: PhysEntity | undefined, b: PhysEntity | undefined,
     audio.wreckingHit(point, s);
     const d = player.e ? vec3.distance(player.e.curPos, point) : 99;
     addTrauma(clamp(0.4 * s * (1 - d / 45), 0, 0.4));
+    // two tonnes arriving: the world holds its breath for a beat on a solid hit
+    if (piece && s > 0.45 && d < 70) hitstop(0.03 + 0.05 * s);
   }
   if (piece) {
     hitmarker(clamp(speed / 12, 0.3, 1));

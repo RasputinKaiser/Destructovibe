@@ -10,8 +10,12 @@ import { cabinTex, chainlinkTex, coneTex, hoardingTex, latticeTex, makeRng, sign
 import { lighting } from './shared';
 
 const LAMPS: Record<EnvPreset, number> = { noon: 0, golden: 0, overcast: 0, dusk: 0.7, night: 1 };
-const FENCE = 66;
-const TOWERS: [number, number][] = [[70, 70], [-70, 70], [70, -70], [-70, -70]];
+/* Site dressing is laid out for the 64 m Clearance site (terrain.half 64). A bigger map (terrain.half) pushes the fence,
+   floodlights, cabins, stockpiles and crane outward by the same margin so none of it stands inside the play area. */
+const BASE_HALF = 64;
+let outset = 0;
+let FENCE = 66;
+let TOWERS: [number, number][] = [[70, 70], [-70, 70], [70, -70], [-70, -70]];
 const LAMP_Y = 20.4;
 
 let root: THREE.Group | null = null;
@@ -222,7 +226,8 @@ function trees(mats: Mats): THREE.Object3D[] {
       const a = rnd() * Math.PI * 2, r = 95 + Math.pow(rnd(), 0.8) * 360, x = Math.sin(a) * r, z = -Math.cos(a) * r;
       const az = Math.abs(a > Math.PI ? a - Math.PI * 2 : a);
       if (r > 300 && az < 0.6) continue;
-      if (Math.hypot(x + 48, z + 112) < 16 || (x < -70 && x > -95 && z > 20 && z < 55)) continue;
+      if (Math.max(Math.abs(x), Math.abs(z)) < FENCE) continue;
+      if (Math.hypot(x + 48, z + 112 + outset) < 16 || (x < -70 - outset && x > -95 - outset && z > 20 && z < 55)) continue;
       return [x, z];
     }
   };
@@ -278,7 +283,7 @@ function fence(mats: Mats): THREE.Object3D[] {
   out.push(hoard);
 
   const spotsXZ: [number, number, number][] = [];
-  for (let t = -56; t <= 56; t += 16) { spotsXZ.push([-S + 0.1, t, Math.PI / 2], [S - 0.1, t, -Math.PI / 2]); }
+  for (let t = -(S - 10); t <= S - 10; t += 16) { spotsXZ.push([-S + 0.1, t, Math.PI / 2], [S - 0.1, t, -Math.PI / 2]); }
   for (const t of [-60, -52, 52, 60]) spotsXZ.push([t, -S + 0.1, 0]);
   for (const t of [-44, -36, 36, 44]) spotsXZ.push([t, S - 0.1, Math.PI]);
   const signs = inst(new THREE.PlaneGeometry(0.7, 0.7), mats.sign, spotsXZ.length);
@@ -328,15 +333,15 @@ function towers(mats: Mats): THREE.Object3D[] {
 function props(mats: Mats): THREE.Object3D[] {
   const out: THREE.Object3D[] = [];
   const cabins = inst(new THREE.BoxGeometry(6, 2.6, 2.4), mats.cabin, 3);
-  place(cabins, 0, -80, 1.3, 30, Math.PI / 2);
-  place(cabins, 1, -80, 3.92, 30, Math.PI / 2);
-  place(cabins, 2, -80, 1.3, 37.5, Math.PI / 2);
+  place(cabins, 0, -80 - outset, 1.3, 30, Math.PI / 2);
+  place(cabins, 1, -80 - outset, 3.92, 30, Math.PI / 2);
+  place(cabins, 2, -80 - outset, 1.3, 37.5, Math.PI / 2);
   cabins.castShadow = true;
   out.push(cabins);
 
   const loo = inst(merge([new THREE.BoxGeometry(1.1, 2.3, 1.1).translate(0, 1.15, 0), new THREE.BoxGeometry(1.24, 0.08, 1.24).translate(0, 2.34, 0)]), mats.plastic, 2);
-  place(loo, 0, -80.5, 0, 44, Math.PI / 2);
-  place(loo, 1, -80.5, 0, 45.4, Math.PI / 2);
+  place(loo, 0, -80.5 - outset, 0, 44, Math.PI / 2);
+  place(loo, 1, -80.5 - outset, 0, 45.4, Math.PI / 2);
   out.push(loo);
 
   const skipGeo = new THREE.BoxGeometry(3.6, 1.5, 1.8, 2, 1, 1);
@@ -346,8 +351,8 @@ function props(mats: Mats): THREE.Object3D[] {
   skipGeo.computeVertexNormals();
   const metal = getPieceMaterials('metal')[0];
   const skips = inst(planarUv(skipGeo.toNonIndexed()), metal, 2);
-  place(skips, 0, 74, 0, -20, Math.PI / 2 + 0.1);
-  place(skips, 1, 74.5, 0, -12.5, Math.PI / 2 - 0.08);
+  place(skips, 0, 74 + outset, 0, -20, Math.PI / 2 + 0.1);
+  place(skips, 1, 74.5 + outset, 0, -12.5, Math.PI / 2 - 0.08);
   skips.setColorAt(0, new THREE.Color(0xd89a1f));
   skips.setColorAt(1, new THREE.Color(0x2f6fa8));
   out.push(skips);
@@ -356,15 +361,15 @@ function props(mats: Mats): THREE.Object3D[] {
   const rubble = inst(planarUv(new THREE.IcosahedronGeometry(0.45, 0)), conc, 14);
   const rr = makeRng(88);
   for (let i = 0; i < 14; i++) {
-    const cx = i < 7 ? 74 : 74.5, cz = i < 7 ? -20 : -12.5;
+    const cx = (i < 7 ? 74 : 74.5) + outset, cz = i < 7 ? -20 : -12.5;
     place(rubble, i, cx + (rr() - 0.5) * 1.0, 1.25 + rr() * 0.3, cz + (rr() - 0.5) * 2.8, rr() * 6, 0.7 + rr() * 0.6, 0.6 + rr() * 0.5, 0.7 + rr() * 0.6);
   }
   out.push(rubble);
 
   const containers = inst(planarUv(new THREE.BoxGeometry(6.06, 2.59, 2.44).translate(0, 1.295, 0)), metal, 3);
-  place(containers, 0, 80, 0, 42, Math.PI / 2);
-  place(containers, 1, 83, 0, 42, Math.PI / 2);
-  place(containers, 2, 81.5, 2.59, 42.3, Math.PI / 2 + 0.04);
+  place(containers, 0, 80 + outset, 0, 42, Math.PI / 2);
+  place(containers, 1, 83 + outset, 0, 42, Math.PI / 2);
+  place(containers, 2, 81.5 + outset, 2.59, 42.3, Math.PI / 2 + 0.04);
   containers.setColorAt(0, new THREE.Color(0x3a6ea5));
   containers.setColorAt(1, new THREE.Color(0xb5452a));
   containers.setColorAt(2, new THREE.Color(0x4c7d4a));
@@ -379,20 +384,20 @@ function props(mats: Mats): THREE.Object3D[] {
   ]).rotateZ(Math.PI / 2));
   const pipes = inst(pipe, conc, 6);
   let n = 0;
-  for (let row = 0; row < 3; row++) for (let i = 0; i < 3 - row; i++) place(pipes, n++, -74, 0.62 + row * 1.07, -48 + (i + row * 0.5) * 1.26);
+  for (let row = 0; row < 3; row++) for (let i = 0; i < 3 - row; i++) place(pipes, n++, -74 - outset, 0.62 + row * 1.07, -48 + (i + row * 0.5) * 1.26);
   out.push(pipes);
 
   const steelPipes = inst(planarUv(new THREE.CylinderGeometry(0.16, 0.16, 6, 14).rotateZ(Math.PI / 2)), getPieceMaterials('steel')[0], 9);
   n = 0;
-  for (let row = 0; row < 3; row++) for (let i = 0; i < 3; i++) place(steelPipes, n++, -74, 0.3 + row * 0.31, -30 + i * 0.34);
+  for (let row = 0; row < 3; row++) for (let i = 0; i < 3; i++) place(steelPipes, n++, -74 - outset, 0.3 + row * 0.31, -30 + i * 0.34);
   out.push(steelPipes);
 
   const pallets = inst(planarUv(new THREE.BoxGeometry(1.2, 0.14, 1.0)), getPieceMaterials('wood')[0], 5);
   const bricks = inst(planarUv(new THREE.BoxGeometry(1.0, 0.75, 0.9)), getPieceMaterials('brick')[0], 5);
   for (let i = 0; i < 5; i++) {
     const z = 18 + i * 1.7, ry = (rr() - 0.5) * 0.2;
-    place(pallets, i, 72, 0.07, z, ry);
-    place(bricks, i, 72, 0.14 + 0.375, z, ry);
+    place(pallets, i, 72 + outset, 0.07, z, ry);
+    place(bricks, i, 72 + outset, 0.14 + 0.375, z, ry);
   }
   out.push(pallets, bricks);
   return out;
@@ -429,7 +434,7 @@ function crane(mats: Mats): THREE.Object3D[] {
   ]), mats.beacon);
   beacons.onBeforeRender = () => { if (M) M.beacon.color.setRGB((performance.now() / 1000) % 1.4 < 0.5 ? 12 : 0.3, 0.05, 0.02); };
   g.add(beacons);
-  const cx = -48, cz = -112;
+  const cx = -48, cz = -112 - outset;
   g.position.set(cx, hillHeight(cx, cz) + 0.2, cz);
   // jib runs parallel to the site edge so nothing hangs over the play area
   g.rotation.y = Math.atan2(cz, -cx) + 1.25;
@@ -458,7 +463,6 @@ function skyline(mats: Mats): THREE.InstancedMesh {
 function mats(): Mats {
   if (M) return M;
   const link = chainlinkTex();
-  link.repeat.set((2 * FENCE) / 0.4, 2.35 / 0.4);
   const hoard = hoardingTex();
   hoard.wrapS = THREE.RepeatWrapping;
   const lattice = latticeTex();
@@ -514,7 +518,11 @@ export function applySceneryEnv(env: EnvPreset): void {
   u.uLit.value = env === 'night' ? 0.42 : env === 'dusk' ? 0.26 : env === 'overcast' ? 0.06 : 0.02;
 }
 
-export function buildScenery(scene: THREE.Scene, env: EnvPreset): void {
+/** `half`: the map's terrain half-size, m (default: the original 62 m site) */
+export function buildScenery(scene: THREE.Scene, env: EnvPreset, half = BASE_HALF): void {
+  outset = Math.max(0, half - BASE_HALF);
+  FENCE = 66 + outset;
+  TOWERS = [[1, 1], [-1, 1], [1, -1], [-1, -1]].map(([a, b]) => [a * (70 + outset), b * (70 + outset)] as [number, number]);
   if (root) {
     root.parent?.remove(root);
     const old = root;
@@ -525,6 +533,7 @@ export function buildScenery(scene: THREE.Scene, env: EnvPreset): void {
     });
   }
   const m = mats();
+  m.link.map?.repeat.set((2 * FENCE) / 0.4, 2.35 / 0.4);
   root = new THREE.Group();
   root.name = 'scenery';
   root.add(ground(), hills(m), ...trees(m), ...fence(m), ...towers(m), ...props(m), ...crane(m), skyline(m));

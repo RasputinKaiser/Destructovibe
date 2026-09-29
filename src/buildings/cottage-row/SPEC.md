@@ -1,0 +1,12 @@
+# Cottage terrace
+
+Byelaw brick terrace of two-up two-down houses (c. 1890), front +Z, `count` houses at 4.8 m centres (default 3), single part `main` (pipeline: raw, places and finishes itself). Used by the Clearance Zone ('terrace', 'cottages'), the Railway Quarter and a contract.
+
+Construction: 230 mm solid brick (Flemish bond units, lime plaster on room faces), stone sills/lintels, two-over-two sashes and panelled doors as dormant joinery detail (`_shared/vernacular.ts`); timber ground floor; first floor 0.22 m joisted, pocketed into the party walls; slate roof ~38° per house on party-wall gables; stacks on flue walls; single-storey scullery outriggers paired on a shared wall with lean-to slate roofs.
+
+Load paths: roof slabs seat on the front/back wall tops and lean on the party-wall gable triangles; first floor bears on the lower party-wall lift and carries the upper lift; outrigger roofs seat on the yard walls and abut the shared wall and the back wall; stacks bed on flaunching on the slopes.
+
+Floors are `timberDeck` (150×22 boards on 50 mm joists at 400 centres, lath-and-plaster ceiling as cosmetic skins that powder rather than fly as cards). Group 'terrace' is red brick with tall 4-pot stacks; any other group ('cottages') is buff brick with short pots, a lighter roof and its own door palette. Weathering: base dirt, random dark bricks, sill streaks, stack soot.
+
+Known gaps (package): no stairwell or furniture; brick colour is a tint over one brick texture; front/back walls are one member per storey between openings; the gable shows a straight joint where the gable member meets the corner member (~0.35 m in, member boundary; critic N8); ceilings/roof slabs ≤1.2 m still land as intact slabs.
+Known gaps (engine, not package-fixable): damaged ground lifts carve to load-bearing stubs instead of vanishing; roof hangs 2-4 s and the collapse plateaus after 2 s; brick clumps fly as see-through lattices with no mortar or fines; slabs don't fracture on impact; explosive smoke is black, long-lived and sprite-edged; ~1600-2000 bodies still awake 60 s after a blast. Map-owned: grid meter heads (M2), forecourts/fences (M3), 3-house rows (M4).

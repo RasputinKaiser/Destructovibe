@@ -21,7 +21,7 @@ import { cables } from '../render/cables';
 import { aim as marks, obb, type AimState } from '../render/aim';
 import { viewmodel } from '../render/viewmodel';
 import { audio } from '../audio/audio';
-import { hitmarker } from '../ui/ui';
+import { hitmarker, blastVignette } from '../ui/ui';
 import { input } from '../core/input';
 import { player, forward, eyePosition, kickRecoil, addTrauma, kickFov, knockback } from './player';
 import {
@@ -51,6 +51,9 @@ import {
   clearExcavator,
 } from './tools/excavator';
 import { holeNear } from './tools/machining';
+import { hitstop } from './timefx';
+import { tags, initTags } from '../render/tags';
+import { strikes, initStrikes } from '../render/strikes';
 
 /* Ordered tool list; `bank` is the six-slot page the number keys address (Q cycles). */
 export const BANK_COUNT = 4;
@@ -196,6 +199,8 @@ export function setWeaponHooks(deny: typeof onDeny): void {
 
 export function initWeapons(s: THREE.Scene): void {
   scene = s;
+  initTags(s);
+  initStrikes(s);
   initWrecker(s);
   initWinch(s);
   machineHooks.consume = id => {
@@ -205,12 +210,13 @@ export function initWeapons(s: THREE.Scene): void {
     lastFire[id] = now;
     return true;
   };
-  machineHooks.kick = k => { kickRecoil(1.4 * k); addTrauma(0.2 * k); };
-  machineHooks.hit = k => hitmarker(k);
+  machineHooks.kick = k => { kickRecoil(1.4 * k); addTrauma(0.2 * k); viewmodel.impact(0.5 * k); };
+  // a member giving way under the tool is the payoff: a beat of hitstop and the tool lurching as the load comes off
+  machineHooks.hit = k => { hitmarker(k); if (k >= 0.7) { hitstop(0.035 + 0.03 * k); viewmodel.impact(0.6 * k); addTrauma(0.08 * k); } };
   percHooks.kick = k => addTrauma(k);
-  percHooks.hit = k => hitmarker(k);
-  splitHooks.hit = k => hitmarker(k);
-  wireHooks.hit = k => hitmarker(k);
+  percHooks.hit = k => { hitmarker(k); viewmodel.impact(0.35 * k); if (k >= 0.7) hitstop(0.04); };
+  splitHooks.hit = k => { hitmarker(k); if (k >= 0.7) { hitstop(0.05); addTrauma(0.12 * k); } };
+  wireHooks.hit = k => { hitmarker(k); if (k >= 0.7) { hitstop(0.05); addTrauma(0.1 * k); } };
   hoseHooks.kick = k => addTrauma(k);
   hoseHooks.douseAt = (p, r) => {
     for (let i = patches.length - 1; i >= 0; i--) if (vec3.distance(patches[i].pos, p) < r + FIRE.pool) { patches.splice(i, 1); fx.dust(p, 1.2, 0xe8eef2); }
@@ -582,16 +588,30 @@ function releaseHammer(): void {
   audio.fire('hammer');
 }
 
+/* Hard faces the sledge bounces off: they ring and throw it back rather than taking the blow. */
+const RINGS = new Set<MaterialId>(['steel', 'castiron', 'metal', 'machine', 'aluminum', 'copper', 'stone', 'marble']);
+
 function swingHammer(k: number): void {
   aim();
   const b = sledgeBlow(_eye, _fwd, k);
   if (!b) { audio.hammer(null); return; }
-  addTrauma(0.08 + 0.1 * k);
-  kickRecoil(-0.3 - 0.4 * k);
-  lastBlow = { mat: b.mat, energy: b.energy, progress: b.progress, chipped: b.chipped };
   const mat: MaterialId = b.mat ?? 'concrete';
+  const ring = RINGS.has(mat);
+  addTrauma(0.08 + 0.1 * k + (b.chipped ? 0.06 : 0));
+  kickRecoil((ring ? 0.25 : -0.3) - 0.4 * k);
+  // the blow lands: a beat of hitstop, deeper when something gives, and the handle jumps in the hands
+  hitstop(b.broke ? 0.09 : b.chipped ? 0.065 : 0.035 + 0.02 * k);
+  viewmodel.impact(0.45 + 0.4 * k + (b.chipped ? 0.2 : 0), ring);
+  lastBlow = { mat: b.mat, energy: b.energy, progress: b.progress, chipped: b.chipped };
   fx.impact(b.point, b.normal, mat, b.chipped ? 0.5 + 0.3 * k : 0.2 + 0.2 * k);
-  if (b.piece && !Number.isFinite(b.piece.pm.toughness)) fx.sparks(b.point, b.normal, 6);
+  if (b.piece && !Number.isFinite(b.piece.pm.toughness)) fx.sparks(b.point, b.normal, 6 + Math.round(10 * k));
+  if (mat === 'glass' || mat === 'tempered' || mat === 'lamp') { fx.shards(b.point, 8 + Math.round(10 * k)); audio.glassCrack(b.point); }
+  else if (b.piece && (mat === 'wood' || mat === 'oak' || mat === 'plywood' || mat === 'crate') && b.progress > 0.3) fx.splinters(b.point, 3 + Math.round(5 * k));
+  // what the blow left: a mark that grows toward the chip, and a puff of the face's own dust
+  if (b.piece && !b.piece.dead) {
+    strikes.add(b.piece, b.point, b.normal, 0.1 + 0.12 * k + 0.18 * b.progress);
+    if (!b.chipped) fx.powder(b.point, 0.12 + 0.3 * b.progress, b.piece.pm.dust);
+  }
   audio.hammer(mat);
   if (b.piece) hitmarker(b.broke ? 1 : b.chipped ? 0.7 : 0.35);
 }
@@ -1143,7 +1163,10 @@ function shatter(p: Projectile, at: Vec3, normal: Vec3): void {
   fx.fire(pool, FIRE.poolTime, 2);
   if (down?.entity?.kind === 'ground') fx.scorch([pool[0], pool[1] - 0.02, pool[2]], 2.2);
   patches.push({ pos: pool, until: now + FIRE.poolTime, tick: 0 });
-  if (player.e && vec3.distance(player.e.curPos, at) < 12) addTrauma(0.1);
+  // the flash is felt as much as seen: a whoomph of heat on the face when it goes up close by
+  const near = player.e ? vec3.distance(player.e.curPos, at) : 99;
+  if (near < 12) { addTrauma(0.1 + 0.15 * (1 - near / 12)); kickFov(3 * (1 - near / 12)); }
+  if (near < 6) blastVignette(0.35 * (1 - near / 6));
 }
 
 /* The burning pool keeps cooking whatever stands in it, and pours its heat and smoke into the room. */
@@ -1375,13 +1398,21 @@ export function weaponsAfterStep(dt: number): void {
 }
 
 /* Wired to the physics hit handler: projectile feedback, including the wrecking ball. */
-export function onProjectileHit(a: PhysEntity | undefined, b: PhysEntity | undefined, point: Vec3, speed: number): void {
+export function onProjectileHit(a: PhysEntity | undefined, b: PhysEntity | undefined, point: Vec3, speed: number, normal?: Vec3): void {
   if (wreckerHit(a, b, point, speed)) return;
   const ball = a?.kind === 'projectile' ? (a as Projectile) : b?.kind === 'projectile' ? (b as Projectile) : null;
   if (!ball || ball.type !== 'ball' || speed < 10) return;
   const other = ball === a ? b : a;
-  if (pieceOf(other)) hitmarker(clamp(speed / 60, 0.3, 1));
-  else fx.impact(point, [0, 1, 0], 'concrete', clamp(speed / 60, 0.2, 0.8));
+  const struck = pieceOf(other);
+  if (struck) {
+    hitmarker(clamp(speed / 60, 0.3, 1));
+    if (normal) {
+      // the contact normal points A→B: turn it to face the shooter
+      const s = ball === a ? -1 : 1;
+      strikes.add(struck, point, [normal[0] * s, normal[1] * s, normal[2] * s], clamp(speed / 150, 0.12, 0.45));
+    }
+    if (speed > 25 && player.e && vec3.distance(player.e.curPos, point) < 45) hitstop(0.03);
+  } else fx.impact(point, [0, 1, 0], 'concrete', clamp(speed / 60, 0.2, 0.8));
 }
 
 function canGrab(e: PhysEntity): boolean {
@@ -1457,6 +1488,7 @@ function plantPreview(type: 'charge' | 'thermite' | 'megabomb'): void {
   const r = type === 'thermite' ? THERMITE.reach : blastOf(kg).radius * 0.25;
   const bad = type === 'thermite' && p && MELT[p.mat] === undefined;
   marks.marker(hit.point as Vec3, n, r, bad ? 'far' : 'ok');
+  if (type !== 'thermite') marks.sphere(hit.point as Vec3, blastOf(kg).radius, type === 'megabomb' ? 'bad' : 'far', 0.3);
   if (p) outline(p, bad ? 'far' : 'ok');
 }
 
@@ -1489,15 +1521,25 @@ const jetPreview: JetPath = { pts: [], n: 0, hit: null };
 
 function preview(): void {
   marks.begin();
-  if (!player.e) { marks.end(); return; }
+  tags.begin();
+  if (!player.e) { marks.end(); tags.end(); return; }
   aim();
   const cur = loadout.current;
+  deviceTags(cur);
   switch (cur) {
     case 'charge': case 'thermite': case 'megabomb': plantPreview(cur); break;
     case 'cutter': cutterPreview(); break;
     case 'cannon': predict('ball', _muzzle, [_fwd[0] * 62, _fwd[1] * 62, _fwd[2] * 62], 'ok'); break;
-    case 'rocket': predict('rocket', _muzzle, [_fwd[0] * MOTOR.launch, _fwd[1] * MOTOR.launch, _fwd[2] * MOTOR.launch], warhead === 'tandem' ? 'ok' : 'far'); break;
-    case 'incendiary': case 'airstrike': predict('bottle', _muzzle, [_fwd[0] * 17, _fwd[1] * 17 + 3.5, _fwd[2] * 17], 'ok'); break;
+    case 'rocket': {
+      const h = predict('rocket', _muzzle, [_fwd[0] * MOTOR.launch, _fwd[1] * MOTOR.launch, _fwd[2] * MOTOR.launch], warhead === 'tandem' ? 'ok' : 'far');
+      if (h) marks.sphere(h, warhead === 'tandem' ? blastOf(TANDEM.follow).radius : ROCKET.radius, 'far', 0.25);
+      break;
+    }
+    case 'incendiary': case 'airstrike': {
+      const h = predict('bottle', _muzzle, [_fwd[0] * 17, _fwd[1] * 17 + 3.5, _fwd[2] * 17], 'ok');
+      if (h) marks.sphere(h, cur === 'incendiary' ? FIRE.radius : BOMB.radius, cur === 'incendiary' ? 'far' : 'bad', 0.25);
+      break;
+    }
     case 'hammer': reachPreview(SLEDGE.reach, p => (p && Number.isFinite(p.pm.toughness) ? 'ok' : 'bad')); break;
     case 'breaker': reachPreview(BREAKER.reach, p => (p && Number.isFinite(p.pm.toughness) && p.pm.surface !== 'metal' ? 'ok' : 'bad')); break;
     case 'grinder': case 'saw': case 'drill': case 'shears': case 'plasma': case 'torch': reachPreview(cur === 'shears' ? 2.1 : 1.9, p => (p ? 'ok' : 'bad')); break;
@@ -1553,6 +1595,30 @@ function preview(): void {
     case 'wiresaw': reachPreview(WIRE.reach, p => (p ? 'ok' : 'bad')); break;
   }
   marks.end();
+  tags.end();
+}
+
+/* Firing order over every armed device (numbered by delay group, as a shot-firer marks them) while the charges,
+   cutters or the panel are in hand; once the sequence is fired, each counts down to its own detonation. */
+const _tp: Vec3 = [0, 0, 0];
+function deviceTags(cur: WeaponId): void {
+  const pending = detonations.length > 0;
+  if (!pending && cur !== 'charge' && cur !== 'cutter' && cur !== 'planner') return;
+  const list = armed().sort((a, b) => a.delay - b.delay || a.born - b.born);
+  const firing = detonations.filter(d => !d.p.dead).sort((a, b) => a.t - b.t);
+  let rank = 0, last = -1;
+  for (const p of list) {
+    if (p.delay !== last) { rank++; last = p.delay; }
+    faceNormal(p, _tp);
+    const pos: Vec3 = [p.mesh.position.x + _tp[0] * 0.18, p.mesh.position.y + _tp[1] * 0.18 + 0.12, p.mesh.position.z + _tp[2] * 0.18];
+    const col = p === selected ? '#4ab2ff' : p.type === 'cutter' ? '#d6d5cf' : '#ff9f1a';
+    tags.add(pos, `#${rank}`, `${p.delay} ms`, col);
+  }
+  for (const d of firing) {
+    faceNormal(d.p, _tp);
+    const pos: Vec3 = [d.p.mesh.position.x + _tp[0] * 0.18, d.p.mesh.position.y + _tp[1] * 0.18 + 0.12, d.p.mesh.position.z + _tp[2] * 0.18];
+    tags.add(pos, 'FIRE', `${Math.max(0, Math.round((d.t - now) * 1000))} ms`, '#ff4d3d', true);
+  }
 }
 
 /* ---------------- per-frame sync ---------------- */
@@ -1629,6 +1695,7 @@ export function syncProjectiles(alpha: number, dt: number): void {
     audio.flyby(_pp, [s.heading[0] * PLANE.v, 0, s.heading[2] * PLANE.v], 9);
   }
   syncCord();
+  strikes.update(dt);
   syncWrecker(alpha);
   syncWinch(alpha);
   syncWire();
@@ -1664,19 +1731,19 @@ export function toolReadout(): ToolReadout | null {
       const last = lastBlow ? ` · last ${Math.round(lastBlow.energy)} J into ${lastBlow.mat ?? 'ground'}${lastBlow.chipped ? ' — chipped' : lastBlow.mat ? ` (${Math.round(lastBlow.progress * 100)}% to a chip)` : ''}` : '';
       return { title: `Sledgehammer · ${Math.round(sledgeEnergy(windAt < 0 ? 1 : k))} J`, progress: windAt < 0 ? null : k, detail: `hold to wind up, release to strike${last}`, warn: false };
     }
-    case 'cannon': return { title: 'Hand cannon', progress: null, detail: '30 kg iron ball · 62 m/s · 57 kJ · drag and drop shown by the arc', warn: false };
-    case 'rocket': return {
+    case 'cannon': return reloading('cannon', { title: 'Hand cannon', progress: null, detail: '30 kg iron ball · 62 m/s · 57 kJ · drag and drop shown by the arc', warn: false });
+    case 'rocket': return reloading('rocket', {
       title: `Rocket · ${warhead === 'tandem' ? 'tandem HEAT-FT' : 'HE-FRAG'}`, progress: null,
       detail: warhead === 'tandem'
         ? `perforates ~${mm(TANDEM.jet * Math.sqrt(TANDEM.rhoJet / 7850))} steel / ${mm(TANDEM.jet * Math.sqrt(TANDEM.rhoJet / 2400))} concrete, then ${TANDEM.follow} kg inside · RMB warhead · keep ${BACKBLAST.wall} m clear behind`
         : '1.25 kg HE at the surface · RMB warhead · mind the backblast',
       warn: false,
-    };
+    });
     case 'charge': return { title: `Remote charge · ${chargeKg} kg`, progress: null, detail: `lethal radius ${blastOf(chargeKg).radius.toFixed(1)} m · wheel size · RMB/G detonate${chargesPlaced() ? ` (${chargesPlaced()} armed)` : ''} · delays on the Detonator Panel`, warn: false };
     case 'cutter': return { title: 'Linear cutting charge', progress: null, detail: 'the line shows the cut · severs the member along it · RMB/G detonate', warn: false };
     case 'thermite': return { title: 'Thermite pot', progress: null, detail: '2500 °C: melts through steel, cast iron, aluminium · chars timber · only spalls masonry', warn: false };
-    case 'airstrike': return { title: 'Airstrike marker', progress: null, detail: `${PLANE.bombs} × 4 kg bombs onto the smoke${sorties.length ? ` · ${sorties.length} inbound` : ''}`, warn: sorties.length > 0 };
-    case 'incendiary': return { title: 'Firebomb', progress: null, detail: `0.75 L petrol · ${FIRE.radius} m splash · pool burns ${FIRE.poolTime} s at ${FIRE.hrr / 1e6} MW`, warn: false };
+    case 'airstrike': return reloading('airstrike', { title: 'Airstrike marker', progress: null, detail: `${PLANE.bombs} × 4 kg bombs onto the smoke${sorties.length ? ` · ${sorties.length} inbound` : ''}`, warn: sorties.length > 0 });
+    case 'incendiary': return reloading('incendiary', { title: 'Firebomb', progress: null, detail: `0.75 L petrol · ${FIRE.radius} m splash · pool burns ${FIRE.poolTime} s at ${FIRE.hrr / 1e6} MW`, warn: false });
     case 'megabomb': return { title: `Megabomb · ${MEGA.kg} kg`, progress: null, detail: `${MEGA.fuse} s fuse · lethal radius ${blastOf(MEGA.kg).radius.toFixed(0)} m · run`, warn: true };
     case 'wrecker': return wreckerStatus();
     case 'winch': return winchStatus();
@@ -1704,6 +1771,13 @@ export function toolReadout(): ToolReadout | null {
     case 'wiresaw': return wireStatus();
   }
   return null;
+}
+
+/* A launcher between shots: the bar fills while the next round goes in. */
+function reloading(id: WeaponId, r: ToolReadout): ToolReadout {
+  const k = clamp((now - lastFire[id]) / DEF[id].cooldown, 0, 1);
+  if (k < 1 && r.progress === null) { r.progress = k; r.title += id === 'airstrike' ? ' · radio busy' : ' · reloading'; }
+  return r;
 }
 
 function machineHint(t: MachineTool): string {
@@ -1750,6 +1824,9 @@ export function clearWeapons(): void {
   workFrame = -9;
   marks.begin();
   marks.end();
+  tags.begin();
+  tags.end();
+  strikes.clear();
 }
 
 let predicted: Vec3 | null = null;

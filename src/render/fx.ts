@@ -847,13 +847,25 @@ const cloudLife = (c: Cloud): number => clamp(18 + cbrt(c.mass) * 5, 18, 60);
 const baseRadius = (m: number): number => clamp(2.5 + cbrt(m) * 2.4, 3, 40);
 const billowSize = (m: number): number => clamp(1.4 + cbrt(m) * 0.75, 1.6, 11);
 function cloudRadius(c: Cloud): number {
-  return baseRadius(c.mass) * (1 + 0.35 * Math.min(1, (clock - c.start) / 12));
+  // born the size of the debris throw, it rolls out as a density current and spreads for tens of seconds
+  const t = clock - c.start;
+  return baseRadius(c.mass) * (0.4 + 0.6 * Math.min(1, t / 10) + 0.35 * Math.min(1, t / 40));
 }
 const SQUASH = 1.7;
+const _mortar = new THREE.Color(0xbdb6a8);
+
+/** dust fed into clouds since load (m³-ish), and the share of it that was dark blast smoke (harness readout) */
+export const dustLedger = { fed: 0, smoke: 0, box: null as null | [number, number, number, number] };
 
 /** feed dust volume (m³-ish) into the nearest cloud */
+/* Callers feed by the size of the event that raised it; the cloud that hangs over a collapse is the fine fraction of
+   that, and a two-storey terrace coming down should raise one some 20–30 m across its base, not a whole-map fog. */
+const CLOUD_SHARE = 0.15;
 function feedCloud(x: number, y: number, z: number, vol: number, hex: number): void {
+  vol *= CLOUD_SHARE;
   if (!ready || !(vol > 0)) return;
+  const lb = dustLedger.box;
+  if (!lb || (x > lb[0] && x < lb[1] && z > lb[2] && z < lb[3])) dustLedger.fed += vol;
   let best: Cloud | null = null, bd = Infinity;
   for (const c of clouds) {
     if (!c.on) continue;
@@ -974,7 +986,8 @@ function updateClouds(dt: number): void {
     c.dep += dt;
     if (c.dep > 0.5 && c.mass > 2) {
       c.dep = 0;
-      splatCover(c.x, c.z, R * 1.15, clamp(0.006 * cbrt(c.mass), 0.003, 0.03) * fade, c.r, c.g, c.b);
+      // a film, not a white-out: most of what settles comes down in the first half minute
+      splatCover(c.x, c.z, R * 1.15, clamp(0.003 * cbrt(c.mass), 0.002, 0.012) * fade * (age < 30 ? 1 : 0.3), c.r, c.g, c.b);
     }
     // camera inside this cloud: ellipsoid-normalised distance
     const ex = (cam3.x - c.x) / R, ey = ((cam3.y - cy) * SQUASH) / R, ez = (cam3.z - c.z) / R;
@@ -1098,7 +1111,7 @@ export const fx = {
       pAt(x + _v.x * R * 0.25, y + _v.y * R * 0.2, z + _v.z * R * 0.25);
       P.vx = _v.x * sp; P.vy = _v.y * sp; P.vz = _v.z * sp; P.drag = 3.5;
       P.life = rf(0.9, 1.9); P.s0 = R * 0.35; P.s1 = R * rf(0.9, 1.3) * grow;
-      pColor(0x1a1714, rf(0.8, 1.3)); P.a = 0.92; P.heat = rf(9, 14); P.heatDur = rf(0.2, 0.45);
+      pColor(0x2e2924, rf(0.8, 1.2)); P.a = 0.9; P.heat = rf(9, 14); P.heatDur = rf(0.2, 0.45);
       P.rise = 1.5; P.accel = 0.4; P.wind = 0.3; P.fadeIn = 0.02; P.spin = rf(-1.5, 1.5);
       emit();
     }
@@ -1108,7 +1121,8 @@ export const fx = {
       pAt(x + rf(-0.4, 0.4) * R, y + R * (0.3 + f * 0.6), z + rf(-0.4, 0.4) * R);
       P.delay = f * 0.8; P.vx = rf(-1, 1); P.vy = rf(2, 4); P.vz = rf(-1, 1); P.drag = 0.8;
       P.rise = 1.1 + R * 0.15; P.accel = -0.02; P.life = rf(6, 11); P.s0 = R * 0.5; P.s1 = R * rf(1.8, 2.6) * grow;
-      pColor(0x5a5046, rf(0.75, 1.15)); P.a = 0.55; P.heat = 2; P.heatDur = 0.3; P.fadeIn = 0.35; P.curl = 0.25;
+      // the column is mostly lofted dust and pulverised mortar, grey-tan; only the fireball's own soot is dark
+      pColor(0x7a7064, rf(0.8, 1.12)); P.a = 0.5; P.heat = 2; P.heatDur = 0.3; P.fadeIn = 0.35; P.curl = 0.25;
       emit();
     }
     // debris-laden ejecta: dark, fast, narrow, falling back under drag
@@ -1118,7 +1132,7 @@ export const fx = {
       const sp = R * rf(3, 5.5);
       pAt(x + _v.x * R * 0.2, y + 0.3, z + _v.z * R * 0.2);
       P.vx = _v.x * sp; P.vy = _v.y * sp; P.vz = _v.z * sp; P.drag = 2.6; P.accel = -0.6;
-      P.life = rf(2.5, 4.5); P.s0 = R * 0.2; P.s1 = R * rf(0.6, 0.9); pColor(0x4a4036, rf(0.85, 1.1)); P.a = 0.7;
+      P.life = rf(2.5, 4.5); P.s0 = R * 0.2; P.s1 = R * rf(0.6, 0.9); pColor(0x66594b, rf(0.85, 1.1)); P.a = 0.7;
       P.fadeIn = 0.04; P.wind = 0.4; P.spin = rf(-0.8, 0.8);
       emit();
     }
@@ -1165,7 +1179,9 @@ export const fx = {
       const sp = rf(10, 24);
       chips.spawn(x, y + 0.2, z, _v.x * sp, _v.y * sp, _v.z * sp, rf(0.03, 0.1), rf(5, 7), _c);
     }
-    feedCloud(x, y, z, R * R * R * (y < R * 0.9 ? 0.9 : 0.35), y < R * 0.9 ? 0x8a7c68 : 0x5d554c);
+    const smokeV = R * R * R * (y < R * 0.9 ? 0.9 : 0.35);
+    dustLedger.smoke += smokeV;
+    feedCloud(x, y, z, smokeV, y < R * 0.9 ? 0x8a7c68 : 0x5d554c);
     flash(x, y + R * 0.3, z, 0xffa858, 260 * R * R, 0.6, R * 8, 3);
   },
 
@@ -1184,6 +1200,17 @@ export const fx = {
       emit();
     }
     feedCloud(pos[0], pos[1], pos[2], sz * sz * sz * 0.5, color);
+  },
+
+  /** Masonry coming apart: the mortar and brick face it crushes (a share of `vol`, m³ of wall) goes up as grey-tan
+   *  dust that billows at the break, rolls out along the ground and hangs for tens of seconds. */
+  crushDust(pos: Vec3, vol: number, color = 0xa89c8c): void {
+    if (!ready || !(vol > 0)) return;
+    // what hangs in the air is mostly the mortar (lime and cement, grey-white) with the brick's own dust through it
+    const hex = _c.setHex(color).lerp(_mortar, 0.5).getHex();
+    const sz = clamp(1 + Math.cbrt(vol) * 1.6, 1, 5);
+    this.dust(pos, sz, hex);
+    feedCloud(pos[0], pos[1], pos[2], vol * 25, hex);
   },
 
   debris(pos: Vec3, count: number, color: number, speed: number, dir?: Vec3): void {

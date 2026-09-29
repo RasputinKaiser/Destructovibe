@@ -1,4 +1,4 @@
-import { CONTRACTS, DOWNTOWN, SANDBOX, SHOWCASE } from '../src/levels/contracts.ts';
+import { CONTRACTS, DOWNTOWN, RAILWAY, SANDBOX, SHOWCASE } from '../src/levels/contracts.ts';
 import { PREFABS, prefabView } from '../src/levels/prefabs.ts';
 import { checkWalkability, validateBlueprint, type Limits } from '../src/levels/validate.ts';
 import type { Contract } from '../src/types.ts';
@@ -11,12 +11,16 @@ const rows: string[][] = [];
 let failed = 0;
 const notes: string[] = [];
 
-const levels: [string, Contract, Limits][] = [...CONTRACTS.map((c, i) => [String(i + 1), c, {}] as [string, Contract, Limits]), ['S', SANDBOX, { bounds: 65, maxPieces: 3200 }], ['H', SHOWCASE, { bounds: 45, maxPieces: 3000 }], ['D', DOWNTOWN, { bounds: 80, maxPieces: 5500 }]];
+/* contracts cut from a free-play map take that map's bounds and a free-play budget */
+const SITE: Record<string, Limits> = { showcase: { bounds: 45, maxPieces: 3000 }, downtown: { bounds: 80, maxPieces: 5500 }, railway: { bounds: 90, maxPieces: 4800 } };
+const onMap = (c: Contract): Limits => { const h = c.build().terrain?.half; return h ? { bounds: h, maxPieces: h > 80 ? SITE.railway.maxPieces : h > 50 ? SITE.downtown.maxPieces : SITE.showcase.maxPieces } : {}; };
+const levels: [string, Contract, Limits][] = [...CONTRACTS.map((c, i) => [String(i + 1), c, onMap(c)] as [string, Contract, Limits]), ['S', SANDBOX, { bounds: 65, maxPieces: 3200 }], ['H', SHOWCASE, SITE.showcase], ['D', DOWNTOWN, SITE.downtown], ['R', RAILWAY, SITE.railway]];
 /* free-play sites stand on terrain: walkability, buried services, and a doorway into each building on foot */
 const WALK: Record<string, string[]> = {
   S: ['pub', 'chipshop', 'shop-a', 'terrace', 'cottages', 'semis', 'chapel', 'boilerhouse', 'merchant', 'works', 'pressshop', 'pumping'],
   H: ['cathedral', 'mill', 'barn', 'tudor', 'boilerhouse', 'terrace', 'rotunda'],
   D: ['tower', 'store', 'skyscraper2', 'office', 'stand', 'carpark', 'flats', 'flats2'],
+  R: ['station', 'millworks', 'stadium', 'cottages'],
 };
 for (const [idx, c, limits] of levels) {
   const bp = c.build();

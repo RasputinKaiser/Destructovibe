@@ -97,6 +97,7 @@ export function shellDamage(p: Piece, point: Vec3, energy: number, blast: boolea
 export function flushDents(): void {
   for (const q of queue) if (!q.p.dead && D.dent(q.p, q.pt, q.dir, q.R, q.d)) shellStats.dents++;
   queue.length = 0;
+  D.flushDeform();
 }
 
 /* ---------------- buckling of loaded thin panels ---------------- */

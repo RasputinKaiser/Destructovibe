@@ -1,4 +1,4 @@
-import type { Settings } from '../types';
+import type { SandboxSettings, Settings } from '../types';
 
 export interface SaveData {
   version: 2;
@@ -8,7 +8,12 @@ export interface SaveData {
 
 const KEY = 'destructovibe.v2';
 
-export const DEFAULT_SETTINGS: Settings = { volume: 0.8, quality: 'high', sensitivity: 1, fov: 100, fovH: true, invertY: false, explosives: true };
+export const DEFAULT_SETTINGS: Settings = { volume: 0.8, quality: 'high', sensitivity: 1, fov: 100, fovH: true, invertY: false, explosives: true,
+  shake: true, grain: true, aberration: true, renderScale: 0,
+};
+
+/** world knobs every level starts from; the sandbox panel edits a copy */
+export const WORLD_DEFAULTS: Readonly<SandboxSettings> = { timeScale: 1, gravity: 1, jointStrength: 1, wind: 0, fireSpread: true, debrisLimit: 1400 };
 
 export function loadSave(): SaveData {
   try {

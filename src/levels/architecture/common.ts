@@ -2,7 +2,7 @@ import type { AgeSpec, MaterialId, PieceSpec, Vec3 } from '../../types.ts';
 import { MATS } from '../../destruction/materials.ts';
 import { MIN_PLATE } from '../../destruction/compound.ts';
 import { block, envelopeFinish, hull, place, tag, weldParts, type PieceOpts, type Range } from '../kit.ts';
-import { gridFeed, type Placement } from '../structures.ts';
+import { gridFeed, type Placement } from '../../buildings/_shared/base.ts';
 import { detailCount, stoneWall, wallSlab } from '../layers.ts';
 
 /* Shared helpers for the landmark buildings. Landmarks are authored like every other structure: local metres

@@ -333,9 +333,13 @@ export function makeJoint(kind: JointKind, a: Side, b: Side | null, area: number
 }
 
 /** Share of each mode the connection has relative to the members' own contact envelope (game capacities scale by it). */
-export function connRatio(real: Caps, mat: Caps, kind: JointKind): Caps {
+export function connRatio(real: Caps, mat: Caps, kind: JointKind, authored = false): Caps {
   if (kind === 'mortar' || kind === 'bearing' || kind === 'anchor') return { comp: 1, ten: 1, shear: 1, torque: 1 };
-  const r = (x: number, y: number) => Math.min(3, Math.max(0.35, x / Math.max(y, 1)));
+  /* An inferred connection keeps at least a third of its contact's strength (the members' own envelope is a guess at
+     how it was really fixed); one the builder specified is what it says: six wall ties hold a 7 t lift of brickwork up
+     only by ~2 kN, and calibration still guarantees each joint its measured static load. */
+  const lo = authored ? 0.01 : 0.35;
+  const r = (x: number, y: number) => Math.min(3, Math.max(lo, x / Math.max(y, 1)));
   return { comp: 1, ten: r(real.ten, mat.ten), shear: r(real.shear, mat.shear), torque: r(real.torque, mat.torque) };
 }
 

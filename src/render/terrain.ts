@@ -3,6 +3,8 @@ import { terrain } from '../terrain/terrain';
 import { SURFACES, TILE_CELLS } from '../terrain/spec';
 import { fieldHeight, type TerrainData } from '../terrain/raster';
 import { coverU, dustU, envU, DV_COVER_UV } from './shared';
+import { soilProps } from '../terrain/soil';
+import { initSoilGfx, updateSoilGfx } from './soil';
 
 /* The site's ground, drawn from the terrain data (terrain/raster.ts):
      ground    one mesh over every 0.5 m sample, its index rebuilt per 16 m tile at 1, 2 or 4 samples a quad by
@@ -13,6 +15,8 @@ import { coverU, dustU, envU, DV_COVER_UV } from './shared';
      features  kerbs (granite, their joints), walls and steps (ashlar, brick, board-marked concrete), slabs
      decals    manholes, valve boxes, gratings, oil, patches, puddles and the road markings, in one transparent mesh
      tufts     grass tufts scattered over the grass
+     soil      cut faces show the strata they were dug through (by depth below the natural ground: topsoil, made
+               ground, sand, clay, gravel, rock, each with its own texture), loose spoil its own lumpy cover
    Four draw calls. Only tiles a crater has touched are refreshed. */
 
 const GLSL = /* glsl */`
@@ -66,7 +70,10 @@ vec3 dvBump( vec3 n, vec3 viewPos, float h ) {
   float bx = dFdx( h ), by = dFdy( h );
   vec3 r1 = cross( dpy, n ), r2 = cross( n, dpx );
   float det = dot( dpx, r1 );
-  return normalize( abs( det ) * n - sign( det ) * ( bx * r1 + by * r2 ) );
+  // det is exactly 0 on degenerate quads (edge-on or collapsed derivatives): the sum is then a zero vector
+  vec3 g = abs( det ) * n - sign( det ) * ( bx * r1 + by * r2 );
+  float l2 = dot( g, g );
+  return l2 > 1e-24 ? g * inversesqrt( l2 ) : n;
 }
 `;
 
@@ -75,15 +82,55 @@ const COVER_GLSL = /* glsl */`
   float dvDust = clamp( dvCov.a * smoothstep( 0.2, 0.55, dvNoise( vGW.xz * 0.6 ) + dvCov.a * 0.5 ), 0.0, 0.92 );
   diffuseColor.rgb = mix( diffuseColor.rgb * ( 1.0 - 0.22 * uDvWet ), dvCov.rgb, dvDust );`;
 
+const SOIL_GLSL = /* glsl */`
+uniform vec3 uStrataCol[ 6 ];
+uniform float uStrataKind[ 6 ];
+/* each soil: albedo, roughness, bump (m); p is the face's own plane */
+void dvSoil( int k, vec2 p, vec3 base, out vec3 c, out float r, out float b ) {
+  float n1 = dvFbm( p * 1.7 ), n2 = dvNoise( p * 11.0 );
+  if ( k == 0 ) {          // topsoil: dark, crumbly, rootlets
+    float root = 1.0 - smoothstep( 0.0, 0.05, abs( dvNoise( p * vec2( 2.0, 6.0 ) ) - 0.5 ) );
+    c = base * ( 0.7 + 0.5 * n1 ) * ( 0.9 + 0.2 * n2 ) + vec3( 0.02, 0.014, 0.008 ) * root; r = 0.96; b = 0.008 * n2;
+  } else if ( k == 1 ) {   // clay: close, mottled brown and blue-grey, fissured
+    float mot = smoothstep( 0.45, 0.7, dvFbm( p * 0.9 + 3.0 ) );
+    float fis = 1.0 - smoothstep( 0.0, 0.025, abs( dvNoise( p * 2.3 ) - 0.5 ) );
+    c = mix( base, base * vec3( 0.72, 0.84, 1.0 ), mot ) * ( 0.88 + 0.2 * n1 ) * ( 1.0 - 0.35 * fis ); r = 0.7; b = 0.003 * n1 - 0.004 * fis;
+  } else if ( k == 2 ) {   // sand: fine grain, faint laminae
+    float lam = 0.5 + 0.5 * sin( p.y * 14.0 + 5.0 * dvNoise( p * 0.8 ) );
+    c = base * ( 0.9 + 0.12 * dvNoise( p * 24.0 ) ) * ( 0.94 + 0.08 * lam ); r = 0.95; b = 0.0015 * dvNoise( p * 24.0 );
+  } else if ( k == 3 ) {   // gravel: rounded pebbles, jostled, in a sandy matrix
+    vec2 q = p * 16.0, cell = floor( q ); vec2 o = vec2( dvHash( cell ), dvHash( cell + 7.3 ) ) * 0.36 - 0.18;
+    float hh = dvHash( cell + 2.1 ), peb = 1.0 - smoothstep( 0.18, 0.34, length( fract( q ) - 0.5 - o ) );
+    c = mix( base * 0.75, base * ( 0.65 + 0.75 * hh ), peb ); r = 0.85; b = 0.012 * peb;
+  } else if ( k == 4 ) {   // made ground: ashy soil with broken brick and concrete in it
+    float chunk = smoothstep( 0.72, 0.76, dvNoise( p * 11.0 + 1.7 ) ) * smoothstep( 0.3, 0.6, dvNoise( p * 1.3 ) ), sel = dvNoise( p * 11.0 + 9.1 );
+    vec3 bit = sel > 0.55 ? vec3( 0.15, 0.06, 0.035 ) : vec3( 0.16, 0.155, 0.145 );
+    c = mix( base * ( 0.72 + 0.45 * n1 ), bit * ( 0.85 + 0.3 * n2 ), 0.8 * chunk ); r = 0.93; b = 0.012 * chunk + 0.004 * n2;
+  } else if ( k == 5 ) {   // rock: bedded, jointed
+    float bed = smoothstep( 0.35, 0.5, abs( fract( p.y * 2.2 + 0.3 * n1 ) - 0.5 ) );
+    c = base * ( 0.8 + 0.3 * n1 ) * ( 1.0 - 0.25 * bed ); r = 0.8; b = 0.01 * n1;
+  } else {                 // loose spoil: clods and the shadowed gaps between them
+    float cl = dvNoise( p * 7.0 ), gap = smoothstep( 0.34, 0.18, dvNoise( p * 13.0 + 3.1 ) );
+    c = base * ( 0.72 + 0.45 * n1 ) * ( 0.85 + 0.3 * cl ) * ( 1.0 - 0.4 * gap ); r = 0.97; b = 0.018 * cl - 0.01 * gap;
+  }
+}
+`;
+
+/* strata colours and kinds of the site laid now (the ground material's uniforms) */
+const strataU = {
+  uStrataCol: { value: Array.from({ length: 6 }, () => new THREE.Color(0x6e6258)) },
+  uStrataKind: { value: [0, 4, 2, 1, 3, 5] },
+};
+
 function groundMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0 });
   m.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, dustU, coverU, envU);
+    Object.assign(sh.uniforms, dustU, coverU, envU, strataU);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec4 aSplatA;\nattribute vec4 aSplatB;\nvarying vec4 vSA;\nvarying vec4 vSB;\nvarying vec3 vGW;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSA = aSplatA;\nvSB = aSplatB;\nvGW = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;');
+      .replace('#include <common>', '#include <common>\nattribute vec4 aSplatA;\nattribute vec4 aSplatB;\nattribute vec4 aSoilA;\nattribute vec4 aStrata;\nattribute vec3 aLoose;\nvarying vec4 vSA;\nvarying vec4 vSB;\nvarying vec3 vGW;\nvarying vec4 vSoilA;\nvarying vec4 vStrata;\nvarying vec3 vLoose;\nvarying vec3 vNW;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSA = aSplatA;\nvSB = aSplatB;\nvSoilA = aSoilA;\nvStrata = aStrata;\nvLoose = aLoose;\nvNW = normalize( mat3( modelMatrix ) * objectNormal );\nvGW = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec4 vSA;\nvarying vec4 vSB;\nvarying vec3 vGW;\nuniform sampler2D uDvCover;\nuniform float uDvWet;\nfloat dvR;\nfloat dvB;\n${GLSL}`)
+      .replace('#include <common>', `#include <common>\nvarying vec4 vSA;\nvarying vec4 vSB;\nvarying vec3 vGW;\nvarying vec4 vSoilA;\nvarying vec4 vStrata;\nvarying vec3 vLoose;\nvarying vec3 vNW;\nuniform sampler2D uDvCover;\nuniform float uDvWet;\nfloat dvR;\nfloat dvB;\n${GLSL}\n${SOIL_GLSL}`)
       .replace('#include <map_fragment>', /* glsl */`#include <map_fragment>
         {
           float w[ 8 ]; w[ 0 ] = vSA.x; w[ 1 ] = vSA.y; w[ 2 ] = vSA.z; w[ 3 ] = vSA.w; w[ 4 ] = vSB.x; w[ 5 ] = vSB.y; w[ 6 ] = vSB.z; w[ 7 ] = vSB.w;
@@ -98,12 +145,28 @@ function groundMaterial(): THREE.MeshStandardMaterial {
           float edge = 1.0 - smoothstep( 0.55, 0.95, top / max( tot, 1e-3 ) );
           col *= 1.0 - 0.3 * edge * ( 0.6 + 0.4 * dvNoise( vGW.xz * 4.0 ) );
           diffuseColor.rgb = col;
+          // soil: a cut shows the strata it went through, by depth below the natural ground; spoil covers all
+          float exc = vSoilA.y, lz = vSoilA.z;
+          if ( exc > 0.015 || lz > 0.003 ) {
+            vec3 nw = normalize( vNW );
+            vec2 hz = normalize( vec2( -nw.z, nw.x ) + vec2( 1e-4, 0.0 ) );
+            vec2 sp = nw.y > 0.75 ? vGW.xz : vec2( dot( vGW.xz, hz ), vGW.y );
+            float dep = vSoilA.x - vGW.y + 0.08 * ( dvNoise( vec2( dot( vGW.xz, vec2( 0.7 ) ) * 0.9, 0.5 ) ) - 0.5 ) + 0.025 * ( dvNoise( sp * 7.0 ) - 0.5 );
+            int layer = dep < vStrata.x ? 0 : dep < vStrata.y ? 1 : dep < vStrata.z ? 2 : dep < vStrata.w ? 3 : dep < vSoilA.w ? 4 : 5;
+            vec3 sc; float sr, sb;
+            dvSoil( int( uStrataKind[ layer ] + 0.5 ), sp, uStrataCol[ layer ] * 0.85, sc, sr, sb );
+            float cut = smoothstep( 0.015, 0.1, exc );
+            diffuseColor.rgb = mix( diffuseColor.rgb, sc, cut ); dvR = mix( dvR, sr, cut ); dvB = mix( dvB, sb, cut );
+            float cov = smoothstep( 0.003, 0.05, lz );
+            dvSoil( 6, nw.y > 0.75 ? vGW.xz : sp, vLoose, sc, sr, sb );
+            diffuseColor.rgb = mix( diffuseColor.rgb, sc, cov ); dvR = mix( dvR, sr, cov ); dvB = mix( dvB, sb, cov );
+          }
         }
         ${COVER_GLSL}`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix( dvR, dvR * 0.45, uDvWet );')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = dvBump( normal, - vViewPosition, dvB );');
   };
-  m.customProgramCacheKey = () => 'dv-terrain';
+  m.customProgramCacheKey = () => 'dv-terrain-soil';
   return m;
 }
 
@@ -213,6 +276,8 @@ interface View {
   tufts: THREE.InstancedMesh;
   base: Float32Array;        // heights as built: paint and tufts go where the ground has been dug
   alive: number;
+  decor: boolean;            // decals and tufts wait for the ground to be still a moment
+  decorAt: number;
 }
 
 let scene: THREE.Scene | null = null;
@@ -221,6 +286,7 @@ let mats: { ground: THREE.MeshStandardMaterial; feat: THREE.MeshStandardMaterial
 
 export function initTerrainGfx(s: THREE.Scene): void {
   scene = s;
+  initSoilGfx(s);
   mats ??= {
     ground: groundMaterial(), feat: featureMaterial(), decal: decalMaterial(),
     tuft: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, side: THREE.DoubleSide }),
@@ -235,7 +301,9 @@ export function updateTerrainGfx(cam: THREE.Vector3): void {
   if (!view || view.data !== d) build(d);
   const v = view!;
   if (v.version !== terrain.version) refresh(v);
+  else if (v.decor && performance.now() - v.decorAt > 700) decor(v);
   if (pickLod(v, cam)) index(v);
+  updateSoilGfx();
 }
 
 function dispose(): void {
@@ -259,6 +327,15 @@ function build(d: TerrainData): void {
   geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nv * 3), 3));
   geo.setAttribute('aSplatA', new THREE.BufferAttribute(new Uint8Array(nv * 4), 4, true));
   geo.setAttribute('aSplatB', new THREE.BufferAttribute(new Uint8Array(nv * 4), 4, true));
+  geo.setAttribute('aSoilA', new THREE.BufferAttribute(new Float32Array(nv * 4), 4));
+  geo.setAttribute('aStrata', new THREE.BufferAttribute(new Float32Array(nv * 4), 4));
+  geo.setAttribute('aLoose', new THREE.BufferAttribute(new Uint8Array(nv * 3), 3, true));
+  const sd = d.soil;
+  for (let l = 0; l < 6; l++) {
+    const t = sd ? sd.types[Math.min(l, sd.nl - 1)] : 4;
+    strataU.uStrataCol.value[l].setHex(soilProps(t).color);
+    strataU.uStrataKind.value[l] = t;
+  }
   const ground = new THREE.Mesh(geo, mats!.ground);
   ground.receiveShadow = true;
   ground.castShadow = true;
@@ -276,7 +353,7 @@ function build(d: TerrainData): void {
   tufts.frustumCulled = false;
   group.add(ground, features, decals, tufts);
   scene!.add(group);
-  view = { data: d, group, ground, geo, skirt, lod: new Uint8Array(T * T), version: -1, features, decals, tufts, base: new Float32Array(d.h), alive: -1 };
+  view = { data: d, group, ground, geo, skirt, lod: new Uint8Array(T * T), version: -1, features, decals, tufts, base: new Float32Array(d.h), alive: -1, decor: false, decorAt: 0 };
   fill(view, 0, n - 1, 0, n - 1);
   hideSceneryGround(d.half);
   refresh(view);
@@ -288,6 +365,8 @@ function fill(v: View, i0: number, i1: number, j0: number, j1: number): void {
   const d = v.data, n = d.n, H = d.h;
   const pos = v.geo.attributes.position.array as Float32Array, nor = v.geo.attributes.normal.array as Float32Array;
   const sa = v.geo.attributes.aSplatA.array as Uint8Array, sb = v.geo.attributes.aSplatB.array as Uint8Array;
+  const so = v.geo.attributes.aSoilA.array as Float32Array, st = v.geo.attributes.aStrata.array as Float32Array, lo = v.geo.attributes.aLoose.array as Uint8Array;
+  const s = d.soil, nb = s ? s.nl - 1 : 0;
   for (let j = Math.max(0, j0); j <= Math.min(n - 1, j1); j++) for (let i = Math.max(0, i0); i <= Math.min(n - 1, i1); i++) {
     const k = i + n * j, x = -d.half + i * d.cell, z = -d.half + j * d.cell, y = H[k];
     const hl = H[Math.max(0, i - 1) + n * j], hr = H[Math.min(n - 1, i + 1) + n * j], hd = H[i + n * Math.max(0, j - 1)], hu = H[i + n * Math.min(n - 1, j + 1)];
@@ -299,12 +378,22 @@ function fill(v: View, i0: number, i1: number, j0: number, j1: number): void {
       pos[3 * q] = x; pos[3 * q + 1] = q === k ? y : y - 0.6; pos[3 * q + 2] = z;
       nor[3 * q] = nx; nor[3 * q + 1] = ny; nor[3 * q + 2] = nz;
       for (let c = 0; c < 4; c++) { sa[4 * q + c] = m === c ? 255 : 0; sb[4 * q + c] = m === c + 4 ? 255 : 0; }
+      if (s) {
+        so[4 * q] = s.ref[k]; so[4 * q + 1] = Math.max(0, s.hb[k] - s.ti[k]); so[4 * q + 2] = s.L[k]; so[4 * q + 3] = nb > 4 ? s.base[k * nb + 4] : 1e4;
+        for (let l = 0; l < 4; l++) st[4 * q + l] = l < nb ? s.base[k * nb + l] : 1e4;
+        if (s.L[k] > 0) {
+          _lc.setHex(soilProps(s.lt[k]).color);
+          lo[3 * q] = Math.round(_lc.r * 255); lo[3 * q + 1] = Math.round(_lc.g * 255); lo[3 * q + 2] = Math.round(_lc.b * 255);
+        }
+      } else so[4 * q + 3] = st[4 * q] = st[4 * q + 1] = st[4 * q + 2] = st[4 * q + 3] = 1e4;
     }
   }
-  for (const name of ['position', 'normal', 'aSplatA', 'aSplatB']) v.geo.attributes[name].needsUpdate = true;
+  for (const name of ['position', 'normal', 'aSplatA', 'aSplatB', 'aSoilA', 'aStrata', 'aLoose']) v.geo.attributes[name].needsUpdate = true;
 }
 
-/** After a change of the terrain: the tiles it touched, the features, the decals and tufts. */
+const _lc = new THREE.Color();
+
+/** After a change of the terrain: the tiles it touched, the features; the decals and tufts once it is still. */
 function refresh(v: View): void {
   const d = v.data, n = d.n;
   for (const t of terrain.dirty) {
@@ -315,11 +404,18 @@ function refresh(v: View): void {
   v.geo.computeBoundingSphere();
   const alive = d.items.reduce((s, it) => s + (it.alive ? 1 : 0), 0);
   if (alive !== v.alive) { v.alive = alive; v.features.geometry.dispose(); v.features.geometry = featureGeo(d); }
+  // a slipping bank changes the ground ten times a second: paint and grass follow it at most every 0.7 s
+  if (v.version < 0 || performance.now() - v.decorAt > 700) decor(v); else v.decor = true;
+  v.version = terrain.version;
+  void n;
+}
+
+function decor(v: View): void {
   v.decals.geometry.dispose();
   v.decals.geometry = decalGeo(v);
   tufts(v);
-  v.version = terrain.version;
-  void n;
+  v.decor = false;
+  v.decorAt = performance.now();
 }
 
 /* ---------------- tiles ---------------- */
@@ -460,7 +556,7 @@ function tufts(v: View): void {
   const max = v.tufts.count;
   for (let j = 1; j < n - 1 && c < max; j++) for (let i = 1; i < n - 1 && c < max; i++) {
     const k = i + n * j;
-    if (d.mat[k] !== grass) continue;
+    if (d.mat[k] !== grass || Math.abs(d.h[k] - v.base[k]) > 0.03) continue;
     const r = hash(i, j);
     if (r > 0.55) continue;
     const x = -d.half + (i + hash(j, i)) * d.cell, z = -d.half + (j + hash(i + 7, j)) * d.cell;

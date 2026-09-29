@@ -1,14 +1,13 @@
 import type { PieceSpec, PrefabView } from '../types.ts';
 import { crates, drums, place, tnt } from './kit.ts';
 import { serviceGantry } from './rigging.ts';
-import * as B from './buildings.ts';
 import * as P from './plant.ts';
-import * as S from './structures.ts';
 import * as MC from './machines.ts';
 import * as GR from './grid.ts';
 import * as EL from './electrical.ts';
 import { pieceAabb } from './validate.ts';
 import { LANDMARKS } from './architecture/index.ts';
+import { BUILDING_VARIANTS, building } from '../buildings/registry.gen.ts';
 
 export interface Prefab {
   id: string;
@@ -37,79 +36,86 @@ function prefab(id: string, name: string, category: Prefab['category'], make: ()
   return { id, name, category, build: (x, z, quarter) => place(centred(), x, z, quarter) };
 }
 
-export const PREFABS: Prefab[] = [
+/* Registry buildings: name, category and parameters come from the package's BuildingDef variants. */
+function fromBuilding(id: string): Prefab {
+  const v = BUILDING_VARIANTS.find((b) => b.id === id);
+  if (!v) throw new Error(`unknown building '${id}'`);
+  return prefab(v.id, v.name, v.category, () => building(v.id, at));
+}
+
+const HAND: Prefab[] = [
   // houses
-  prefab('shed', 'Garden shed', 'houses', () => S.gardenShed(at)),
-  prefab('outhouse', 'Outhouse', 'houses', () => S.outhouse(at)),
-  prefab('greenhouse', 'Greenhouse', 'houses', () => S.greenhouse(at)),
-  prefab('bungalow', 'Brick bungalow', 'houses', () => S.bungalow(at)),
-  prefab('timber-house', 'Timber-frame family house', 'houses', () => B.timberHouse(at)),
-  prefab('terrace', 'Victorian terrace with pub', 'houses', () => B.victorianTerrace(at)),
-  prefab('cottages', 'Cottage terrace', 'houses', () => S.cottageRow(at)),
-  prefab('cottages-2', 'Pair of cottages', 'houses', () => S.cottageRow({ ...at, count: 2 })),
-  prefab('tudor', 'Timber-frame house', 'houses', () => S.timberFrameHouse(at)),
-  prefab('tudor-scaffold', 'Timber-frame house, scaffolded', 'houses', () => S.timberFrameHouse({ ...at, scaffold: true })),
-  prefab('flats-3', 'Walk-up flats, 3 storeys', 'houses', () => S.apartmentBlock({ ...at, storeys: 3 })),
-  prefab('flats-4', 'Walk-up flats, 4 storeys', 'houses', () => S.apartmentBlock(at)),
-  prefab('flats-6', 'Walk-up flats, 6 storeys', 'houses', () => S.apartmentBlock({ ...at, storeys: 6 })),
-  prefab('flats-scaffold', 'Walk-up flats under scaffold', 'houses', () => S.apartmentBlock({ ...at, storeys: 3, scaffold: true })),
-  prefab('chipshop', 'Corner chip shop', 'houses', () => S.chipShop(at)),
-  prefab('site-office', 'Site office', 'houses', () => S.siteOffice(at)),
+  fromBuilding('shed'),
+  fromBuilding('outhouse'),
+  fromBuilding('greenhouse'),
+  fromBuilding('bungalow'),
+  fromBuilding('timber-house'),
+  fromBuilding('terrace'),
+  fromBuilding('cottages'),
+  fromBuilding('cottages-2'),
+  fromBuilding('tudor'),
+  fromBuilding('tudor-scaffold'),
+  fromBuilding('flats-3'),
+  fromBuilding('flats-4'),
+  fromBuilding('flats-6'),
+  fromBuilding('flats-scaffold'),
+  fromBuilding('chipshop'),
+  fromBuilding('site-office'),
   // towers
-  prefab('tower-block-6', 'Tower block, 6 storeys', 'towers', () => S.towerBlock(at)),
-  prefab('tower-block-4', 'Tower block, 4 storeys', 'towers', () => S.towerBlock({ ...at, storeys: 4 })),
-  prefab('office-4', 'Glass office, 4 storeys', 'towers', () => S.officeBlock(at)),
-  prefab('office-5', 'Glass office, 5 storeys', 'towers', () => S.officeBlock({ ...at, storeys: 5 })),
-  prefab('skyscraper-18', 'Skyscraper, 18 storeys', 'towers', () => S.skyscraper(at)),
-  prefab('skyscraper-12', 'Skyscraper, 12 storeys', 'towers', () => S.skyscraper({ ...at, storeys: 12 })),
-  prefab('backdrop-tower', 'Skyline tower (simple)', 'towers', () => B.backdropTower(at)),
-  prefab('water-tower', 'Water tower', 'towers', () => S.waterTower(at)),
-  prefab('brick-stack', 'Brick stack', 'towers', () => S.brickStack({ ...at, courses: 7 })),
-  prefab('chimney', 'Industrial chimney', 'towers', () => S.industrialChimney(at)),
-  prefab('pylon', 'Transmission pylon', 'towers', () => S.latticePylon(at)),
-  prefab('crane', 'Tower crane', 'towers', () => S.towerCrane(at)),
-  prefab('cooling-tower', 'Cooling tower', 'towers', () => S.coolingTower(at)),
+  fromBuilding('tower-block-6'),
+  fromBuilding('tower-block-4'),
+  fromBuilding('office-4'),
+  fromBuilding('office-5'),
+  fromBuilding('skyscraper-18'),
+  fromBuilding('skyscraper-12'),
+  fromBuilding('backdrop-tower'),
+  fromBuilding('water-tower'),
+  fromBuilding('brick-stack'),
+  fromBuilding('chimney'),
+  fromBuilding('pylon'),
+  fromBuilding('crane'),
+  fromBuilding('cooling-tower'),
   prefab('wind-turbine', 'Wind turbine', 'towers', () => P.windTurbineSite(at)),
   // industrial
-  prefab('warehouse', 'Steel warehouse', 'industrial', () => S.warehouse(at)),
-  prefab('warehouse-stocked', 'Warehouse full of gas', 'industrial', () => S.warehouse({ ...at, stock: true })),
-  prefab('mill', 'Brick mill', 'industrial', () => S.mill({ ...at, stock: true })),
-  prefab('factory', 'Sawtooth factory with stack', 'industrial', () => S.factory({ ...at, stock: true })),
-  prefab('factory-plain', 'Sawtooth factory', 'industrial', () => S.factory({ ...at, stack: false })),
-  prefab('barn', 'Timber barn', 'industrial', () => S.timberBarn({ ...at, hay: true })),
-  prefab('pump-house', 'Pump house', 'industrial', () => S.pumpHouse(at)),
-  prefab('pipe-rack', 'Construction services pipe rack', 'industrial', () => S.pipeRack(at)),
+  fromBuilding('warehouse'),
+  fromBuilding('warehouse-stocked'),
+  fromBuilding('mill'),
+  fromBuilding('factory'),
+  fromBuilding('factory-plain'),
+  fromBuilding('barn'),
+  fromBuilding('pump-house'),
+  fromBuilding('pipe-rack'),
   prefab('service-gantry', 'Rope & wiring service gantry', 'industrial', () => serviceGantry(0, 0)),
   prefab('boiler-house', 'Boiler house with flue', 'industrial', () => P.boilerHouse(at)),
   prefab('press-shop', 'Press shop', 'industrial', () => P.pressShop(at)),
   prefab('hvac-plant', 'Rooftop HVAC plant', 'industrial', () => P.hvacPlant(at)),
   prefab('mill-wheel', 'Mill waterwheel', 'industrial', () => P.millWheel(at)),
   // infrastructure
-  prefab('car-park', 'Multi-storey car park', 'infrastructure', () => S.carPark({ ...at, cars: 2 })),
-  prefab('overpass', 'Road overpass', 'infrastructure', () => S.overpass(at)),
-  prefab('truss-bridge', 'Steel truss footbridge', 'infrastructure', () => S.trussBridge(at)),
-  prefab('stand', 'Stadium stand', 'infrastructure', () => S.stadiumStand(at)),
-  prefab('bus-shelter', 'Bus shelter', 'infrastructure', () => S.busShelter(at)),
-  prefab('garden-wall', 'Garden wall', 'infrastructure', () => S.gardenWall({ ...at, length: 12, gate: 2 })),
+  fromBuilding('car-park'),
+  fromBuilding('overpass'),
+  fromBuilding('truss-bridge'),
+  fromBuilding('stand'),
+  fromBuilding('bus-shelter'),
+  fromBuilding('garden-wall'),
   prefab('substation', 'Electrical substation', 'infrastructure', () => P.substation(at)),
   prefab('pumping-station', 'Water pumping station', 'infrastructure', () => P.pumpingStation(at)),
   prefab('pole-line', 'Overhead power line', 'infrastructure', () => P.poleLineSite(at)),
   // heritage
-  prefab('chapel', 'Chapel and spire', 'heritage', () => S.chapel({ ...at, graves: 5 })),
-  prefab('rotunda', 'Domed rotunda', 'heritage', () => S.rotunda(at)),
-  prefab('spiral-stair', 'Cast-iron spiral stair', 'heritage', () => S.spiralFolly(at)),
-  prefab('arch-bridge', 'Stone arch bridge', 'heritage', () => S.stoneArchBridge(at)),
-  prefab('brick-wall', 'Brick-by-brick wall', 'heritage', () => S.brickByBrickWall(at)),
-  prefab('cottage-row-5', 'Long cottage terrace', 'heritage', () => S.cottageRow({ ...at, count: 5 })),
+  fromBuilding('chapel'),
+  fromBuilding('rotunda'),
+  fromBuilding('spiral-stair'),
+  fromBuilding('arch-bridge'),
+  fromBuilding('brick-wall'),
+  fromBuilding('cottage-row-5'),
   // props
-  prefab('car', 'Car', 'props', () => S.car({ ...at, protected: false })),
-  prefab('van', 'Panel van', 'props', () => S.van(at)),
-  prefab('scaffold-tower', 'Scaffold tower', 'props', () => S.scaffoldTower(at)),
+  fromBuilding('car'),
+  fromBuilding('van'),
+  fromBuilding('scaffold-tower'),
   prefab('crate-stack', 'Crate stack', 'props', () => crates(0, 0, 0, 3, 2, 3)),
   prefab('barrels', 'Barrel cache', 'props', () => drums('barrel', 0, 0, 0, 3, 3)),
   prefab('propane', 'Propane cache', 'props', () => drums('propane', 0, 0, 0, 3, 2)),
   prefab('tnt-stack', 'TNT stack', 'props', () => [...tnt(-0.35, 0, 0, 3), ...tnt(0.35, 0, 0, 2)]),
-  prefab('mixed-cache', 'Mixed explosives', 'props', () => S.dump({ ...at, crates: [2, 1, 2], barrels: [2, 2], propane: [2, 1], tnt: 2 })),
+  fromBuilding('mixed-cache'),
   prefab('crate', 'Crate', 'props', () => crates(0, 0, 0, 1, 1, 1)),
   prefab('barrel', 'Barrel', 'props', () => drums('barrel', 0, 0, 0, 1, 1)),
   prefab('propane-tank', 'Propane tank', 'props', () => drums('propane', 0, 0, 0, 1, 1)),
@@ -153,6 +159,11 @@ export const PREFABS: Prefab[] = [
   // landmarks at true scale (src/levels/architecture)
   ...LANDMARKS.map((l) => prefab(l.id, l.name, l.category, () => l.make(at))),
 ];
+
+/* A registry building none of whose variants is listed above joins the palette automatically, every variant, in registry
+   order: adding a building needs only its package folder and `npm run buildings`. */
+const listed = new Set(HAND.map((p) => BUILDING_VARIANTS.find((v) => v.id === p.id)?.base).filter((b) => b !== undefined));
+export const PREFABS: Prefab[] = [...HAND, ...BUILDING_VARIANTS.filter((v) => !listed.has(v.base)).map((v) => fromBuilding(v.id))];
 
 export function prefabView(p: Prefab): PrefabView {
   const ps = p.build(0, 0, 0);

@@ -1,6 +1,6 @@
 import { clamp } from 'math';
 import type { MaterialId, PieceSpec, Quat, Quality, Vec3 } from '../types';
-import { b3, world, stepCount } from '../physics/physics';
+import { b3, world, stepCount, randomStream } from '../physics/physics';
 import { MATS, effectiveDensity, type PhysMat } from './materials';
 import * as P from './polytope';
 import {
@@ -47,6 +47,8 @@ export interface DetailHost {
 }
 
 let host: DetailHost | null = null;
+/* its own stream: which units a hit knocks out must not shift the fracture seeds (or depend on what is drawn) */
+const rand = randomStream(0xde7a11);
 export function setDetailHost(h: DetailHost): void { host = h; }
 
 /* ---------------- tuning ---------------- */
@@ -65,9 +67,9 @@ export interface DetailPreset { near: number; cap: number; add: number; move: nu
 /** LOD: detail draws within `near` m of the camera (hidden again past 1.2 × near), at most `cap` instances;
     `add` / `move` bound the instances written per frame for sets coming into view and for moving members. */
 export const DETAIL_QUALITY: Record<Quality, DetailPreset> = {
-  low: { near: 20, cap: 30_000, add: 12_000, move: 8_000 },
-  medium: { near: 40, cap: 110_000, add: 40_000, move: 20_000 },
-  high: { near: 70, cap: 250_000, add: 80_000, move: 30_000 },
+  low: { near: 20, cap: 30_000, add: 12_000, move: 16_000 },
+  medium: { near: 40, cap: 110_000, add: 40_000, move: 45_000 },
+  high: { near: 70, cap: 250_000, add: 80_000, move: 70_000 },
 };
 let qualityOverride: Quality | null = null;
 export function setDetailQuality(q: Quality | null): void { qualityOverride = q; }
@@ -226,6 +228,8 @@ interface DetailSet extends PoolOwner {
   grid: Map<number, number[]> | null;
   d: number;
   chunk: boolean;
+  lm: Float32Array | null; // unit matrices in the body frame (3 × 4 each, scale folded in), built on first redraw
+  drawn: number;           // frame the units were last posed
 }
 
 const sets = new Map<Piece, DetailSet>();
@@ -239,7 +243,7 @@ function newSet(p: Piece, n: number): DetailSet {
     p, n, spec: new Array<PieceSpec>(n), kind: new Int32Array(n), lt: new Float64Array(n * 7), box: new Float64Array(n * 6),
     slots: new Int32Array(n).fill(-1), gone: new Uint8Array(n), layer: new Uint8Array(n), vol: new Float32Array(n), mass: new Float32Array(n),
     live: 0, k: 1, shown: false, pose: DEAD_POSE(), cen: [0, 0, 0], rad: 0, parts: null, pending: [], pendingVol: 0, carved: -1,
-    hit: { step: -9, at: [0, 0, 0], r: 0 }, grid: null, d: Infinity, chunk: false,
+    hit: { step: -9, at: [0, 0, 0], r: 0 }, grid: null, d: Infinity, chunk: false, lm: null, drawn: 0,
   };
 }
 
@@ -375,6 +379,11 @@ export function hasDetail(p: Piece): boolean {
   return sets.has(p);
 }
 
+/** dormant units a member still carries (0 without detail) */
+export function detailUnits(p: Piece): number {
+  return sets.get(p)?.live ?? 0;
+}
+
 /** remaining dormant units of a member (tests, HUD) */
 export function detailOf(p: Piece): { units: number; mass: number; parts: number; chunk: boolean } | null {
   const s = sets.get(p);
@@ -473,15 +482,49 @@ function hide(s: DetailSet): void {
   s.shown = false;
 }
 
+const IDQ = [0, 0, 0, 1], ZERO = [0, 0, 0, 0, 0, 0, 1];
+function localMatrices(s: DetailSet): Float32Array {
+  if (s.lm) return s.lm;
+  const lm = new Float32Array(s.n * 12);
+  for (let i = 0; i < s.n; i++) {
+    const m = unitMatrix(s, i, ZERO);
+    const o = i * 12;
+    lm[o] = m[0]; lm[o + 1] = m[1]; lm[o + 2] = m[2]; lm[o + 3] = m[4]; lm[o + 4] = m[5]; lm[o + 5] = m[6];
+    lm[o + 6] = m[8]; lm[o + 7] = m[9]; lm[o + 8] = m[10]; lm[o + 9] = m[12]; lm[o + 10] = m[13]; lm[o + 11] = m[14];
+  }
+  void IDQ;
+  return (s.lm = lm);
+}
+
+/* body pose × unit's own matrix: one 3×3 product per unit instead of re-deriving it from quaternions */
+const _om = new Float32Array(16);
 function redraw(s: DetailSet, pose: ArrayLike<number>): number {
+  const lm = localMatrices(s);
+  const x = pose[3], y = pose[4], z = pose[5], w = pose[6];
+  const x2 = x + x, y2 = y + y, z2 = z + z, xx = x * x2, xy = x * y2, xz = x * z2, yy = y * y2, yz = y * z2, zz = z * z2, wx = w * x2, wy = w * y2, wz = w * z2;
+  const r00 = 1 - (yy + zz), r10 = xy + wz, r20 = xz - wy, r01 = xy - wz, r11 = 1 - (xx + zz), r21 = yz + wx, r02 = xz + wy, r12 = yz - wx, r22 = 1 - (xx + yy);
+  const tx = pose[0], ty = pose[1], tz = pose[2];
+  _om[15] = 1;
   let n = 0;
   for (let i = 0; i < s.n; i++) {
     const sl = s.slots[i];
     if (sl < 0) continue;
-    poolWrite(kinds[s.kind[i]].pool!, sl, unitMatrix(s, i, pose));
+    const o = i * 12;
+    for (let c = 0; c < 3; c++) {
+      const a = lm[o + c * 3], b = lm[o + c * 3 + 1], d = lm[o + c * 3 + 2];
+      _om[c * 4] = r00 * a + r01 * b + r02 * d;
+      _om[c * 4 + 1] = r10 * a + r11 * b + r12 * d;
+      _om[c * 4 + 2] = r20 * a + r21 * b + r22 * d;
+    }
+    const a = lm[o + 9], b = lm[o + 10], d = lm[o + 11];
+    _om[12] = tx + r00 * a + r01 * b + r02 * d;
+    _om[13] = ty + r10 * a + r11 * b + r12 * d;
+    _om[14] = tz + r20 * a + r21 * b + r22 * d;
+    poolWrite(kinds[s.kind[i]].pool!, sl, _om);
     n++;
   }
   s.pose.set(pose);
+  s.drawn = frame;
   return n;
 }
 
@@ -508,21 +551,34 @@ export function syncDetail(alpha: number): void {
   }
   const want = new Set(order.slice(0, cut));
   for (const s of sets.values()) if (s.shown && !want.has(s)) hide(s);
+  movers.length = 0;
   for (const s of want) {
     const pose = drawPose(s.p, alpha);
     if (!s.shown) {
       if (added + s.live > q.add && added > 0) continue;
       added += show(s, pose);
+      s.drawn = frame;
       continue;
     }
     const pv = s.pose;
-    if (pv[0] === pose[0] && pv[1] === pose[1] && pv[2] === pose[2] && pv[3] === pose[3] && pv[4] === pose[4] && pv[5] === pose[5] && pv[6] === pose[6]) continue;
-    // too many members moving at once: the far ones fall back to their envelope until they settle
-    if (moved + s.live > q.move && moved > 0) { hide(s); continue; }
-    moved += redraw(s, pose);
+    if (pv[0] === pose[0] && pv[1] === pose[1] && pv[2] === pose[2] && pv[3] === pose[3] && pv[4] === pose[4] && pv[5] === pose[5] && pv[6] === pose[6]) { s.drawn = frame; continue; }
+    movers.push(s);
+  }
+  /* Too many members moving at once: the nearest go first, and a set passed over waits a frame or two at its last
+     pose (it climbs the queue as it waits) rather than falling back to its plain envelope; only one left behind for
+     several frames shows its envelope until it is posed again. */
+  if (movers.length > 1) movers.sort((a, b) => a.d / (1 + frame - a.drawn) - b.d / (1 + frame - b.drawn));
+  for (const s of movers) {
+    if (moved + s.live > q.move && moved > 0) {
+      if (frame - s.drawn > STALE_FRAMES) hide(s);
+      continue;
+    }
+    moved += redraw(s, drawPose(s.p, alpha));
   }
   poolFlush();
 }
+const movers: DetailSet[] = [];
+const STALE_FRAMES = 4;
 
 /* ---------------- motion & neighbourhood ---------------- */
 
@@ -605,6 +661,7 @@ interface Release {
   rim: Set<number>;      // units that stay bonded to what is left, if a carve follows
   filter: Piece | null;  // the body they are released from, when it keeps its envelope
   temp?: number;
+  spread?: boolean;      // clumps drift apart too (a member breaking up), not only single units
 }
 
 interface Made { i: number; q: Piece }
@@ -630,7 +687,7 @@ function spawnUnit(s: DetailSet, i: number, R: Release): Piece | null {
   const lin = velocityAt(R.m, rw);
   if (!R.blast && R.speed > 0 && !R.rim.has(i)) {
     const dx = pos[0] - R.at[0], dy = pos[1] - R.at[1], dz = pos[2] - R.at[2], l = Math.hypot(dx, dy, dz) || 1;
-    const k = R.speed * (0.6 + 0.4 * P.rand()) / l;
+    const k = R.speed * (0.6 + 0.4 * rand()) / l;
     lin[0] += dx * k; lin[1] += dy * k + 0.3 * R.speed; lin[2] += dz * k;
   }
   const vol = s.vol[i], rubble = vol < RUBBLE_VOL;
@@ -670,6 +727,11 @@ function spawnChunk(s: DetailSet, idx: number[], R: Release, cell: [number, numb
   qrot(rw, R.m.rot, c[0], c[1], c[2]);
   const pos: Vec3 = [R.m.pos[0] + rw[0], R.m.pos[1] + rw[1], R.m.pos[2] + rw[2]];
   const lin = velocityAt(R.m, rw);
+  if (R.spread) {
+    const wc = [pos[0] - R.at[0], pos[1] - R.at[1], pos[2] - R.at[2]], l = Math.hypot(wc[0], wc[1], wc[2]) || 1;
+    const k = R.speed * (0.5 + 0.5 * rand()) / l;
+    lin[0] += wc[0] * k; lin[1] += wc[1] * k + 0.2 * R.speed; lin[2] += wc[2] * k;
+  }
   const K = kinds[s.kind[i0]];
   const q = host!.createPiece({
     mat: K.mat, tint: s.spec[i0].tint, poly: P.boxPoly(half[0], half[1], half[2]), box: half, cyl: null, pos, rot: [...R.m.rot] as Quat, lin,
@@ -1104,6 +1166,7 @@ function reach(p: Piece, energy: number, blast: boolean): number {
 export function detailDamage(p: Piece, point: Vec3, energy: number, blast: boolean): number {
   const s = sets.get(p);
   if (!s || !host || p.dead || s.live === 0) return 0;
+  rand.at(p.spawnPos[0], p.spawnPos[1], p.spawnPos[2], point[0], point[1], point[2], stepCount);
   const r = reach(p, energy, blast);
   const m = motionOf(p);
   const li = toLocal(point, m.pos, m.rot);
@@ -1118,7 +1181,7 @@ export function detailDamage(p: Piece, point: Vec3, energy: number, blast: boole
     const dz = Math.max(s.box[b + 2] - li[2], 0, li[2] - s.box[b + 5]);
     const d = Math.hypot(dx, dy, dz);
     if (d > r) continue;
-    if (d > 0.7 * r) { if (P.rand() < 0.5) continue; rim.add(i); }
+    if (d > 0.7 * r) { if (rand() < 0.5) continue; rim.add(i); }
     core.push(i);
   }
   s.hit = { step: stepCount, at: li, r };
@@ -1205,6 +1268,7 @@ function shrink(s: DetailSet): void {
 
 /** fracture: instead of Voronoi cells, the units in the struck region come out and the leaves part company. */
 export function detailFracture(p: Piece, point: Vec3, intensity: number, blast: boolean): boolean {
+  rand.at(p.spawnPos[0], p.spawnPos[1], p.spawnPos[2], point[0], point[1], point[2], stepCount);
   const s = sets.get(p);
   if (!s || !host) return false;
   const h = host;
@@ -1225,7 +1289,7 @@ export function detailFracture(p: Piece, point: Vec3, intensity: number, blast: 
     if (cu < lo[u] || cu > hi[u] || cv < lo[v] || cv > hi[v]) continue;
     core.push(i);
     const e = Math.max(Math.abs(cu - li[u]), Math.abs(cv - li[v]));
-    if (e > r - 0.12 && P.rand() < 0.5) rim.add(i);
+    if (e > r - 0.12 && rand() < 0.5) rim.add(i);
   }
   h.counters.fractures++;
   const pm = p.pm, vol0 = p.volume;
@@ -1249,8 +1313,75 @@ export function detailFracture(p: Piece, point: Vec3, intensity: number, blast: 
   return true;
 }
 
+const SHATTER_BODIES = 24;
+/** A panel blown out of its frame breaks up along its joints in flight: the units nearest the load come out one by
+    one, the rest as joint-bounded clumps still drawn as their units (at most SHATTER_BODIES bodies, coarser when the
+    debris budget is tight), each drifting apart from the others. The member is gone afterwards. */
+export function detailShatter(p: Piece, at: Vec3): boolean {
+  const s = sets.get(p);
+  if (!s || !host || p.dead || s.live === 0) return false;
+  // a clump that lands hard comes apart into its bricks, while the debris budget has room for them
+  const fine = s.chunk;
+  const room = host.budget() * 1.1 - host.debris();
+  const most = fine ? Math.min(18, Math.floor(room / 25)) : clamp(Math.floor(room / 6), 4, SHATTER_BODIES + 8);
+  if (fine && most < 3) return false;
+  rand.at(p.spawnPos[0], p.spawnPos[1], p.spawnPos[2], at[0], at[1], at[2], stepCount);
+  const h = host, m = motionOf(p), li = toLocal(at, m.pos, m.rot);
+  // mortar and skims go with the clumps they hold together (brick rubble comes with its mortar on); the rest is dust
+  const solid: number[] = [], joints: number[] = [];
+  let dustVol = 0;
+  for (let i = 0; i < s.n; i++) {
+    if (s.gone[i]) continue;
+    if (kinds[s.kind[i]].cosmetic) joints.push(i); else solid.push(i);
+  }
+  const dr = h.debris() / Math.max(1, h.budget());
+  const nSingle = Math.min(fine ? Math.ceil(most * 0.6) : 8, Math.floor(most / 4));
+  const dist = (i: number): number => {
+    const b = i * 6;
+    return Math.hypot((s.box[b] + s.box[b + 3]) / 2 - li[0], (s.box[b + 1] + s.box[b + 4]) / 2 - li[1], (s.box[b + 2] + s.box[b + 5]) / 2 - li[2]);
+  };
+  solid.sort((a, b) => dist(a) - dist(b) || a - b);
+  const singles = solid.slice(0, nSingle), rest = solid.slice(nSingle).concat(joints);
+  let size = fine ? 0.3 : 0.5;
+  let [groups, cells] = cluster(s, rest, size);
+  const clumps = most - singles.length;
+  while (groups.length > clumps && size < 2.2) [groups, cells] = cluster(s, rest, (size *= 1.3));
+  const R: Release = { m, at, blast: false, speed: fine ? 0.8 : 1.4, rim: new Set(), filter: null, spread: true };
+  for (const i of singles) {
+    const q = spawnUnit(s, i, R);
+    drop(s, i);
+    if (q) { spent++; spawned++; }
+  }
+  for (let g = 0; g < groups.length; g++) {
+    const grp = groups[g];
+    const units = grp.filter((i) => !kinds[s.kind[i]].cosmetic);
+    if (units.length <= 1) {
+      for (const i of grp) if (i !== units[0]) { dustVol += s.vol[i]; drop(s, i); }
+      if (units.length) {
+        const q = spawnUnit(s, units[0], R);
+        drop(s, units[0]);
+        if (q) { spent++; spawned++; }
+      }
+      continue;
+    }
+    const q = spawnChunk(s, grp, R, cells[g]);
+    if (q) { spent++; spawned++; } else for (const i of grp) { dustVol += s.vol[i]; drop(s, i); }
+  }
+  peakStep = Math.max(peakStep, spent);
+  if (dustVol > 0 && !p.demolished) h.credit(p.root, dustVol * s.k, at);
+  h.counters.fractures++;
+  sets.delete(p);
+  h.destroyPiece(p);
+  const pm = MATS[p.mat];
+  fx.crushDust(at, p.volume, pm.dust);
+  fx.debris(at, 24, pm.chips, 6);
+  audio.fracture(at, p.mat, clamp(p.volume, 0.05, 2));
+  return true;
+}
+
 /** sever: the units the cut passes through drop out; the parts on either side become separate bodies. */
 export function detailSever(p: Piece, point: Vec3, normal: Vec3, kerf = 0.03): boolean {
+  rand.at(p.spawnPos[0], p.spawnPos[1], p.spawnPos[2], point[0], point[1], point[2], stepCount);
   const s = sets.get(p);
   if (!s || !host) return false;
   const m = motionOf(p);
@@ -1284,6 +1415,7 @@ function split(s: DetailSet, m: Motion, nl: Vec3, d: number, kerf: number, at: V
 
 /** crackMember: masonry cracks along the nearest bed joint, other members square across, a short way in. */
 export function detailCrack(p: Piece, at: Vec3, into: Vec3): boolean {
+  rand.at(p.spawnPos[0], p.spawnPos[1], p.spawnPos[2], at[0], at[1], at[2], stepCount);
   const s = sets.get(p);
   if (!s || !host) return false;
   allowance();
@@ -1301,7 +1433,7 @@ export function detailCrack(p: Piece, at: Vec3, into: Vec3): boolean {
   for (let i = 0; i < s.n; i++) if (!s.gone[i]) { lo = Math.min(lo, s.box[i * 6 + k]); hi = Math.max(hi, s.box[i * 6 + 3 + k]); }
   const L = sg > 0 ? hi - ai[k] : ai[k] - lo;
   if (L < 0.5) return false;
-  const want = ai[k] + sg * L * (0.1 + 0.3 * P.rand());
+  const want = ai[k] + sg * L * (0.1 + 0.3 * rand());
   // the unit face nearest the target: a bed joint for masonry
   let best = want, bd = Infinity;
   for (let i = 0; i < s.n; i++) {
@@ -1347,7 +1479,7 @@ export function detailHeat(p: Piece): void {
       near(s, s.box.subarray(b, b + 3), s.box.subarray(b + 3, b + 6), buf);
       exposed = buf.some((o) => s.gone[o] && o !== i && !!touch(s.box, b, s.box, o * 6) && (s.box[o * 6 + t] > s.box[b + t] + 0.004) === side >= 0);
     }
-    if (exposed && P.rand() < 0.35) pick.push(i);
+    if (exposed && rand() < 0.35) pick.push(i);
   }
   if (!pick.length) return;
   heatBudget -= pick.length;

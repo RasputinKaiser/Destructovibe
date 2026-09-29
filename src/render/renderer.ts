@@ -94,7 +94,7 @@ const PRESETS: Record<EnvPreset, Preset> = {
 
 /** near cascade box per quality (m), far cascade covers the skyline */
 const NEAR_BOX: Record<Quality, number> = { low: 60, medium: 70, high: 76 };
-const NEAR_MAP: Record<Quality, number> = { low: 1024, medium: 2048, high: 4096 };
+const NEAR_MAP: Record<Quality, number> = { low: 1024, medium: 2048, high: 2048 };
 const FAR_MAP: Record<Quality, number> = { low: 1024, medium: 1024, high: 2048 };
 const FAR_EVERY: Record<Quality, number> = { low: 6, medium: 4, high: 3 };
 const FAR_BOX = 360, SHADOW_DIST = 220, FAR_DIST = 420;
@@ -123,8 +123,18 @@ let godPass: GodRayPass | null = null;
 let exposurePass: ExposurePass | null = null;
 let lensPass: LensPass | null = null;
 let bloom: UnrealBloomPass | null = null;
+let grainOn = true;
+let caOn = true;
 
 /* ---------------- fullscreen helpers ---------------- */
+
+/* One NaN/Inf texel from any shader turns the bloom mip chain (and the god-ray blur) into a frame-wide black
+   smear. Checked on the exponent bits, which fast-math cannot fold away as it may an isnan(). */
+const FINITE_GLSL = /* glsl */`
+vec3 dvFinite( vec3 c ) {
+  uvec3 e = floatBitsToUint( c ) & 0x7f800000u;
+  return any( equal( e, uvec3( 0x7f800000u ) ) ) ? vec3( 0.0 ) : c;
+}`;
 
 const FS_VS = /* glsl */`
 varying vec2 vUv;
@@ -307,8 +317,9 @@ uniform float uAspect;
 uniform float uFar;
 uniform float uThresh;
 varying vec2 vUv;
+${FINITE_GLSL}
 void main() {
-  vec3 c = min( texture2D( tColor, vUv ).rgb, vec3( 30.0 ) );
+  vec3 c = min( dvFinite( texture2D( tColor, vUv ).rgb ), vec3( 30.0 ) );
   float sky = step( uFar * 0.995, texture2D( tDepth, vUv ).r );
   vec2 dv = ( vUv - uSun ) * vec2( uAspect, 1.0 );
   float fall = exp( - dot( dv, dv ) * 5.0 );
@@ -402,10 +413,11 @@ class GodRayPass extends Pass {
 const LUM_FS = /* glsl */`
 uniform sampler2D tColor;
 varying vec2 vUv;
+${FINITE_GLSL}
 void main() {
   const float o = 1.0 / 256.0;
-  vec3 c = texture2D( tColor, vUv + vec2( - o, - o ) ).rgb + texture2D( tColor, vUv + vec2( o, - o ) ).rgb
-    + texture2D( tColor, vUv + vec2( - o, o ) ).rgb + texture2D( tColor, vUv + vec2( o, o ) ).rgb;
+  vec3 c = dvFinite( texture2D( tColor, vUv + vec2( - o, - o ) ).rgb + texture2D( tColor, vUv + vec2( o, - o ) ).rgb
+    + texture2D( tColor, vUv + vec2( - o, o ) ).rgb + texture2D( tColor, vUv + vec2( o, o ) ).rgb );
   float l = dot( c * 0.25, vec3( 0.2126, 0.7152, 0.0722 ) );
   vec2 cc = vUv - 0.5;
   float w = exp( - dot( cc, cc ) * 5.0 );
@@ -441,6 +453,7 @@ uniform vec2 uClamp;
 uniform float uCA;
 uniform float uAspect;
 varying vec2 vUv;
+${FINITE_GLSL}
 void main() {
   vec2 a = texture2D( tAdapt, vec2( 0.5 ) ).rg;
   float ev = clamp( ( a.y - a.x ) * uStrength, - uClamp.x, uClamp.y );
@@ -449,7 +462,7 @@ void main() {
   // lateral CA grows with the square of the field radius: invisible in the centre, a fringe in the corners
   vec2 off = cc * dot( ca, ca ) * uCA;
   vec3 c = vec3( texture2D( tColor, vUv - off ).r, texture2D( tColor, vUv ).g, texture2D( tColor, vUv + off ).b );
-  gl_FragColor = vec4( c * exp2( ev ), 1.0 );
+  gl_FragColor = vec4( dvFinite( c * exp2( ev ) ), 1.0 );
 }`;
 
 class ExposurePass extends Pass {
@@ -465,6 +478,7 @@ class ExposurePass extends Pass {
   });
   reset = true;
   setSize(w: number, h: number): void { U(this.expoQ).uAspect.value = w / Math.max(1, h); }
+  setAberration(k: number): void { U(this.expoQ).uCA.value = k; }
   setLimits(down: number, up: number, strength: number): void {
     const u = U(this.expoQ);
     (u.uClamp.value as THREE.Vector2).set(down, up);
@@ -555,6 +569,11 @@ function ensureComposer(g: Gfx): EffectComposer {
   scenePass = new ScenePass(g.scene, g.camera, gtao);
   godPass = new GodRayPass(g.camera);
   bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), PRESETS[env].bloomS, 0.5, PRESETS[env].bloomT);
+  const hp = bloom.materialHighPassFilter;
+  hp.fragmentShader = hp.fragmentShader
+    .replace('void main() {', `${FINITE_GLSL}\nvoid main() {`)
+    .replace('vec4 texel = texture2D( tDiffuse, vUv );', 'vec4 texel = texture2D( tDiffuse, vUv ); texel.rgb = dvFinite( texel.rgb );');
+  hp.needsUpdate = true;
   exposurePass = new ExposurePass();
   lensPass = new LensPass();
   composer.addPass(scenePass);
@@ -566,6 +585,153 @@ function ensureComposer(g: Gfx): EffectComposer {
   composer.addPass(new SMAAPass());
   composer.addPass(lensPass);
   return composer;
+}
+
+/* ---------------- dynamic resolution ----------------
+   Frame time is held at 60 fps by walking a ladder: pixel ratio first, then the radius inside which walls draw as
+   individual bevelled units, then pixel ratio again. The frame interval says whether 60 is being missed; a GPU
+   timer query (where exposed) says whether the GPU is why, and whether there is headroom to climb back. Some
+   drivers' timers run long (ANGLE on Metal reads several times the real cost while frames still hit 60), so the
+   timer only counts while it agrees with the interval; otherwise climbing is probed on a backoff. */
+const LADDER: readonly (readonly [scale: number, shed: number])[] = [
+  [1, 0], [0.9, 0], [0.8, 0], [0.8, 1], [0.7, 1], [0.6, 1], [0.6, 2], [0.5, 2],
+];
+const GPU_BUDGET = 14, FRAME_BUDGET = 1000 / 60;
+let userScale = 0;
+let rung = 0;
+let gpuMs = 0;
+let frameMs = FRAME_BUDGET;
+let overT = 0;
+let underT = 0;
+let upWait = 3;
+let sinceUp = 1e9;
+let detailTier: Quality | null = null;
+let detailHook: ((q: Quality | null) => void) | null = null;
+
+interface TimerExt { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number }
+interface Timer { gl: WebGL2RenderingContext; ext: TimerExt; free: WebGLQuery[]; pending: WebGLQuery[]; open: boolean }
+let timer: Timer | null = null;
+
+function initTimer(r: THREE.WebGLRenderer): void {
+  const gl = r.getContext() as WebGL2RenderingContext;
+  const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2') as TimerExt | null;
+  timer = ext ? { gl, ext, free: [], pending: [], open: false } : null;
+}
+
+function timerBegin(): void {
+  if (!timer || timer.open || timer.pending.length > 6) return;
+  const q = timer.free.pop() ?? timer.gl.createQuery();
+  if (!q) return;
+  timer.gl.beginQuery(timer.ext.TIME_ELAPSED_EXT, q);
+  timer.pending.push(q);
+  timer.open = true;
+}
+
+function timerEnd(): void {
+  if (!timer?.open) return;
+  timer.gl.endQuery(timer.ext.TIME_ELAPSED_EXT);
+  timer.open = false;
+}
+
+/** latest finished GPU frame time in ms, or null if none has resolved */
+function timerPoll(): number | null {
+  if (!timer) return null;
+  const { gl, ext, pending, free } = timer;
+  let ms: number | null = null;
+  while (pending.length > (timer.open ? 1 : 0)) {
+    const q = pending[0];
+    if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) break;
+    const ns = gl.getQueryParameter(q, gl.QUERY_RESULT) as number;
+    pending.shift();
+    free.push(q);
+    if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) ms = ns / 1e6;
+  }
+  return ms;
+}
+
+const QUALITIES: readonly Quality[] = ['low', 'medium', 'high'];
+
+function applyDetailTier(): void {
+  const shed = userScale > 0 ? 0 : LADDER[rung][1];
+  const want = shed ? QUALITIES[Math.max(0, QUALITIES.indexOf(quality) - shed)] : null;
+  if (want === detailTier) return;
+  detailTier = want;
+  detailHook?.(want);
+}
+
+function effectiveScale(): number { return userScale > 0 ? userScale : LADDER[rung][0]; }
+
+function setRung(i: number): void {
+  const prev = effectiveScale();
+  rung = Math.max(0, Math.min(LADDER.length - 1, i));
+  overT = underT = 0;
+  applyDetailTier();
+  if (effectiveScale() !== prev) applyPixelRatio();
+}
+
+function adapt(dt: number): void {
+  const gpu = timerPoll();
+  if (gpu !== null) gpuMs = gpuMs > 0 ? gpuMs + (gpu - gpuMs) * 0.15 : gpu;
+  // hidden tabs tick on a 100 ms timeout; that says nothing about the GPU
+  if (document.hidden || dt <= 0) return;
+  frameMs += (Math.min(dt, 0.1) * 1000 - frameMs) * 0.1;
+  sinceUp += dt;
+  if (userScale > 0) return;
+  const trusted = timer !== null && gpuMs > 0 && gpuMs < frameMs * 1.15;
+  const missing = frameMs > FRAME_BUDGET * 1.12 && (!trusted || gpuMs > GPU_BUDGET);
+  const roomy = trusted ? gpuMs < GPU_BUDGET * 0.7 : frameMs < FRAME_BUDGET * 1.04;
+  overT = missing ? overT + dt : 0;
+  underT = roomy ? underT + dt : 0;
+  if (overT > 0.75 && rung < LADDER.length - 1) {
+    // falling straight back after a climb: that level is out of reach, probe it less often
+    upWait = sinceUp < 6 ? Math.min(upWait * 2, 40) : 3;
+    setRung(rung + 1);
+  } else if (underT > upWait && rung > 0) {
+    setRung(rung - 1);
+    sinceUp = 0;
+  }
+}
+
+function basePixelRatio(): number {
+  const dpr = window.devicePixelRatio || 1;
+  return quality === 'low' ? 1 : quality === 'medium' ? Math.min(dpr, 1.5) : Math.min(dpr, 2);
+}
+
+function applyPixelRatio(): void {
+  if (!gfx) return;
+  gfx.renderer.setPixelRatio(Math.max(0.5, basePixelRatio() * effectiveScale()));
+  resize();
+  scenePass?.resizeAO();
+}
+
+/** 0 = dynamic, else a fixed fraction of the quality's pixel ratio */
+export function setRenderScale(s: number): void {
+  userScale = s > 0 ? Math.min(1, Math.max(0.5, s)) : 0;
+  overT = underT = 0;
+  upWait = 3;
+  applyDetailTier();
+  applyPixelRatio();
+}
+
+/** detail-tier override requests (null = the quality's own); main wires it to the unit-detail LOD */
+export function onDetailTier(cb: (q: Quality | null) => void): void { detailHook = cb; cb(detailTier); }
+
+export function renderStats(): { scale: number; gpuMs: number; frameMs: number; timed: boolean; detail: Quality } {
+  return {
+    scale: gfx ? +(gfx.renderer.getPixelRatio() / basePixelRatio()).toFixed(2) : 1, gpuMs: +gpuMs.toFixed(2), frameMs: +frameMs.toFixed(2),
+    timed: timer !== null && gpuMs < frameMs * 1.15, detail: detailTier ?? quality,
+  };
+}
+
+export function setPostFx(o: { grain: boolean; aberration: boolean }): void {
+  grainOn = o.grain;
+  caOn = o.aberration;
+  applyLens();
+}
+
+function applyLens(): void {
+  lensPass?.set(grainOn ? (quality === 'high' ? 0.018 : 0.012) : 0, 0.28);
+  exposurePass?.setAberration(caOn ? 0.006 : 0);
 }
 
 function resize(): void {
@@ -634,8 +800,8 @@ function applyQuality(q: Quality): void {
   setMeshDetail(q);
   if (!gfx) return;
   const { renderer } = gfx;
-  const dpr = window.devicePixelRatio || 1;
-  renderer.setPixelRatio(q === 'low' ? 1 : q === 'medium' ? Math.min(dpr, 1.5) : Math.min(dpr, 2));
+  renderer.setPixelRatio(Math.max(0.5, basePixelRatio() * effectiveScale()));
+  applyDetailTier();
   setShadowBox(sun, NEAR_BOX[q], SHADOW_DIST, NEAR_MAP[q]);
   setShadowBox(sunFar, FAR_BOX, FAR_DIST, FAR_MAP[q]);
   sun.shadow.radius = q === 'low' ? 1 : q === 'medium' ? 2.5 : 3;
@@ -645,12 +811,13 @@ function applyQuality(q: Quality): void {
     ensureComposer(gfx);
     if (scenePass) {
       scenePass.ao = true;
-      scenePass.aoScale = q === 'high' ? 1 : 0.5;
+      // half-res AO upsampled is indistinguishable under the denoiser; full res cost as much as the scene
+      scenePass.aoScale = 0.5;
       scenePass.forceHalf = q === 'medium';
-      scenePass.gtao.updateGtaoMaterial({ samples: q === 'high' ? 16 : 8 });
+      scenePass.gtao.updateGtaoMaterial({ samples: q === 'high' ? 12 : 8 });
     }
     if (godPass) godPass.enabled = q === 'high';
-    lensPass?.set(q === 'high' ? 0.018 : 0.012, 0.28);
+    applyLens();
     exposurePass?.setLimits(1.0, env === 'night' ? 0.9 : 1.3, 0.65);
     if (exposurePass) exposurePass.reset = true;
   }
@@ -726,6 +893,7 @@ export function initRenderer(host: HTMLElement, q: Quality): Gfx {
       console.warn('render: context restore', err);
     }
   }, false);
+  initTimer(renderer);
   window.addEventListener('resize', resize);
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(host);
 
@@ -814,9 +982,20 @@ export function setShadowFocus(center: Vec3): void {
 
 export function renderFrame(dt: number): void {
   if (!gfx || lost) return;
-  const { renderer, scene, camera } = gfx;
+  const { renderer } = gfx;
   if (renderer.getContext().isContextLost()) return;
   renderer.info.reset();
+  adapt(dt);
+  timerBegin();
+  try {
+    drawFrame(dt);
+  } finally {
+    timerEnd();
+  }
+}
+
+function drawFrame(dt: number): void {
+  const { renderer, scene, camera } = gfx!;
   time += Math.min(Math.max(dt, 0), 0.1);
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();

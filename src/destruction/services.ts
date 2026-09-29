@@ -947,44 +947,63 @@ function batteries(): void {
 const GAUGE: Record<UtilityKind, number> = { power: 0, gas: 2100, water: 3.5e5, steam: 1e6 };   // Pa at the source
 const RHO: Record<UtilityKind, number> = { power: 0, gas: 0.8, water: 1000, steam: 5 };
 
-/* Pressure at a member: the network's supply share, less the friction head lost (Darcy, f 0.02) along its path from the
-   source in carrying the flow of every open break beyond each length, and for water the static head it has climbed. */
-function pressureAt(p: Piece): number {
-  const m = p.svc!, n = nets[m.net];
-  if (!n || n.kind === 'power' || !m.on) return 0;
-  const Q = new Map<Piece, number>();
-  for (const b of breaks) {
-    if (b.gone || b.p.svc!.net !== m.net || b.q <= 0) continue;
-    for (let q: Piece | null = b.p, h = 0; q && h < 400; q = q.svc!.fp, h++) Q.set(q, (Q.get(q) ?? 0) + b.q);
-  }
+/* Pressure at a member. The jets draw the network down to its supply share P at the breaks; along the way the loss is
+   friction (Darcy: ∝ L/D·v² of the flow each length carries to the breaks beyond it), so pressure falls from the
+   source toward a leak and holds beyond it on branches carrying none. Water also loses the static head it climbs. */
+function pathLoss(p: Piece, Q: Map<Piece, number>): number {
   let loss = 0;
   for (let q: Piece | null = p, h = 0; q && h < 400; q = q.svc!.fp, h++) {
     const f = Q.get(q);
     if (!f) continue;
-    const D = Math.max(0.01, q.svc!.bore), v = f / ((Math.PI / 4) * D * D), L = Math.max(...q.root.spec.size);
-    loss += 0.02 * (L / D) * 0.5 * RHO[n.kind] * v * v;
+    const D = Math.max(0.01, q.svc!.bore), v = f / ((Math.PI / 4) * D * D);
+    loss += (Math.max(...q.root.spec.size) / D) * v * v;
   }
-  let P = n.P - loss / GAUGE[n.kind];
+  return loss;
+}
+function pressureAt(p: Piece): number {
+  const m = p.svc!, n = nets[m.net];
+  if (!n || n.kind === 'power' || !m.on) return 0;
+  const Q = new Map<Piece, number>(), ends: Piece[] = [];
+  for (const b of breaks) {
+    if (b.gone || b.p.svc!.net !== m.net || b.q <= 0) continue;
+    ends.push(b.p);
+    for (let q: Piece | null = b.p, h = 0; q && h < 400; q = q.svc!.fp, h++) Q.set(q, (Q.get(q) ?? 0) + b.q);
+  }
+  let worst = 0;
+  for (const e of ends) worst = Math.max(worst, pathLoss(e, Q));
+  let P = worst > 0 ? 1 - ((1 - n.P) * pathLoss(p, Q)) / worst : n.P;
   if (n.kind === 'water') P -= (p.curPos[1] - n.y) / HEAD;
   return clamp(P, 0, 1);
 }
 
-/* Members downstream of a gate: everything whose own chain of devices passes through it. */
+/* Members downstream of a gate: everything whose own chain of devices passes through it; for a gate that is open (or a
+   dead one), everything reached through it away from the side that fed it. */
 function fedBy(g: Piece): { members: number; lamps: number; motors: number; heads: number; consumers: number } {
   const out = { members: 0, lamps: 0, motors: 0, heads: 0, consumers: 0 };
   const gm = g.svc!;
-  for (const p of members) {
-    const m = p.svc!;
-    if (p === g || m.kind !== gm.kind) continue;
-    let hit = false;
-    if (m.on) { for (let q = m.gate, h = 0; q && h < 8; q = q.svc!.up, h++) if (q === g) { hit = true; break; } }
-    else if (gm.closed || !gm.on) for (let q: Piece | null = p, h = 0; q && h < 400; q = q.svc!.fp, h++) if (q === g) { hit = true; break; }
-    if (!hit) continue;
+  const count = (m: Member): void => {
     out.members++;
     if (m.lamp) out.lamps++;
     if (m.fixture === 'motor') out.motors++;
     if (m.part === 'sprinkler') out.heads++;
     if (m.fixture || m.part === 'sprinkler') out.consumers++;
+  };
+  if (gm.closed || !gm.on) {
+    const seen = new Set<Piece>([g]), q: Piece[] = [g];
+    if (gm.fp) seen.add(gm.fp);
+    for (let i = 0; i < q.length && i < 5000; i++) for (const l of q[i].svc!.links) {
+      const o = l.a === q[i] ? l.b : l.a;
+      if (seen.has(o) || o.svc!.kind !== gm.kind || o.svc!.source) continue;
+      seen.add(o);
+      q.push(o);
+      count(o.svc!);
+    }
+    return out;
+  }
+  for (const p of members) {
+    const m = p.svc!;
+    if (p === g || m.kind !== gm.kind || !m.on) continue;
+    for (let q = m.gate, h = 0; q && h < 8; q = q.svc!.up, h++) if (q === g) { count(m); break; }
   }
   return out;
 }
@@ -1006,7 +1025,7 @@ export function svcInfo(p: Piece): { kind: UtilityKind; live: boolean; title: st
     const c = svcCircuit(p);
     if (m.on && c) parts.push(`${c.hv ? '11 kV' : Math.round(c.u0) + ' V'} · Zs ${c.ez.toFixed(2)} Ω · fault ${c.ibf > 1000 ? (c.ibf / 1000).toFixed(1) + ' kA' : Math.round(c.ibf) + ' A'}`);
     else parts.push('0 V');
-    if (m.dev) parts.push(`${m.dev.curve}${m.dev.In} A${m.dev.rcd ? ' + RCD' : ''}`);
+    if (m.dev) parts.push(`${m.dev.curve}${Math.round(m.dev.In)} A${m.dev.rcd ? ' + RCD' : ''}`);
     if (m.lamp && m.batt >= 0) parts.push(m.on ? 'battery charging' : m.batt > 0 ? `on battery ${Math.ceil(m.batt / 60)} min` : 'battery flat');
     if (m.standby) parts.push(m.run ? 'RUNNING on load' : m.startT > 0 ? `cranking ${m.startT.toFixed(1)} s` : 'standing by, mains healthy');
   } else if (m.on && n) {
@@ -1062,17 +1081,23 @@ export function svcOperate(p: Piece): string | null {
   const closing = !m.closed;
   let surge = 0;
   if (closing && m.kind === 'water' && m.on && m.draw > 0) {
+    /* Joukowsky's ρ·c·Δv for a closure quicker than the pressure wave's round trip 2L/c; a handwheel run home in
+       ~1.5 s stops a long main's column in less than that, a short line's in far more (2ρLv/t) */
     const n = nets[m.net];
     const q = CV.water * m.draw * Math.sqrt(n ? n.P : 1), A = (Math.PI / 4) * Math.max(0.01, m.bore) ** 2;
-    const c = p.mat === 'pvc' ? 400 : 1200;
-    surge = 1000 * c * Math.min(q / A, 5);
+    const c = p.mat === 'pvc' ? 400 : 1200, v = Math.min(q / A, 5);
+    let L = 0;
+    for (let u: Piece | null = p, h = 0; u && h < 400; u = u.svc!.fp, h++) L += Math.max(...u.root.spec.size);
+    surge = Math.min(1000 * c * v, (2 * 1000 * L * v) / CLOSE_T);
   }
   svcIsolate(p, closing);
   audio.utility(m.kind === 'power' ? 'breaker' : 'valve', p.curPos);
   if (surge > 0) waterHammer(p, surge);
   const what = m.kind === 'power' ? (closing ? 'switched off' : 'switched on') : closing ? 'shut' : 'opened';
-  return `${m.kind === 'power' ? 'Breaker' : 'Valve'} ${what}${surge > 0 ? ` · water hammer ${(surge / 1e5).toFixed(1)} bar` : ''}`;
+  return `${m.kind === 'power' ? 'Breaker' : 'Valve'} ${what}${surge > 5e3 ? ` · water hammer ${(surge / 1e5).toFixed(1)} bar` : ''}`;
 }
+
+const CLOSE_T = 1.5;         // s to run a valve's handwheel home
 
 /* The surge meets the joints on the supply side, nearest first; a joint whose strength is already spent or a brittle /
    plastic one past half its margin cracks. A pipe rated PN16 takes ~16 bar over its working pressure. */
@@ -1293,8 +1318,9 @@ function updateBreaks(): void {
     const b = breaks[i], m = b.p.svc!;
     b.active = false;
     /* the device's own terminals are its load side: dead once it has opened. A weep stays with its joint while the
-       network is off, so a strained joint does not open a fresh one every tick */
-    if (b.gone || b.p.dead || (!b.link && (!m.on || (m.closed && !m.source) || healed(b)))) { if (b.link?.leak === b) b.link.leak = null; breaks.splice(i, 1); continue; }
+       network is off, so a strained joint does not open a fresh one every tick; so does an open end, which jets (or
+       arcs) again the moment its line is turned back on */
+    if (b.gone || b.p.dead || (!b.link && ((!m.on && !b.full) || (m.closed && !m.source) || healed(b)))) { if (b.link?.leak === b) b.link.leak = null; breaks.splice(i, 1); continue; }
     if (!m.on) { b.q = 0; b.size = 0; continue; }
     if (b.kind === 'power') continue;
     const A = b.area * m.flow;
@@ -1536,6 +1562,8 @@ function roomGas(e: Enclosure): { mean: number; vol: number } {
 /* A field deflagration: the services' account of it, and the leaks in that room catch. */
 function roomDeflagrated(pos: Vec3, m3: number, backdraft: boolean): void {
   if (backdraft) return;
+  // the field's own front catching up with a room an arc has already burnt through is the same event
+  for (const e of encs.values()) if (e && inside(e, pos, 1) && clock - e.burnt < 5) return;
   tally.deflagrations++;
   igniteAround(pos, Math.min(6, 1.5 + Math.cbrt(m3) * 2), 0.35);
   for (const b of breaks) if (b.kind === 'gas' && b.enc && inside(b.enc, pos, 1)) b.lit = true;
@@ -1942,7 +1970,8 @@ export function linkMechs(list: Piece[], delay: number): void {
     const hostK = host ? clamp(host.pm.crush / 2e6, 0.4, 1.5) : 1.5;
     const limited = spec.lower !== undefined && spec.upper !== undefined;
     const brake = spec.brake ?? (drive && ((drive.kind === 'electric' && (limited || !hinge)) || drive.kind === 'hydraulic') ? drive.Tmax[0] : 0);
-    const F = Math.max(drive ? Math.max(drive.Tmax[0], drive.Tmax[1]) : 0, brake);
+    // a sheave or trolley a hoist line hangs from is built for the line's breaking load
+    const F = Math.max(drive ? Math.max(drive.Tmax[0], drive.Tmax[1]) : 0, brake, (p.root.spec.ropeTo?.kind ?? 'rope') !== 'wire' ? p.root.spec.ropeTo?.strength ?? 0 : 0);
     /* A road wheel's bearing carries its share of the vehicle, with the margin of a real hub (~3 g). */
     const carry = spec.crr && host ? 3 * host.mass * G : 0;
 
@@ -1958,7 +1987,7 @@ export function linkMechs(list: Piece[], delay: number): void {
     const m: Mech = {
       joint: null!, part: p, host, bound: proxy, hinge, axis, motor, drive, couple: null,
       lower: spec.lower, upper: spec.upper, dir: 1, running: false, active: false,
-      roped: p.ropes.length > 0, brakesFailed: false, ready: clock + delay, alive: true, lastOver: -9, overSteps: 0, rate: 0,
+      roped: p.ropes.some((r) => holds(p, r)), brakesFailed: false, ready: clock + delay, alive: true, lastOver: -9, overSteps: 0, rate: 0,
       fric, roll: 0, dragK: hinge ? spec.drag ?? AIR * sz[k] * (R ** 4 - r ** 4) : 0, brake, crr: spec.crr ?? 0, radius: R,
       w: 0, ang: 0, spd: 0, tq: fric + brake, mass0: null, tyre: null,
       near: false, hold: false, cyc: spec.cycle ?? null, spin: null, trips: 0, burnt: 0, load: 0, evT: -9,
@@ -1985,6 +2014,12 @@ export function linkMechs(list: Piece[], delay: number): void {
     const db = m.part.root.spec.mech!.drivenBy;
     if (db && m.hinge) couple(m, db);
   }
+}
+
+/* A rope a machine part depends on: the one it hangs from (a lift car), or its power lead (the brake's release). A
+   line hanging a hook or load below it is not. */
+function holds(p: Piece, r: Piece['ropes'][number]): boolean {
+  return r.kind === 'wire' || (r.a === p ? r.b : r.a).curPos[1] > p.curPos[1];
 }
 
 /* Belt, chain or gear drive from the nearest motorised hinge on a parallel shaft. */
@@ -2267,7 +2302,8 @@ function updateMechs(): void {
     const r = m.near ? WORK_OUT : WORK_IN;
     const near = m.cmd !== undefined || (m.couple ? m.couple.driver.near : vec3.squaredDistance(m.part.curPos, viewer) < r * r);
     m.near = near;
-    if (m.roped && !m.brakesFailed && !m.part.ropes.length) m.brakesFailed = true;
+    // a car hung on its rope, an axis whose brake is released by its own lead: once that is gone nothing holds it
+    if (m.roped && !m.brakesFailed && !m.part.ropes.some((r) => r.alive && holds(m.part, r))) m.brakesFailed = true;
     let could = !!m.couple && (m.couple.driver.running || !!m.couple.driver.spin?.live);
     if (d) {
       if (!m.running && d.heat > 0) {
@@ -2671,8 +2707,12 @@ export function svcRig(p: Piece): void { rigs.add(p); }
 
 interface RigState { mass: number; load: number; cg: Vec3; margin: number; feet: number }
 const rigInfo = new Map<Piece, RigState>();
+const TIP_PAST = 0.15;        // m
 
-function rigPieces(c: Piece, out: Set<Piece>): Piece[] {
+const _rf: Vec3 = [0, 0, 0];
+/* The machine's own pieces (welded frame and moving parts), the jacks it stands on, and the pull of every line hanging
+   off it: the tension the line really carries (a load still on the ground pulls only what the drive can lift). */
+function rigPieces(c: Piece, out: Set<Piece>, pulls: { at: Piece; T: number }[]): Piece[] {
   const q: Piece[] = [c];
   out.add(c);
   const feet: Piece[] = [];
@@ -2688,27 +2728,44 @@ function rigPieces(c: Piece, out: Set<Piece>): Piece[] {
     for (const r of p.ropes) {
       if (!r.alive || r.kind === 'wire') continue;
       const o = r.a === p ? r.b : r.a;
-      if (out.has(o) || o.dead) continue;
-      // hanging on the line (taut, below): its weight is on the hook, not the ground
-      if (vec3.distance(r.a.curPos, r.b.curPos) < r.maxLength - 0.05 || o.curPos[1] > p.curPos[1]) continue;
-      out.add(o);
-      q.push(o);
+      if (o.curPos[1] > p.curPos[1] || out.has(o)) continue;
+      b3.b3Joint_GetConstraintForce(_rf, r.joint);
+      // at most the weight hanging below: a snatch as a sling comes taut is over before it can tip anything
+      pulls.push({ at: p, T: Math.min(vec3.length(_rf), G * hanging(o, 0)) });
     }
   }
   return feet;
 }
 
+/* The weight really hanging from a line: what has left the ground (a load still sitting on it is the ground's). */
+function hanging(p: Piece, depth: number): number {
+  b3.b3Body_ComputeAABB(_bb2, p.body);
+  let m = _bb2[1] > groundAt(p.curPos[0], p.curPos[2]) + 0.3 ? p.mass : 0;
+  if (depth < 4) for (const r of p.ropes) {
+    const o = r.a === p ? r.b : r.a;
+    if (r.alive && r.kind !== 'wire' && o.curPos[1] < p.curPos[1]) m += hanging(o, depth + 1);
+  }
+  return m;
+}
+
 const _hull: [number, number][] = [];
+const lineT = new Map<Piece, number>();
 function stability(c: Piece): void {
   if (c.dead) { rigs.delete(c); return; }
-  const set = new Set<Piece>();
-  const feet = rigPieces(c, set);
+  const set = new Set<Piece>(), pulls: { at: Piece; T: number }[] = [];
+  const feet = rigPieces(c, set, pulls);
   if (!feet.length) { rigs.delete(c); return; }
   let M = 0, x = 0, y = 0, z = 0, load = 0;
   for (const p of set) {
     if (p.dead) continue;
     M += p.mass; x += p.mass * p.curPos[0]; y += p.mass * p.curPos[1]; z += p.mass * p.curPos[2];
-    if (!p.welds.length && !p.hinged) load += p.mass;
+  }
+  for (const u of pulls) {
+    // smoothed over a second: a swinging load's snatch is not a steady overturning moment
+    const T = (lineT.get(u.at) ?? u.T) * 0.8 + u.T * 0.2;
+    lineT.set(u.at, T);
+    const m = T / G;
+    load += m; M += m; x += m * u.at.curPos[0]; y += m * u.at.curPos[1]; z += m * u.at.curPos[2];
   }
   const cg: Vec3 = [x / M, y / M, z / M];
   // the jacks' footprint: the convex hull of their pads
@@ -2726,7 +2783,8 @@ function stability(c: Piece): void {
   }
   if (_hull.length < 3) margin = -1;
   rigInfo.set(c, { mass: M, load, cg, margin, feet: feet.length });
-  if (margin >= 0) return;
+  // a hand's breadth past the jacks: the far pads have lifted and nothing brings them back down
+  if (margin >= -TIP_PAST) return;
   tally.tipped++;
   rigs.delete(c);
   audio.steelGroan(c.curPos, 1);
@@ -2774,7 +2832,12 @@ function stepCarry(): void {
     let busy = false;
     for (const q of carried) if (q !== p && vec3.squaredDistance(q.curPos, c.from) < 0.5) busy = true;
     if (busy) continue;
-    b3.b3Body_SetTransform(p.body, c.from, [0, 0, 0, 1]);
+    // the pose it is fed on with: the physics layer treats a body's jump between steps as a blow-up unless told
+    for (let k = 0; k < 4; k++) {
+      if (k < 3) p.curPos[k] = p.prevPos[k] = c.from[k];
+      p.curRot[k] = p.prevRot[k] = p.spawnRot[k];
+    }
+    b3.b3Body_SetTransform(p.body, c.from, p.spawnRot);
     b3.b3Body_SetLinearVelocity(p.body, [0, 0, 0]);
     b3.b3Body_SetAngularVelocity(p.body, [0, 0, 0]);
     b3.b3Body_SetAwake(p.body, true);
@@ -2794,7 +2857,7 @@ export function clearServices(): void {
   breaks.length = 0; blowouts.length = 0; mechList.length = 0; pools.length = 0; nets.length = 0;
   svcLinks.clear(); encs.clear(); linkStep = -1;
   badLinks.clear(); wetGear.clear(); exposed.length = 0; hvGear.length = 0; faults.length = 0; coronaOn = false;
-  watch.length = 0; spinning.length = 0; hoses.length = 0; rigs.clear(); rigInfo.clear(); carried.clear(); alarms.clear(); seed = 1;
+  watch.length = 0; spinning.length = 0; hoses.length = 0; rigs.clear(); rigInfo.clear(); lineT.clear(); carried.clear(); alarms.clear(); seed = 1;
   clearElectrical();
   topoDirty = true; clock = 0; tickT = 0; lampsLit = 0; running = 0;
   activeCount = { power: 0, gas: 0, water: 0, steam: 0 };

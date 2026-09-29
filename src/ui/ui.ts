@@ -5,6 +5,7 @@ import type {
 import { clamp } from 'math';
 import { easing, spring } from 'math/time';
 import { audio } from '../audio/audio';
+import { DEFAULT_SETTINGS, WORLD_DEFAULTS } from '../core/save';
 import { WEAPON_ICON, STAR, LOCK, MOUSE, WARN, SEARCH } from './icons';
 
 /* ---------------- static copy ---------------- */
@@ -29,6 +30,8 @@ const CONTROLS: readonly KeyRow[] = [
   ['Shift + Wheel', 'Detonator panel: delay in 250 ms steps'],
   ['Q', 'Switch tool bank (I–IV)'],
   ['X', 'Engineer’s x-ray (stress / thermal / services / fields)'],
+  ['T', 'Bullet time (the world at 0.3×)'],
+  ['V', 'Replay the last 12 s: mouse orbit, wheel zoom, WASD/QE move, Space pause, 1–3 speed, ←/→ scrub, V exit'],
   ['Enter', 'Call the job early'],
   ['R', 'Restart'],
   ['Esc', 'Pause'],
@@ -55,6 +58,7 @@ const BANK_OF = new Map<WeaponId, { bank: number; pos: number }>(
 );
 
 const TIME_SCALES = [1, 0.5, 0.25, 0.1] as const;
+const RENDER_SCALES: readonly (readonly [number, string])[] = [[0, 'Auto'], [1, '100%'], [0.85, '85%'], [0.7, '70%'], [0.5, '50%']];
 
 const SANDBOX_ACTIONS: readonly (readonly [SandboxAction, string, string])[] = [
   ['quake', 'Earthquake', 'pbtn--warn'],
@@ -133,6 +137,11 @@ const TEMPLATE = () => `
     <div class="hud-time"><span class="hud-clock" data-r="clock">00:00.0</span><span class="hud-par" data-r="par"></span></div>
   </div>
   <div class="hud-slowmo" data-r="slow"><i></i><b>Slow-mo</b><span data-r="slowX"></span></div>
+  <div class="hud-replay" data-r="rp" aria-hidden="true">
+    <div class="hud-replay__top"><b class="hud-replay__rec"><i></i>Replay</b><span data-r="rpSpeed"></span><span data-r="rpTime"></span></div>
+    <div class="hud-replay__bar"><i data-r="rpBar"></i></div>
+    <div class="hud-replay__keys">Mouse orbit · Wheel zoom · WASD / Q E move · Space pause · 1 2 3 speed · ← → scrub · R rewind · V exit</div>
+  </div>
   <div class="hud-demo is-sandbox" data-r="demo">
     <div class="hud-demo__pct"><span data-r="pct">0</span><small>%</small></div>
     <div class="hud-demo__label" data-r="demoLabel">Demolished</div>
@@ -221,6 +230,7 @@ const TEMPLATE = () => `
       ${btn('sandbox', 'Sandbox')}
       ${btn('downtown', 'Downtown')}
       ${btn('showcase', 'Heritage Yard')}
+      ${btn('railway', 'Railway Quarter')}
       ${btn('settings', 'Settings')}
     </nav>
   </div>
@@ -233,7 +243,7 @@ const TEMPLATE = () => `
       <div><div class="eyebrow">Job board</div><h2 class="h2">Contracts</h2></div>
       ${btn('back', 'Back', 'btn--ghost', 'Esc')}
     </header>
-    <div class="cards" data-r="cards"></div>
+    <div class="chapters" data-r="cards"></div>
   </div>
 </section>
 
@@ -249,6 +259,8 @@ const TEMPLATE = () => `
         <h3 class="label">Work order</h3>
         <p class="brief__text" data-r="bText"></p>
         <div class="protect" data-r="bProtect">${WARN}<div><strong>Protected structure</strong><span data-r="bProtectText"></span></div></div>
+        <h3 class="label" data-r="bTermsLabel">Conditions of contract</h3>
+        <ul class="terms" data-r="bTerms"></ul>
         <h3 class="label">Issued ordnance</h3>
         <ul class="ordnance" data-r="bAmmo"></ul>
       </div>
@@ -316,9 +328,16 @@ const TEMPLATE = () => `
         <div class="seg" role="radiogroup" aria-label="Quality" data-r="sQual">
           ${(['low', 'medium', 'high'] as Quality[]).map(q => `<label><input type="radio" name="dv-quality" value="${q}"><span>${q}</span></label>`).join('')}
         </div><output></output></div>
+      <div class="set-row"><span class="set-name">Render scale</span>
+        <div class="seg" role="radiogroup" aria-label="Render scale" data-r="sScale">
+          ${RENDER_SCALES.map(([v, l]) => `<label title="${v ? `${l} of the quality's resolution` : 'Holds 60 fps by trading resolution, then brick detail distance'}"><input type="radio" name="dv-scale" value="${v}"><span>${l}</span></label>`).join('')}
+        </div><output></output></div>
       <div class="set-row"><label for="dv-sens">Mouse sensitivity</label><input class="range" id="dv-sens" type="range" min="0.2" max="3" step="0.05" data-r="sSens"><output data-r="oSens"></output></div>
       <div class="set-row"><label for="dv-fov">Field of view</label><input class="range" id="dv-fov" type="range" min="70" max="120" step="1" data-r="sFov"><output data-r="oFov"></output></div>
       <div class="set-row"><label for="dv-inv">Invert Y</label><input class="switch" id="dv-inv" type="checkbox" data-r="sInv"><output data-r="oInv"></output></div>
+      <div class="set-row"><label for="dv-shake">Camera shake</label><input class="switch" id="dv-shake" type="checkbox" data-r="sShake"><output data-r="oShake"></output></div>
+      <div class="set-row"><label for="dv-grain">Film grain</label><input class="switch" id="dv-grain" type="checkbox" data-r="sGrain"><output data-r="oGrain"></output></div>
+      <div class="set-row"><label for="dv-ca">Chromatic aberration</label><input class="switch" id="dv-ca" type="checkbox" data-r="sCA"><output data-r="oCA"></output></div>
       <div class="set-row"><label for="dv-exp">Sandbox explosives</label><input class="switch" id="dv-exp" type="checkbox" data-r="sExp"><output data-r="oExp"></output></div>
     </div>
   </div>
@@ -331,17 +350,23 @@ const REFS = [
   'vig', 'penFlash', 'hud', 'tl', 'title', 'clock', 'par', 'demo', 'pct', 'demoLabel', 'fill', 'notch', 'notchLabel',
   'tr', 'score', 'combo', 'comboX', 'comboFill', 'penalty', 'xh', 'xhPulse', 'hit', 'pops', 'charges', 'chargeN', 'hint',
   'weapons', 'fps', 'ptr', 'tool', 'toolT', 'toolBar', 'toolD', 'seq', 'seqTrack', 'seqScale', 'loadFill', 'loadLabel', 'loadPct', 'cards', 'bNo', 'bName', 'bLoc', 'bText', 'bProtect',
-  'bProtectText', 'bAmmo', 'bTarget', 'bPar', 'bEnv', 'bStars', 'report', 'rTitle', 'rSub', 'rRows', 'rTotalRow', 'rTotal',
-  'rStars', 'rBest', 'rUnlock', 'rRetry', 'rNext', 'sVol', 'oVol', 'sQual', 'sSens', 'oSens', 'sFov', 'oFov', 'sInv', 'oInv', 'sExp', 'oExp',
-  'toasts', 'slow', 'slowX', 'ovl', 'sbx', 'pal', 'palSearch', 'palCount', 'palBody', 'xTime', 'xGrav', 'oGrav', 'xJoint', 'oJoint',
+  'bProtectText', 'bTerms', 'bTermsLabel', 'bAmmo', 'bTarget', 'bPar', 'bEnv', 'bStars', 'report', 'rTitle', 'rSub', 'rRows', 'rTotalRow', 'rTotal',
+  'rStars', 'rBest', 'rUnlock', 'rRetry', 'rNext', 'sVol', 'oVol', 'sQual', 'sSens', 'oSens', 'sFov', 'oFov', 'sInv', 'oInv', 'sExp', 'oExp', 'sScale', 'sShake', 'oShake', 'sGrain', 'oGrain', 'sCA', 'oCA',
+  'toasts', 'slow', 'slowX', 'rp', 'rpSpeed', 'rpTime', 'rpBar', 'ovl', 'sbx', 'pal', 'palSearch', 'palCount', 'palBody', 'xTime', 'xGrav', 'oGrav', 'xJoint', 'oJoint',
   'xWind', 'oWind', 'xFire', 'oFire', 'xDebris', 'oDebris',
 ] as const;
 type Ref = (typeof REFS)[number];
 
 /* ---------------- state ---------------- */
 
-let H: UiHandlers | null = null;
-let S: Settings = { volume: 0.8, quality: 'high', sensitivity: 1, fov: 100, fovH: true, invertY: false, explosives: true };
+/** the free-play sites past the three in UiHandlers, and contract cards with the chapter they are filed under */
+export type Handlers = UiHandlers & { onRailway(): void };
+export type JobCard = ContractCard & { chapter: string };
+/** conditions beyond the demolition target (what it counts, footprint, time limit, salvage) */
+export type JobBriefing = BriefingView & { terms?: string[] };
+
+let H: Handlers | null = null;
+let S: Settings = { ...DEFAULT_SETTINGS };
 let root: HTMLElement | null = null;
 let viewport: HTMLElement | null = null;
 let current: ScreenId | null = 'loading';
@@ -361,7 +386,7 @@ export function getViewport(): HTMLElement {
   return (viewport = el);
 }
 
-export function initUI(h: UiHandlers, settings: Settings): void {
+export function initUI(h: Handlers, settings: Settings): void {
   H = h;
   S = { ...settings };
   if (root) return;
@@ -448,7 +473,7 @@ function onKey(e: KeyboardEvent): void {
 }
 
 type Action = Exclude<
-  keyof UiHandlers,
+  keyof Handlers,
   'onPickContract' | 'onSettingsChange' | 'onUserGesture' | 'onSandboxChange' | 'onSandboxAction' | 'onSpawnPick' | 'onOverlayClosed'
 >;
 const ACTS: Record<string, Action> = {
@@ -456,6 +481,7 @@ const ACTS: Record<string, Action> = {
   sandbox: 'onSandbox',
   showcase: 'onShowcase',
   downtown: 'onDowntown',
+  railway: 'onRailway',
   settings: 'onOpenSettings',
   back: 'onBack',
   start: 'onStartContract',
@@ -515,13 +541,39 @@ export function setLoading(progress: number, label: string): void {
   if (R.loadLabel.textContent !== label) R.loadLabel.textContent = label;
 }
 
-export function renderContracts(cards: ContractCard[]): void {
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
+
+/* Contracts are filed by chapter (one site or kind of job each), in the order they unlock. */
+export function renderContracts(cards: JobCard[]): void {
   if (!root) return;
-  R.cards.innerHTML = cards
-    .map((c, i) => {
-      const cleared = c.stars > 0;
-      const rot = -9 + ((c.index * 37) % 11);
-      return `<button type="button" class="card bp${c.locked ? ' is-locked' : ''}${cleared ? ' is-cleared' : ''}" data-act="pick" data-i="${c.index}"${c.locked ? ' aria-disabled="true"' : ''} style="--d:${i};--rot:${rot}deg">
+  const chapters: { name: string; cards: JobCard[] }[] = [];
+  for (const c of cards) {
+    const last = chapters[chapters.length - 1];
+    if (last && last.name === c.chapter) last.cards.push(c);
+    else chapters.push({ name: c.chapter, cards: [c] });
+  }
+  let d = 0;
+  R.cards.innerHTML = chapters
+    .map((ch, k) => {
+      const cleared = ch.cards.filter(c => c.stars > 0).length;
+      const got = ch.cards.reduce((n, c) => n + c.stars, 0);
+      const locked = ch.cards.every(c => c.locked);
+      return `<section class="chapter${locked ? ' is-locked' : ''}${cleared === ch.cards.length ? ' is-done' : ''}" aria-label="${esc(ch.name)}">
+  <header class="chapter__head">
+    <span class="chapter__no">Chapter ${ROMAN[k] ?? k + 1}</span>
+    <h3 class="chapter__name">${esc(ch.name)}</h3>
+    <span class="chapter__count">${locked ? `${LOCK}Locked` : `${cleared}/${ch.cards.length} cleared<b>${STAR}${got}/${ch.cards.length * 3}</b>`}</span>
+  </header>
+  <div class="cards">${ch.cards.map(c => card(c, d++)).join('')}</div>
+</section>`;
+    })
+    .join('');
+}
+
+function card(c: JobCard, i: number): string {
+  const cleared = c.stars > 0;
+  const rot = -9 + ((c.index * 37) % 11);
+  return `<button type="button" class="card bp${c.locked ? ' is-locked' : ''}${cleared ? ' is-cleared' : ''}" data-act="pick" data-i="${c.index}"${c.locked ? ' aria-disabled="true"' : ''} style="--d:${i};--rot:${rot}deg">
   <span class="card__top"><span class="card__no">No. ${pad2(c.index + 1)}</span>${stars(c.stars)}</span>
   <span class="card__name">${esc(c.name)}</span>
   <span class="card__loc">${esc(c.location)}</span>
@@ -529,11 +581,9 @@ export function renderContracts(cards: ContractCard[]): void {
   ${cleared ? '<span class="stamp card__stamp">Cleared</span>' : ''}
   ${c.locked ? `<span class="card__lock"><span>${LOCK}Locked</span></span>` : ''}
 </button>`;
-    })
-    .join('');
 }
 
-export function renderBriefing(v: BriefingView): void {
+export function renderBriefing(v: JobBriefing): void {
   if (!root) return;
   R.bNo.textContent = `Contract No. ${pad2(v.index + 1)}`;
   R.bName.textContent = v.name;
@@ -541,6 +591,9 @@ export function renderBriefing(v: BriefingView): void {
   R.bText.textContent = v.brief;
   R.bProtect.hidden = !v.protectedNote;
   R.bProtectText.textContent = v.protectedNote ?? '';
+  const terms = v.terms ?? [];
+  R.bTerms.hidden = R.bTermsLabel.hidden = !terms.length;
+  R.bTerms.innerHTML = terms.map(t => `<li>${esc(t)}</li>`).join('');
   R.bTarget.textContent = `${Math.round(v.target * 100)}%`;
   R.bPar.textContent = clockS(v.par);
   R.bEnv.textContent = ENV_LABEL[v.env];
@@ -706,7 +759,11 @@ function bindSettings(): void {
   const fov = R.sFov as HTMLInputElement;
   const inv = R.sInv as HTMLInputElement;
   const exp = R.sExp as HTMLInputElement;
+  const toggles = [
+    [R.sShake, R.oShake, 'shake'], [R.sGrain, R.oGrain, 'grain'], [R.sCA, R.oCA, 'aberration'],
+  ] as [HTMLInputElement, HTMLElement, 'shake' | 'grain' | 'aberration'][];
   const radios = Array.from(R.sQual.querySelectorAll<HTMLInputElement>('input[type=radio]'));
+  const scales = Array.from(R.sScale.querySelectorAll<HTMLInputElement>('input[type=radio]'));
   const paint = () => {
     R.oVol.textContent = `${Math.round(S.volume * 100)}%`;
     R.oSens.textContent = `${S.sensitivity.toFixed(2)}×`;
@@ -714,6 +771,8 @@ function bindSettings(): void {
     R.oInv.textContent = S.invertY ? 'On' : 'Off';
     R.oExp.textContent = S.explosives ? 'On' : 'Off';
     for (const r of radios) r.parentElement!.classList.toggle('is-on', r.checked);
+    for (const r of scales) r.parentElement!.classList.toggle('is-on', r.checked);
+    for (const [, o, k] of toggles) o.textContent = S[k] ? 'On' : 'Off';
     for (const el of [vol, sens, fov]) fillRange(el);
     if (root) root.dataset.quality = S.quality;
   };
@@ -723,6 +782,8 @@ function bindSettings(): void {
   inv.checked = S.invertY;
   exp.checked = S.explosives;
   for (const r of radios) r.checked = r.value === S.quality;
+  for (const r of scales) r.checked = Number(r.value) === S.renderScale;
+  for (const [el, , k] of toggles) el.checked = S[k];
   paint();
 
   const emit = () => {
@@ -764,13 +825,26 @@ function bindSettings(): void {
       audio.ui('click');
       emit();
     });
+  for (const r of scales)
+    r.addEventListener('change', () => {
+      if (!r.checked) return;
+      S.renderScale = Number(r.value);
+      audio.ui('click');
+      emit();
+    });
+  for (const [el, , k] of toggles)
+    el.addEventListener('change', () => {
+      S[k] = el.checked;
+      audio.ui('click');
+      emit();
+    });
 }
 
 /* ---------------- free-play overlays ---------------- */
 
 type Overlay = 'panel' | 'palette';
 let overlay: Overlay | null = null;
-let SB: SandboxSettings = { timeScale: 1, gravity: 1, jointStrength: 1, wind: 0, fireSpread: true, debrisLimit: 2000 };
+let SB: SandboxSettings = { ...WORLD_DEFAULTS };
 let paintSandbox: () => void = () => {};
 let prefabKey = '';
 
@@ -997,6 +1071,22 @@ function pickPrefab(id: string): void {
 
 export function setHudTitle(name: string): void {
   if (root && R.title.textContent !== name) R.title.textContent = name;
+}
+
+let rpKey = '';
+/** Collapse replay overlay: playhead, speed and keys; null closes it and gives the HUD back. */
+export function setReplay(v: { t: number; span: number; speed: number; paused: boolean } | null): void {
+  if (!root) return;
+  R.hud.classList.toggle('is-replay', !!v);
+  R.rp.classList.toggle('is-on', !!v);
+  if (!v) { rpKey = ''; return; }
+  const key = `${v.t.toFixed(1)}|${v.speed}|${v.paused}`;
+  if (key === rpKey) return;
+  rpKey = key;
+  R.rpSpeed.textContent = v.paused ? 'Paused' : `${v.speed}×`;
+  R.rpTime.textContent = `${v.t.toFixed(1)} / ${v.span.toFixed(1)} s`;
+  R.rpBar.style.transform = `scaleX(${v.span > 0 ? clamp(v.t / v.span, 0, 1) : 0})`;
+  R.rp.classList.toggle('is-paused', v.paused);
 }
 
 export function showHud(on: boolean): void {

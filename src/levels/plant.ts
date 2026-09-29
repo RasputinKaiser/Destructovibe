@@ -1,10 +1,10 @@
 import type { PieceSpec } from '../types.ts';
 import { block, cyl, envelopeFinish, panels, place, raise, splitRange, tag, wallRun, type Opening, type Range } from './kit.ts';
 import {
-  boilerSet, conduit, conveyor, flywheelDrive, gasMeter, groundTransformer, guy, hvacUnit, hydrant, lamp, LIGHT, pipe, poleLine, press,
+  boilerSet, conduit, conveyor, flangedValve, flywheelDrive, gasMeter, VALVE_L, groundTransformer, guy, hvacUnit, hydrant, lamp, LIGHT, pipe, poleLine, press,
   pumpSet, streetLamp, supplyBox, wallFan, waterwheel, windTurbine,
 } from './services.ts';
-import { gridFeed, type Placement } from './structures.ts';
+import { gridFeed, type Placement } from '../buildings/_shared/base.ts';
 import { band } from './facade.ts';
 
 /* Utility and machinery sites. Authored like structures: local metres, front +Z, dropped with place(). */
@@ -41,7 +41,11 @@ export function pumpingStation(p: Placement): PieceSpec[] {
   const X = 4.5, Z = 3, h = 4.2, zi = -2.7;
   const ps: PieceSpec[] = brickShed(X, Z, h, { front: [{ c: -2.5, w: 1.2, y0: 0, h: 2.3 }, win(0.6), win(2.8)], back: [win(-2), win(2)], left: [win(0)] });
   ps.push({ ...cyl('castiron', 0.4, [0, 0.6], -3.6, -2.49, { tint: 0x3d6ea8, fixture: 'watermain' }), bore: 0.3 });
-  ps.push(...pipe('water', 'castiron', [[-3.6, 0.6, -2.5], [-3.6, 1.2, -2.5], [3.4, 1.2, -2.5]], 0.36));
+  // the header off the incoming main, with its isolating valve
+  const hv = -2.6;
+  ps.push(...pipe('water', 'castiron', [[-3.6, 0.6, -2.5], [-3.6, 1.2, -2.5], [hv - VALVE_L / 2, 1.2, -2.5]], 0.36));
+  ps.push(flangedValve('water', [hv, 1.2, -2.5], 'x', 0.36, 0.3));
+  ps.push(...pipe('water', 'castiron', [[hv + VALVE_L / 2, 1.2, -2.5], [3.4, 1.2, -2.5]], 0.36));
   const cz = zi + 0.38 + 0.357;
   for (const x of [-1, 2]) {
     ps.push(...place(pumpSet(), x, cz));
@@ -69,7 +73,11 @@ export function boilerHouse(p: Placement): PieceSpec[] {
   }
   ps.push(...pipe('steam', 'steel', [[bx[0] + 0.66, 3.6, -0.3], [X - 0.3, 3.6, -0.3]], 0.2));
   ps.push(gasMeter([-4.7, -4.3], [0, 0.9], [-0.6, -0.1]));
-  ps.push(...pipe('gas', 'steel', [[-4.3, 0.5, -0.33], [bx[1] + 0.35, 0.5, -0.33]], 0.1));
+  // gas from the meter, through the boiler house's emergency isolating valve
+  const gv = -3.9;
+  ps.push(...pipe('gas', 'steel', [[-4.3, 0.5, -0.33], [gv - VALVE_L / 2, 0.5, -0.33]], 0.1));
+  ps.push(flangedValve('gas', [gv, 0.5, -0.33], 'x', 0.1, 0.05));
+  ps.push(...pipe('gas', 'steel', [[gv + VALVE_L / 2, 0.5, -0.33], [bx[1] + 0.35, 0.5, -0.33]], 0.1));
   ps.push(supplyBox([-1.8, -1.3], [1.2, 1.8], [Z - 0.5, Z - 0.3]));
   ps.push(...conduit([[-1.55, 1.8, Z - 0.34], [-1.55, h - 0.04, Z - 0.34], [3.5, h - 0.04, Z - 0.34]]));
   for (const x of [0.5, 3.0]) ps.push(lamp([x - 0.2, x + 0.2], [h - 0.35, h - 0.08], [Z - 0.55, Z - 0.3], LIGHT.warm));

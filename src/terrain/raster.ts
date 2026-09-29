@@ -1,3 +1,4 @@
+import type { SoilState } from './soil.ts';
 import { CELL as CELL0, SURFACES, TILE_CELLS, type Block, type Kerb, type Pad, type Range, type Steps, type SurfaceId, type TerrainSpec } from './spec.ts';
 
 /* Rasterised terrain: a heightfield of samples every CELL over [-half, half]², a surfacing id per sample, a hole
@@ -41,6 +42,8 @@ export interface TerrainData {
   byTile: number[][];
   /** items each tile carries (physics, render) */
   own: number[][];
+  /** the soil in the ground and on it (laid by terrain.ts; absent on data made only for queries) */
+  soil?: SoilState;
 }
 
 const EPS = 1e-6;
@@ -70,6 +73,11 @@ export function undulation(seed: number, x: number, z: number, scale = 22): numb
 
 const smooth = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 
+/** The natural ground: a gentle roll that dies away toward the map edge, where it meets the flat apron. */
+export function naturalAt(spec: TerrainSpec, x: number, z: number): number {
+  return spec.undulate * undulation(spec.seed, x, z) * smooth((spec.half - Math.max(Math.abs(x), Math.abs(z))) / 10);
+}
+
 /* ---------------- rasterise ---------------- */
 
 export function rasterize(spec: TerrainSpec): TerrainData {
@@ -78,11 +86,7 @@ export function rasterize(spec: TerrainSpec): TerrainData {
   const h = new Float32Array(n * n), mat = new Uint8Array(n * n).fill(idOf('grass')), hole = new Uint8Array(n * n), eng = new Uint8Array(n * n);
   const X = (i: number) => -half + i * CELL;
   const I = (x: number) => (x + half) / CELL;
-  // natural ground: a gentle roll that dies away toward the map edge, where it meets the flat apron
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-    const x = X(i), z = X(j), edge = smooth((half - Math.max(Math.abs(x), Math.abs(z))) / 10);
-    h[i + n * j] = spec.undulate * undulation(spec.seed, x, z) * edge;
-  }
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) h[i + n * j] = naturalAt(spec, X(i), X(j));
   const span = (r: Range): [number, number] => [Math.max(0, Math.ceil(I(r[0]) - EPS)), Math.min(n - 1, Math.floor(I(r[1]) + EPS))];
   const each = (x: Range, z: Range, f: (k: number, x: number, z: number) => void, pad = 0) => {
     const [i0, i1] = span([x[0] - pad, x[1] + pad]), [j0, j1] = span([z[0] - pad, z[1] + pad]);

@@ -10,7 +10,8 @@ import { getProjectileMaterial } from '../../render/materials';
 import { fx } from '../../render/fx';
 import { audio } from '../../audio/audio';
 import { hitmarker } from '../../ui/ui';
-import { player } from '../player';
+import { player, addTrauma, kickRecoil } from '../player';
+import { hitstop } from '../timefx';
 import { NO_HIT, GROUND_Y, interpPoint, nearestPiece, ropeSag, toolHooks } from './common';
 
 /* Tow lines from a ground stake (8 t planetary winch, 13 mm wire rope) or made fast to a vehicle. Reeving the rope
@@ -208,6 +209,9 @@ export function releaseWinch(snapped: boolean, w = tows[tows.length - 1]): void 
   if (snapped) {
     fx.sparks(w.at, [0, 1, 0], 18);
     audio.snap(w.at, 1);
+    // a parting wire rope is violent: the stored stretch lets go all at once
+    const d = player.e ? Math.hypot(player.e.curPos[0] - w.at[0], player.e.curPos[2] - w.at[2]) : 99;
+    if (d < 40) { hitstop(0.06); addTrauma(0.35 * (1 - d / 40)); kickRecoil(0.5); }
     toolHooks.notify(`Tow cable snapped at ${Math.round(w.peak / 1000)} kN`);
   }
 }

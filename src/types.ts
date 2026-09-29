@@ -111,13 +111,16 @@ export interface PieceSpec {
   /**
    * Exterior surface finish, render-only (physics still follows `mat`). Default: the material's own look.
    * 'paint' automotive/enamel gloss with clearcoat · 'satin' powder-coat/machinery enamel · 'galv' galvanised
-   * steel · 'chrome' · 'rubber' tyres, seals · 'smoked' tinted glass · 'decal' hazard/livery striping.
+   * steel · 'chrome' · 'rubber' tyres, seals · 'smoked' tinted glass · 'decal' hazard/livery striping ·
+   * 'joinery' painted timber (satin sheen, sparse pale-undercoat chips on arrises, no bare metal).
    */
-  finish?: 'paint' | 'satin' | 'galv' | 'chrome' | 'rubber' | 'smoked' | 'decal';
+  finish?: 'paint' | 'satin' | 'galv' | 'chrome' | 'rubber' | 'smoked' | 'decal' | 'joinery';
   /** weld to the ground even if the piece is not touching y = 0 */
   anchored?: boolean;
   /** damaging / displacing it costs a penalty; excluded from the demolition % */
   protected?: boolean;
+  /** diagnostics only: '<building>/<part>' that authored this piece (building packages); ignored by physics */
+  part?: string;
   /** loose prop: never auto-welded to anything */
   noWeld?: boolean;
   /**
@@ -486,6 +489,11 @@ export interface Settings {
   invertY: boolean;
   /** loose barrels, propane and TNT placed around sandbox sites */
   explosives: boolean;
+  shake: boolean;
+  grain: boolean;
+  aberration: boolean;
+  /** fraction of the quality's pixel ratio, or 0 = dynamic (tracks a 60 fps frame-time target) */
+  renderScale: number;
 }
 
 export interface UiHandlers {

@@ -15,7 +15,8 @@ try {
   const meshes = root.children.filter(x => x.isInstancedMesh);
   const gpu = root.children.filter(x => x.isMesh && !x.isInstancedMesh);
   const chipMesh = meshes[0];
-  const puffMesh = gpu.find(x => x.geometry.getAttribute('aF'));
+  // the dust layer shares the puffs' attributes and material; the puffs draw over it
+  const puffMesh = gpu.filter(x => x.geometry.getAttribute('aF')).sort((a, b) => b.renderOrder - a.renderOrder)[0];
   const sparkMesh = gpu.find(x => x.geometry.getAttribute('aD') && !x.geometry.getAttribute('aF'));
   assert(chipMesh && puffMesh && sparkMesh);
   const born = mesh => {

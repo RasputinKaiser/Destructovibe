@@ -89,3 +89,103 @@ export function tickScore(dt: number): void {
 export function comboFraction(): number {
   return score.comboTimer / COMBO_WINDOW;
 }
+
+/* ---------------- contract objectives ---------------- */
+
+/** A plan box, [x0, x1, z0, z1]. */
+export type Plan = [number, number, number, number];
+
+/** What a contract asks beyond "this much of the site down". */
+export interface Goal {
+  /** groups the demolition target counts (the whole site when absent), and what they are called in the briefing */
+  groups?: string[];
+  what?: string;
+  /** the target groups must come down inside this plan box; their volume lying outside it at the end is fly-tipping */
+  footprint?: Plan;
+  /** seconds: the contract is lost if it is not met by then */
+  limit?: number;
+  /** loose items of `group` to be carried into the plan box `zone`: `need` of them (a fraction) before sign-off */
+  salvage?: { group: string; zone: Plan; need: number; what: string; where: string };
+}
+
+/** The parts of a live piece the objectives read (structure.ts Piece). */
+interface Tracked { root: { spec: { group?: string } }; volume: number; demolished: boolean; curPos: ArrayLike<number> }
+
+/** Progress on the active goal: `frac` is the target's demolished fraction, `outside` the fraction of the target's
+    volume lying outside its footprint, `salvaged` items in the salvage zone out of `salvageOf` (`salvageLeft` of
+    them still exist; an item broken up counts once, by its root). */
+export const objective = { frac: 0, outside: 0, salvaged: 0, salvageOf: 0, salvageLeft: 0 };
+const inZone = new Set<object>(), alive = new Set<object>();
+/** below-grade parts of the target (footings, basements, piles): no demolition reaches them, so the target skips them */
+let buried = new WeakSet<object>();
+
+/** Top of a piece at or under this is below grade (the damp course the buildings stand on). */
+export const GRADE = 0.16;
+export const belowGrade = (p: { pos: ArrayLike<number>; size: ArrayLike<number> }): boolean => p.pos[1] + p.size[1] / 2 <= GRADE;
+let goal: Goal | null = null;
+let groups: Set<string> | null = null;
+let base = 0;
+
+const inPlan = (b: Plan, p: ArrayLike<number>) => p[0] >= b[0] && p[0] <= b[1] && p[2] >= b[2] && p[2] <= b[3];
+
+export function setGoal(g: Goal | undefined, specs: { group?: string; pos: ArrayLike<number>; size: ArrayLike<number> }[], volumeOf: (i: number) => number): void {
+  goal = g ?? null;
+  groups = g?.groups ? new Set(g.groups) : null;
+  base = 0;
+  buried = new WeakSet();
+  objective.salvageOf = 0;
+  specs.forEach((p, i) => {
+    if (groups && p.group && groups.has(p.group)) {
+      if (belowGrade(p)) buried.add(p);
+      else base += volumeOf(i);
+    }
+    if (g?.salvage && p.group === g.salvage.group) objective.salvageOf++;
+  });
+  objective.frac = objective.outside = objective.salvaged = 0;
+  objective.salvageLeft = objective.salvageOf;
+}
+
+/** Re-reads the goal's progress off the live pieces; `whole` is the site-wide demolished fraction. */
+export function trackGoal(pieces: Iterable<Tracked>, whole: number): void {
+  if (!goal || (!groups && !goal.salvage)) { objective.frac = whole; return; }
+  let intact = 0, out = 0;
+  const fp = goal.footprint, sv = goal.salvage;
+  inZone.clear();
+  alive.clear();
+  for (const p of pieces) {
+    const g = p.root.spec.group;
+    if (!g) continue;
+    if (groups?.has(g) && !buried.has(p.root.spec)) {
+      if (!p.demolished) intact += p.volume;
+      if (fp && !inPlan(fp, p.curPos)) out += p.volume;
+    }
+    if (sv && g === sv.group) {
+      alive.add(p.root);
+      if (inPlan(sv.zone, p.curPos)) inZone.add(p.root);
+    }
+  }
+  objective.frac = groups ? (base > 0 ? Math.min(1, Math.max(0, 1 - intact / base)) : 0) : whole;
+  objective.outside = base > 0 ? Math.min(1, out / base) : 0;
+  objective.salvaged = inZone.size;
+  objective.salvageLeft = alive.size;
+}
+
+/** Salvage still owed before the job can be signed off (0 when there is none, or it is in). */
+export function salvageOwed(): number {
+  if (!goal?.salvage) return 0;
+  return Math.max(0, Math.ceil(goal.salvage.need * objective.salvageOf - 1e-9) - objective.salvaged);
+}
+
+/** Too much of the salvage has been destroyed for the job ever to be signed off. */
+export function salvageLost(): boolean {
+  return salvageOwed() > objective.salvageLeft - objective.salvaged;
+}
+
+export function goalMet(target: number): boolean {
+  return objective.frac >= target && salvageOwed() === 0;
+}
+
+/** Out of time: the goal's limit has passed with the job unfinished. */
+export function goalExpired(target: number): boolean {
+  return !!goal?.limit && score.elapsed > goal.limit && !goalMet(target);
+}

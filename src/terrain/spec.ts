@@ -8,6 +8,15 @@ export type Range = [number, number];
 export const SURFACES = ['asphalt', 'concrete', 'paving', 'setts', 'gravel', 'grass', 'soil', 'rubble'] as const;
 export type SurfaceId = typeof SURFACES[number];
 
+/** soil kinds of the ground's strata and of loose spoil, in id order (terrain/soil.ts holds their properties) */
+export const SOILS = ['topsoil', 'clay', 'sand', 'gravel', 'fill', 'rock'] as const;
+export type SoilId = typeof SOILS[number];
+
+/** The ground's strata, top down: each layer's typical thickness (m) and how much it varies across the site (a
+    fraction; above 1 the layer is patchy, absent where the variation takes it below nothing). The last layer runs
+    on down. Topsoil is stripped under sealed and engineered ground (the sub-base, made ground, starts there). */
+export interface SoilProfile { layers: { soil: SoilId; thick: number; vary?: number }[] }
+
 export type TerrainOp =
   /** flat (or falling) plot at y; `blend` feathers the edge into what was there over that many metres */
   | { k: 'level'; x: Range; z: Range; y: number; mat?: SurfaceId; blend?: number; fall?: { axis: 'x' | 'z'; dy: number } }
@@ -60,6 +69,8 @@ export interface TerrainSpec {
   steps: Steps[];
   decals: Decal[];
   marks: Marking[];
+  /** strata under the site (default: an urban profile, terrain/soil.ts) */
+  soil?: SoilProfile;
 }
 
 /* 0.5 m samples: box3d gathers at most 256 triangles per shape pair, so a 5.5 m slab of debris lying on the

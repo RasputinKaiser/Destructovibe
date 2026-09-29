@@ -14,6 +14,7 @@ interface Model {
   pos: Vec3;
   rot: Vec3;
   muzzle: THREE.Object3D | null;
+  scale: number;
 }
 
 let scene: THREE.Scene | null = null;
@@ -37,7 +38,9 @@ let excStickL: THREE.Group, excStickR: THREE.Group, excLed: THREE.MeshStandardMa
 let brkChisel: THREE.Group, hoseTip: THREE.Group, splitWedge: THREE.Group, wireBtn: THREE.Mesh, wireLed: THREE.MeshStandardMaterial;
 const work = { on: false, load: 0, heat: 0, close: 0, lit: false, spin: 0, chain: 0 };
 /** hammer wind-up 0..1 and the bank IV tools' running state */
-const hold = { wind: 0, on: false, k: 0, run: 0 };
+const hold = { wind: 0, on: false, k: 0, run: 0, released: 1 };
+/** contact jolt: a struck tool jumps in the hands, a steel face rings it for a moment */
+const jolt = { k: 0, ring: 0 };
 const PRONG_OPEN = 0.3, PRONG_SHUT = -0.1, HOOK_Z = -0.25;
 const gripK = spring.create(0), prongK = spring.create(PRONG_OPEN);
 /** in-hand glow (flame, igniter, core) added to the camera-facing fill light, so no light is ever added */
@@ -610,32 +613,34 @@ function buildModels(): Record<WeaponId, Model> {
     mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.16, 8), black, 0, -0.06, 0.08),
   );
 
-  const mk = (group: THREE.Group, pos: Vec3, rot: Vec3, muzzle: THREE.Object3D | null): Model => ({ group, pos, rot, muzzle });
+  const mk = (group: THREE.Group, pos: Vec3, rot: Vec3, muzzle: THREE.Object3D | null, scale = 1): Model => ({ group, pos, rot, muzzle, scale });
   return {
-    hammer: mk(hammer, [0.36, -0.52, -0.74], [-0.6, 0, 0.05], null),
-    cannon: mk(cannon, [0.25, -0.25, -0.6], [0.03, -0.04, 0], cMuzzle),
-    rocket: mk(rocket, [0.3, -0.25, -0.34], [0.03, 0.13, 0.02], rMuzzle),
-    charge: mk(det, [0.22, -0.22, -0.46], [-0.35, -0.35, 0.12], null),
-    airstrike: mk(beacon, [0.22, -0.24, -0.46], [0.15, -0.3, -0.25], null),
-    thermite: mk(therm, [0.22, -0.22, -0.46], [0.12, -0.3, -0.16], null),
-    cutter: mk(cutter, [0.2, -0.21, -0.46], [0.5, 0.3, -0.2], null),
-    wrecker: mk(wrecker, [0.19, -0.19, -0.42], [0.9, -0.3, 0.08], null),
-    winch: mk(winch, [0.26, -0.24, -0.5], [0.03, -0.05, 0], null),
-    gravgun: mk(grav, [0.26, -0.24, -0.52], [0.03, -0.05, 0], null),
-    incendiary: mk(bottle, [0.21, -0.25, -0.45], [0.1, -0.3, -0.14], null),
-    megabomb: mk(mega, [0.2, -0.2, -0.44], [0.8, -0.3, 0.06], null),
-    grinder: mk(grinder, [0.24, -0.24, -0.46], [0.08, -0.08, 0.1], null),
-    saw: mk(saw, [0.22, -0.3, -0.42], [0.1, -0.06, 0], null),
-    drill: mk(drill, [0.24, -0.24, -0.46], [0.03, -0.05, 0], null),
-    shears: mk(shears, [0.24, -0.24, -0.5], [0.03, -0.05, 0], null),
-    plasma: mk(plasma, [0.24, -0.2, -0.48], [0.12, -0.05, 0], null),
-    torch: mk(torch, [0.24, -0.2, -0.48], [0.12, -0.05, 0], null),
-    planner: mk(planner, [0.2, -0.2, -0.44], [0.85, -0.3, 0.06], null),
-    excavator: mk(excavator, [0.19, -0.19, -0.42], [0.9, -0.2, 0.05], null),
-    breaker: mk(breaker, [0.24, -0.3, -0.42], [0.35, -0.05, 0], null),
-    hose: mk(hose, [0.24, -0.24, -0.5], [0.03, -0.05, 0], null),
-    splitter: mk(splitter, [0.24, -0.24, -0.46], [0.05, -0.05, 0], null),
-    wiresaw: mk(wiresaw, [0.2, -0.2, -0.44], [0.8, -0.3, 0.06], null),
+    // framing: everything rests in the lower-right third with its working end short of the crosshair, clear of the
+    // hotbar at 4:3 and not crowding the centre at 16:9 (the overlay camera is 58° vertical, Hor+)
+    hammer: mk(hammer, [0.34, -0.62, -0.72], [-0.7, 0.35, -0.18], null, 0.9),
+    cannon: mk(cannon, [0.26, -0.22, -0.6], [0.03, -0.04, 0], cMuzzle),
+    rocket: mk(rocket, [0.3, -0.25, -0.42], [0.02, 0.05, 0.02], rMuzzle, 0.85),
+    charge: mk(det, [0.23, -0.2, -0.46], [-0.35, -0.35, 0.12], null),
+    airstrike: mk(beacon, [0.23, -0.2, -0.46], [0.15, -0.3, -0.25], null),
+    thermite: mk(therm, [0.23, -0.19, -0.46], [0.12, -0.3, -0.16], null),
+    cutter: mk(cutter, [0.21, -0.18, -0.46], [0.5, 0.3, -0.2], null),
+    wrecker: mk(wrecker, [0.23, -0.19, -0.48], [0.9, -0.3, 0.08], null, 0.85),
+    winch: mk(winch, [0.27, -0.21, -0.5], [0.03, -0.05, 0], null),
+    gravgun: mk(grav, [0.27, -0.21, -0.52], [0.03, -0.05, 0], null),
+    incendiary: mk(bottle, [0.22, -0.21, -0.45], [0.1, -0.3, -0.14], null),
+    megabomb: mk(mega, [0.24, -0.2, -0.5], [0.8, -0.3, 0.06], null, 0.8),
+    grinder: mk(grinder, [0.27, -0.21, -0.5], [0.08, -0.08, 0.1], null),
+    saw: mk(saw, [0.25, -0.25, -0.5], [0.12, -0.1, 0], null),
+    drill: mk(drill, [0.26, -0.21, -0.48], [0.03, -0.05, 0], null),
+    shears: mk(shears, [0.26, -0.21, -0.52], [0.03, -0.05, 0], null),
+    plasma: mk(plasma, [0.25, -0.18, -0.48], [0.12, -0.05, 0], null),
+    torch: mk(torch, [0.25, -0.18, -0.48], [0.12, -0.05, 0], null),
+    planner: mk(planner, [0.24, -0.2, -0.5], [0.85, -0.3, 0.06], null, 0.8),
+    excavator: mk(excavator, [0.23, -0.19, -0.48], [0.9, -0.2, 0.05], null, 0.85),
+    breaker: mk(breaker, [0.28, -0.3, -0.5], [0.3, -0.05, 0], null),
+    hose: mk(hose, [0.26, -0.21, -0.52], [0.03, -0.05, 0], null),
+    splitter: mk(splitter, [0.26, -0.21, -0.48], [0.05, -0.05, 0], null),
+    wiresaw: mk(wiresaw, [0.23, -0.19, -0.48], [0.8, -0.3, 0.06], null, 0.85),
   };
 }
 
@@ -702,6 +707,7 @@ export function initViewmodel(): void {
     const m = models[id];
     m.group.visible = id === current;
     m.group.rotation.set(m.rot[0], m.rot[1], m.rot[2]);
+    m.group.scale.setScalar(m.scale);
     rig.add(m.group);
   }
   flashFx = buildFlash();
@@ -726,7 +732,10 @@ export const viewmodel = {
     if (!scene) return;
     fireT = 0;
     firedWith = id;
-    if (id === 'cannon') {
+    if (id === 'hammer') {
+      const w = hold.released;
+      SWING[0][1] = 0.55 * w; SWING[0][2] = -0.08 * w; SWING[0][3] = 0.06 * w; SWING[0][4] = 0.08 * w;
+    } else if (id === 'cannon') {
       kickP.velocity[2] += 4; kickP.velocity[1] += 0.8;
       kickR.velocity[0] += 9; kickR.velocity[2] += (Math.random() - 0.5) * 4;
     } else if (id === 'rocket') {
@@ -807,15 +816,22 @@ export const viewmodel = {
 
     const m = models[current];
     const air = s.grounded ? 0 : 0.012;
+    // idle: a slow figure-of-eight drift of the arms at rest, fading out while walking
+    const idle = 1 - Math.min(1, a);
+    const ix = Math.sin(time * 0.61) * 0.0035 * idle, iy = Math.sin(time * 1.22) * 0.0022 * idle;
+    // contact jolt: a hard knock that dies in a few frames, plus a short high buzz off a ringing face
+    jolt.k *= Math.exp(-dt * 16);
+    jolt.ring = Math.max(0, jolt.ring - dt);
+    const jk = jolt.k * 0.012 + jolt.ring * 0.01 * Math.sin(time * 190);
     rig.position.set(
-      m.pos[0] + bx - sway.value[1] * 0.12 - sk * 0.03,
-      m.pos[1] + by - lower * 0.32 + kickP.value[1] + air - sk * 0.05 + sway.value[0] * 0.06,
+      m.pos[0] + bx - sway.value[1] * 0.12 - sk * 0.03 + ix + (Math.random() - 0.5) * jolt.k * 0.012,
+      m.pos[1] + by - lower * 0.32 + kickP.value[1] + air - sk * 0.05 + sway.value[0] * 0.06 + iy + jk,
       m.pos[2] + kickP.value[2] + sk * 0.03,
     );
     rig.rotation.set(
-      sway.value[0] + kickR.value[0] - lower * 0.7 - sk * 0.35 + Math.sin(time * 1.7) * 0.004,
-      sway.value[1] + kickR.value[1] + sk * 0.5,
-      broll + sway.value[2] + kickR.value[2] + sk * 0.25,
+      sway.value[0] + kickR.value[0] - lower * 0.7 - sk * 0.35 + Math.sin(time * 1.7) * 0.004 + iy * 0.6,
+      sway.value[1] + kickR.value[1] + sk * 0.5 + ix * 0.8,
+      broll + sway.value[2] + kickR.value[2] + sk * 0.25 + jk * 0.8,
     );
     animateWeapon(m, dt);
   },
@@ -828,11 +844,57 @@ export const viewmodel = {
   },
 
   /** sledge wind-up 0..1 (0 = at rest) */
-  charge(k: number): void { hold.wind = Math.min(1, Math.max(0, k)); },
+  charge(k: number): void {
+    if (k <= 0 && hold.wind > 0) hold.released = hold.wind;
+    hold.wind = Math.min(1, Math.max(0, k));
+  },
+
+  /** the tool meets the work: k 0..1, ring when it bounces off something hard (steel, stone) */
+  impact(k: number, ring = false): void {
+    if (!scene) return;
+    const s = Math.min(1, Math.max(0, k));
+    kickP.velocity[2] += 1.1 * s; kickP.velocity[1] += 0.5 * s;
+    kickR.velocity[0] += (ring ? 5 : 2.5) * s;
+    kickR.velocity[2] += (Math.random() - 0.5) * 2 * s;
+    jolt.k = Math.max(jolt.k, s);
+    if (ring) jolt.ring = Math.max(jolt.ring, 0.35);
+  },
 
   /** breaker / water cannon / excavator remote in use this frame, with its intensity 0..1 */
   hold(on: boolean, k: number): void { hold.on = on; hold.k = k; },
 };
+
+/** dev: move a model live (position, rotation, scale) to tune its framing */
+export function tuneViewmodel(id: WeaponId, pos?: Vec3, rot?: Vec3, scale?: number): { pos: Vec3; rot: Vec3; scale: number; ndc: number[] } | null {
+  if (!scene) return null;
+  const m = models[id];
+  if (pos) m.pos = [...pos];
+  if (rot) m.rot = [...rot];
+  if (scale !== undefined) { m.scale = scale; m.group.scale.setScalar(scale); }
+  // screen footprint at rest: every vertex through the overlay camera, as an NDC box [x0, x1, y0, y1]
+  const g = new THREE.Group();
+  const c = m.group.clone();
+  c.visible = true;
+  c.position.set(0, 0, 0);
+  c.rotation.set(m.rot[0], m.rot[1], m.rot[2]);
+  c.scale.setScalar(m.scale);
+  g.position.set(m.pos[0], m.pos[1], m.pos[2]);
+  g.add(c);
+  g.updateMatrixWorld(true);
+  camera.updateMatrixWorld(true);
+  const b = [Infinity, -Infinity, Infinity, -Infinity], v = new THREE.Vector3();
+  c.traverse(o => {
+    if (!(o instanceof THREE.Mesh) || !o.visible) return;
+    const pa = o.geometry.getAttribute('position');
+    for (let i = 0; i < pa.count; i += 3) {
+      v.fromBufferAttribute(pa, i).applyMatrix4(o.matrixWorld);
+      if (v.z > -0.02) continue;
+      v.project(camera);
+      b[0] = Math.min(b[0], v.x); b[1] = Math.max(b[1], v.x); b[2] = Math.min(b[2], v.y); b[3] = Math.max(b[3], v.y);
+    }
+  });
+  return { pos: [...m.pos], rot: [...m.rot], scale: m.scale, ndc: b.map(x => +x.toFixed(2)) };
+}
 
 /** gravgun hold state: prongs close, core brightens, the tool shakes */
 export function viewmodelGrip(active: boolean): void { gripping = active; }
@@ -848,7 +910,10 @@ function key3(t: number, keys: number[][]): number[] {
 }
 
 // [t, rotX, rotZ, posY, posZ]
-const SWING = [[0, 0, 0, 0, 0], [0.12, 0.45, -0.05, 0.04, 0.05], [0.24, -1.3, 0.45, -0.08, -0.22], [0.3, -1.25, 0.42, -0.1, -0.2], [0.58, 0, 0, 0, 0]];
+/* from the wound-up pose (row 0, set at release) straight down onto the work at 0.14 s, when the blow lands */
+const SWING = [[0, 0.55, -0.08, 0.06, 0.08], [0.14, -1.3, 0.45, -0.08, -0.22], [0.22, -1.12, 0.4, -0.06, -0.18], [0.58, 0, 0, 0, 0]];
+/* muzzle-loader: after the kick the barrel comes up to take the next ball, is rammed, and goes back on aim */
+const RELOAD = [[0, 0, 0, 0, 0], [0.22, 0, 0, 0, 0], [0.4, 0.62, -0.18, -0.06, 0.05], [0.58, 0.58, -0.22, -0.04, 0.02], [0.66, 0.6, -0.18, -0.05, 0.05], [0.95, 0, 0, 0, 0]];
 const THROW = [[0, 0, 0, 0, 0], [0.14, 0.5, 0, 0.06, 0.1], [0.3, -0.9, 0, 0.15, -0.35], [0.31, -0.9, 0, -0.35, 0], [0.9, -0.3, 0, -0.35, 0], [1.25, 0, 0, 0, 0]];
 const PLACE = [[0, 0, 0, 0, 0], [0.1, 0.3, 0, 0.02, 0.06], [0.24, -0.45, 0.1, 0.08, -0.26], [0.25, -0.3, 0, -0.3, 0.02], [0.62, -0.3, 0, -0.3, 0.02], [0.95, 0, 0, 0, 0]];
 
@@ -862,7 +927,7 @@ function animateWeapon(m: Model, dt: number): void {
   g.position.set(0, 0, 0);
   vmGlow.setRGB(0, 0, 0);
   flashFx.visible = flashT < 0.06;
-  if (current === 'hammer' && firedWith === 'hammer' && fireT < 0.6) {
+  if (current === 'hammer' && firedWith === 'hammer' && fireT < 0.58) {
     const k = key3(fireT, SWING);
     g.rotation.x += k[0]; g.rotation.z += k[1]; g.position.y = k[2]; g.position.z = k[3];
   } else if (current === 'hammer' && hold.wind > 0) {
@@ -915,6 +980,11 @@ function animateWeapon(m: Model, dt: number): void {
     detButton.position.z = pressed ? 0.022 : 0.026;
     const fast = firedWith === 'charge' && fireT < 0.7;
     ledMat.emissiveIntensity = (fast ? Math.sin(time * 40) > 0 : (time % 1) < 0.12) ? 4 : 0.15;
+  } else if (current === 'cannon') {
+    if (firedWith === 'cannon' && fireT < 0.95) {
+      const k = key3(fireT, RELOAD);
+      g.rotation.x += k[0]; g.rotation.z += k[1]; g.position.y = k[2]; g.position.z = k[3];
+    }
   } else if (current === 'rocket') {
     const reloading = firedWith === 'rocket' && fireT < 1.6;
     rocketTip.visible = !reloading || fireT > 1.25;

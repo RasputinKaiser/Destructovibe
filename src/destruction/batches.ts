@@ -382,3 +382,4 @@ export function batchStats(): { batches: number; instances: number; triangles: n
   }
   return { batches: batches.size, instances, triangles, vertices };
 }
+

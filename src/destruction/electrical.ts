@@ -1,6 +1,6 @@
 import { vec3, clamp } from 'math';
 import type { MaterialId, Vec3 } from '../types';
-import { b3, CAT, overlapAABB, entityOfShape } from '../physics/physics';
+import { b3, CAT, overlapAABB, entityOfShape, randomStream } from '../physics/physics';
 import { fx } from '../render/fx';
 import { audio } from '../audio/audio';
 import { lighting } from '../render/shared';
@@ -8,6 +8,8 @@ import { live, heat, ignite, damagePiece, explode, type Piece } from './structur
 import { flammable } from './materials';
 import * as fields from '../sim/fields/index';
 import { svcSurge, svcViewerPos } from './services';
+
+const dice = randomStream(0xe1ec7);
 
 /* The electrical side of the power networks: each network is a radial circuit fed from its source. Loop impedances
    (source %Z, conductor resistance from length and cross-section, the contact resistance of every joint) are solved
@@ -143,7 +145,7 @@ export function arcBlast(pos: Vec3, E: number, src: Piece | null): void {
     const q = e as Piece;
     if (q.dead || q === src || vec3.distance(q.curPos, pos) > rs + 0.5) return;
     heat(q, (120 * chance + 40) * clamp(0.01 / q.volume, 0.02, 1));
-    if (flammable(q.pm) && Math.random() < chance) ignite(q);
+    if (flammable(q.pm) && dice() < chance) ignite(q);
   });
   fields.spark(pos, 0.5);
 }
@@ -197,7 +199,7 @@ const weather = { storm: false, rain: 0, next: 0, strikes: 0 };
 export function setStorm(on: boolean): void {
   weather.storm = on;
   weather.rain = on ? 0.85 : 0;
-  weather.next = on ? 2 + Math.random() * 4 : 0;
+  weather.next = on ? 2 + dice() * 4 : 0;
   fields.setRain(weather.rain);
 }
 export const stormOn = (): boolean => weather.storm;
@@ -210,7 +212,7 @@ export function stepWeather(dt: number): void {
   if (!weather.storm) return;
   weather.next -= dt;
   if (weather.next > 0) return;
-  weather.next = 5 + Math.random() * 15;
+  weather.next = 5 + dice() * 15;
   const v = svcViewerPos;
   lightningStrike({ at: [v[0], v[1], v[2]], spread: 160 });
 }
@@ -237,7 +239,7 @@ const _ab: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0]
 
 /** Peak return-stroke current: log-normal, median 30 kA (CIGRE), clamped to 5-200 kA. */
 function strokeKA(): number {
-  const g = Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+  const g = Math.sqrt(-2 * Math.log(1 - dice())) * Math.cos(2 * Math.PI * dice());
   return clamp(30 * Math.exp(0.7 * g), 5, 200);
 }
 
@@ -250,7 +252,7 @@ function strokeKA(): number {
 export function lightningStrike(o: { at?: Vec3; spread?: number; kA?: number } = {}): Strike {
   const t0 = performance.now();
   const at = o.at ?? svcViewerPos, spread = o.spread ?? 60;
-  const a = Math.random() * 2 * Math.PI, rr = spread * Math.sqrt(Math.random());
+  const a = dice() * 2 * Math.PI, rr = spread * Math.sqrt(dice());
   const lx = at[0] + Math.cos(a) * rr, lz = at[2] + Math.sin(a) * rr;
   const kA = o.kA ?? strokeKA();
   const r = STRIKE_R;
@@ -365,13 +367,13 @@ function nearest(pos: ArrayLike<number>, r: number, skip: Set<Piece>, conductor 
 
 /* The channel: midpoint displacement of the leader's path from the cloud base, with a few forks off its upper part. */
 function drawBolt(lx: number, lz: number, end: Vec3, kA: number): void {
-  const top: Vec3 = [lx + (Math.random() - 0.5) * 60, 260, lz + (Math.random() - 0.5) * 60];
+  const top: Vec3 = [lx + (dice() - 0.5) * 60, 260, lz + (dice() - 0.5) * 60];
   const main = jag(top, end, 7, 0.22);
   const forks: Vec3[][] = [];
-  const nf = 2 + Math.floor(Math.random() * 4);
+  const nf = 2 + Math.floor(dice() * 4);
   for (let i = 0; i < nf; i++) {
-    const a = main[Math.floor(Math.random() * main.length * 0.7)];
-    const L = (a[1] - end[1]) * (0.2 + Math.random() * 0.35), ang = Math.random() * 2 * Math.PI;
+    const a = main[Math.floor(dice() * main.length * 0.7)];
+    const L = (a[1] - end[1]) * (0.2 + dice() * 0.35), ang = dice() * 2 * Math.PI;
     forks.push(jag(a, [a[0] + Math.cos(ang) * L * 0.7, a[1] - L, a[2] + Math.sin(ang) * L * 0.7], 4, 0.3));
   }
   fx.lightning(main, forks, clamp(kA / 30, 0.4, 2));
@@ -383,7 +385,7 @@ function jag(a: Vec3, b: Vec3, depth: number, rough: number): Vec3[] {
     const out: Vec3[] = [pts[0]];
     for (let i = 1; i < pts.length; i++) {
       const p = pts[i - 1], q = pts[i], L = vec3.distance(p, q) * rough;
-      out.push([(p[0] + q[0]) / 2 + (Math.random() - 0.5) * L, (p[1] + q[1]) / 2 + (Math.random() - 0.5) * L * 0.4, (p[2] + q[2]) / 2 + (Math.random() - 0.5) * L], q);
+      out.push([(p[0] + q[0]) / 2 + (dice() - 0.5) * L, (p[1] + q[1]) / 2 + (dice() - 0.5) * L * 0.4, (p[2] + q[2]) / 2 + (dice() - 0.5) * L], q);
     }
     pts = out;
   }

@@ -15,7 +15,8 @@ let ring: THREE.Mesh, ringMat: THREE.MeshBasicMaterial, dot: THREE.Mesh;
 let boxes: { g: THREE.LineSegments; m: THREE.LineBasicMaterial }[] = [];
 let lineGeo: THREE.BufferGeometry, lineMat: THREE.LineBasicMaterial, lineObj: THREE.LineSegments, linePos: Float32Array, lineCol: Float32Array;
 let arcGeo: THREE.BufferGeometry, arcMat: THREE.LineDashedMaterial, arcObj: THREE.Line, arcPos: Float32Array;
-let nBox = 0, nLine = 0, ringOn = false, arcOn = false;
+let halo: THREE.LineSegments, haloMat: THREE.LineBasicMaterial;
+let nBox = 0, nLine = 0, ringOn = false, arcOn = false, haloOn = false;
 const _q = new THREE.Quaternion(), _n = new THREE.Vector3(), _z = new THREE.Vector3(0, 0, 1);
 
 const overlay = (m: THREE.Material): THREE.Material => {
@@ -64,14 +65,39 @@ export function initAim(scene: THREE.Scene): void {
   arcObj = new THREE.Line(arcGeo, arcMat);
   arcObj.frustumCulled = false;
   arcObj.renderOrder = 1008;
-  root.add(ring, lineObj, arcObj);
+  // three great circles: the reach of a blast, readable from any side
+  const hp: number[] = [];
+  const SEG = 48;
+  for (let c = 0; c < 3; c++) for (let i = 0; i < SEG; i++) {
+    for (const j of [i, i + 1]) {
+      const a = (j / SEG) * Math.PI * 2, u = Math.cos(a), v = Math.sin(a);
+      hp.push(...(c === 0 ? [u, 0, v] : c === 1 ? [u, v, 0] : [0, u, v]));
+    }
+  }
+  const hg = new THREE.BufferGeometry();
+  hg.setAttribute('position', new THREE.Float32BufferAttribute(hp, 3));
+  haloMat = overlay(new THREE.LineBasicMaterial({ color: COLOR.far, opacity: 0.35 })) as THREE.LineBasicMaterial;
+  halo = new THREE.LineSegments(hg, haloMat);
+  halo.frustumCulled = false;
+  halo.renderOrder = 1007;
+  root.add(ring, lineObj, arcObj, halo);
   scene.add(root);
   aim.end();
 }
 
 export const aim = {
   begin(): void {
-    nBox = 0; nLine = 0; ringOn = false; arcOn = false;
+    nBox = 0; nLine = 0; ringOn = false; arcOn = false; haloOn = false;
+  },
+
+  /** wire sphere of radius r: how far a blast from here reaches */
+  sphere(center: ArrayLike<number>, r: number, s: AimState, opacity = 0.35): void {
+    if (!root) return;
+    halo.position.set(center[0], center[1], center[2]);
+    halo.scale.setScalar(Math.max(0.05, r));
+    haloMat.color.copy(COLOR[s]);
+    haloMat.opacity = opacity;
+    haloOn = true;
   },
 
   /** ring of radius `r` lying on the surface at `pos` facing `normal` */
@@ -127,6 +153,7 @@ export const aim = {
       lineGeo.attributes.color.needsUpdate = true;
     }
     arcObj.visible = arcOn;
+    halo.visible = haloOn;
   },
 };
 

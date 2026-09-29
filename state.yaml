@@ -34,27 +34,3 @@ scale_and_stability_pass:
   status: in progress
   fracture_geometry: impact-centred seed distribution for thin walls and floor slabs; regression validates volume conservation
   remaining: grander architectural structures, structural load-path simulation and combined browser playtest
-
-github_publication:
-  prepared_on: 2026-09-28
-  repository: https://github.com/RasputinKaiser/Destructovibe
-  branch: main
-  contents: current source, legacy source, lockfile, documentation, validators, and CI
-  validation:
-    clean_install: passed
-    production_build: passed with Box3D Node module externalization warnings
-    fractures: passed
-    levels: passed with blueprint warnings
-    grid: passed
-    rigging: passed
-    fx_regression: failed - steel must not throw a masonry dust cloud
-  game_deployment: not deployed
-  license: not selected
-
-  publication_result:
-    creation_and_initial_push: accepted by GitHub
-    pushed_commit: c3c80d4
-    followup_verification: blocked by GitHub account suspension, HTTP 403
-    public_url_check: HTTP 404
-    publicly_available: false
-    next_action: resolve account suspension through GitHub Support, then verify remote and push this status update

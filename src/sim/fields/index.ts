@@ -23,11 +23,13 @@ export { FIRE_CLOCK, SOLID_CLOCK };
 export type Species = 'methane' | 'propane' | 'steam' | 'co' | 'smoke' | 'air';
 
 /* own stream: the field's jitter must not perturb the game's seeded randomness */
-let rs = 0x2545f491;
+const RS0 = 0x2545f491;
+let rs = RS0;
 const rnd = (): number => { rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5; return (rs >>> 0) / 4294967296; };
 
 const FIELD_DT = 0.1;
 const BUDGET_MS = 1.4;
+const BRICK_MS = 4;             // a brick step's typical cost (16³ voxels of gas, convection)
 const SPILL_CAP = 14;
 const RETIRE = 4;
 const MOL: Record<Species, number> = { methane: 0.016, propane: 0.044, steam: 0.018, co: 0.028, smoke: 0, air: 0.029 };
@@ -40,7 +42,6 @@ let rain = 0;
 let deflT = -1;
 let deflCool = 0;
 let frontIdle = 0;
-let brickAvg = 1;
 let credit = 0;
 const pending: Brick[] = [];
 
@@ -167,20 +168,19 @@ export function stepFields(dt: number): void {
   for (let i = sparks.length - 1; i >= 0; i--) if ((sparks[i].t -= dt) <= 0) sparks.splice(i, 1);
   linkNeighbours();
 
-  /* round robin under a time budget: an overloaded field runs slow (bigger steps, up to 0.25 s) rather than
-     stalling the frame; quiet bricks tick at 2 Hz until they retire */
+  /* round robin under a work budget: an overloaded field runs slow (bigger steps, up to 0.25 s) rather than
+     stalling the frame; quiet bricks tick at 2 Hz until they retire. The budget counts brick steps at their nominal
+     cost, not wall time, so the field (and the fire and blasts it feeds back) replays identically on any machine. */
   const nb = brickList.length;
-  /* time credit: a frame too short for a brick banks its share for the next */
-  credit = Math.min(credit + BUDGET_MS, 4 * BUDGET_MS);
+  /* credit: a step too short for a brick banks its share for the next */
+  credit = Math.min(credit + BUDGET_MS / BRICK_MS, Math.max(1, (4 * BUDGET_MS) / BRICK_MS));
   let k = 0, rescans = 1;
   for (; k < nb; k++) {
     const b = brickList[(cursor + k) % nb];
     const since = clock - b.last;
     const period = b.content || (emitters.get(b)?.length ?? 0) > 0 ? FIELD_DT : 0.5;
     if (since < period) continue;
-    /* a full bank always buys a brick: one slow step (a GC pause) must not raise the average past what the bank
-       can ever hold and freeze the field for good */
-    if (credit < Math.min(brickAvg, 4 * BUDGET_MS)) break;
+    if (credit < 1) break;
     const bdt = Math.min(0.25, since);
     b.last = clock;
     if (b.rescan < 0) { b.rescan = clock + 2 + rnd(); scanBrick(b); }
@@ -189,8 +189,7 @@ export function stepFields(dt: number): void {
     const tb = performance.now();
     const busy = stepBrick(b, bdt) || (emitters.get(b)?.length ?? 0) > 0;
     const bt = performance.now() - tb;
-    credit -= bt;
-    brickAvg += (Math.min(bt, 6) - brickAvg) * 0.1;
+    credit -= 1;
     fieldCost.brickMax = Math.max(fieldCost.brickMax, bt);
     convect(b, bdt, clock);
     fieldCost.brickSteps++;
@@ -394,6 +393,7 @@ export function clearFields(): void {
   deflT = -1;
   deflCool = 0;
   credit = 0;
+  rs = RS0;
   thermalStats.flashovers = thermalStats.backdrafts = thermalStats.deflagrations = thermalStats.shocks = thermalStats.conducted = 0;
 }
 

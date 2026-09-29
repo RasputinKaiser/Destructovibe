@@ -1,11 +1,15 @@
-import type { b3BodyId, b3ShapeId } from 'box3d.js';
+import type { b3BodyId, b3HeightFieldData, b3ShapeId } from 'box3d.js';
 import type { Vec3 } from '../types';
 import type { Piece } from '../destruction/structure';
-import { b3, world, groundSlab, CAT, ALL, filter, register, type PhysEntity } from '../physics/physics';
+import { b3, world, groundSlab, CAT, ALL, filter, register, stepCount, FIXED_DT, overlapAABB, type PhysEntity } from '../physics/physics';
 import { fx } from '../render/fx';
 import { SURFACES, TILE_CELLS, type SurfaceId, type TerrainSpec } from './spec';
 import { fieldHeight, groundHeight, isHole, rasterize, surfaceIdAt, type TerrainData } from './raster';
 import { SURFACE } from './surface';
+import {
+  initSoil, soilStep, takeBox, digSoil, heapSoil, craterSoil, dentSoil, shake, spawn, activate, surfaceSoil, isSealed, looseVolume,
+  soilProps, ceilings, activeBox, heldBlocks, displace, SOILS, RHO_LOOSE, type SoilId, type SoilState,
+} from './soil';
 
 /* The ground in the physics: one static body per tile (32 samples, 0.5 m apart on a site; 4 m on the flat default)
    carrying a heightfield and a triangle mesh per surfacing for the engineered features on it (kerbs, walls, steps,
@@ -37,6 +41,9 @@ export const terrain: TerrainState = { data: null, version: 0, dirty: new Set(),
 let forWorld: unknown = null;
 let bodies: b3BodyId[] = [];
 let fields: (b3ShapeId | null)[] = [];
+/** each tile's heightfield data (box3d keeps a pointer to it) and the heights it was made from */
+let hfData: (b3HeightFieldData | null)[] = [];
+let sent: Float32Array[] = [];
 let feats: b3ShapeId[][] = [];
 const shapeMat = new Map<number, number>();
 const buried = new Set<Piece>();
@@ -61,13 +68,22 @@ export function buildTerrain(spec?: TerrainSpec): void {
   forWorld = world;
   terrain.flat = !spec;
   const d = rasterize(spec ?? DEFAULT);
+  d.soil = initSoil(d);
   terrain.data = d;
+  soilLast = stepCount;
+  commitStep = stepCount;
+  capStep = -1e9;
+  heldTile = -1;
+  qCount = -1;
   buried.clear();
   entombed.clear();
   shapeMat.clear();
   const T = d.tiles;
   bodies = new Array(T * T);
   fields = new Array(T * T).fill(null);
+  for (const h of hfData) if (h) b3.b3DestroyHeightField(h);
+  hfData = new Array(T * T).fill(null);
+  sent = new Array(T * T);
   feats = Array.from({ length: T * T }, () => []);
   for (let tz = 0; tz < T; tz++) for (let tx = 0; tx < T; tx++) {
     const bd = b3.b3DefaultBodyDef();
@@ -129,10 +145,28 @@ function apron(half: number): void {
 function tileField(t: number): void {
   const d = terrain.data!, T = d.tiles, tx = t % T, tz = Math.floor(t / T), n = d.n;
   if (fields[t] && b3.b3Shape_IsValid(fields[t]!)) b3.b3DestroyShape(fields[t]!, false);
+  if (hfData[t]) b3.b3DestroyHeightField(hfData[t]);
   const hs = new Float32Array(N * N);
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) hs[i + N * j] = d.h[tx * TILE_CELLS + i + n * (tz * TILE_CELLS + j)];
   const hf = b3.b3CreateHeightField(hs, N, N, [d.cell, 1, d.cell]);
+  hfData[t] = hf;
+  sent[t] = hs;
   fields[t] = b3.b3CreateHeightFieldShape(bodies[t], groundDef(0.8), hf);
+}
+
+/* Remaking a tile's heightfield wakes everything lying on it, 16 m round: the soil's slow creep (a run settling to its
+   repose, held spoil working out from under rubble) would keep every pile on the tile from ever sleeping. A tile is
+   remade once its ground has moved by a centimetre somewhere (the render follows the same tiles, so what is drawn is
+   what is collided with). */
+const RESEND = 0.01;
+function stale(d: TerrainData, t: number): boolean {
+  const T = d.tiles, tx = t % T, tz = Math.floor(t / T), n = d.n, hs = sent[t];
+  if (!hs) return true;
+  for (let j = 0; j < N; j++) {
+    const row = tx * TILE_CELLS + n * (tz * TILE_CELLS + j);
+    for (let i = 0; i < N; i++) if (Math.abs(d.h[row + i] - hs[i + N * j]) > RESEND) return true;
+  }
+  return false;
 }
 
 function tileFeatures(t: number): void {
@@ -181,7 +215,22 @@ export function holeAt(x: number, z: number): boolean {
 
 export function surfaceAt(x: number, z: number): SurfaceId {
   const d = cur();
-  return d ? SURFACES[surfaceIdAt(d, x, z)] : 'soil';
+  if (!d) return 'soil';
+  // spoil lying on a pavement is dug, walked and driven as soil
+  const s = d.soil, k = s ? nearest(d, x, z) : -1;
+  if (s && k >= 0 && s.L[k] > 0.05) return 'soil';
+  return SURFACES[surfaceIdAt(d, x, z)];
+}
+
+function nearest(d: TerrainData, x: number, z: number): number {
+  const i = Math.round((x + d.half) / d.cell), j = Math.round((z + d.half) / d.cell);
+  return i < 0 || j < 0 || i >= d.n || j >= d.n ? -1 : i + d.n * j;
+}
+
+/** The soil at the surface at (x, z): loose spoil, or the stratum a cut has laid bare. */
+export function soilAtSurface(x: number, z: number): SoilId {
+  const d = cur(), k = d?.soil ? nearest(d, x, z) : -1;
+  return k >= 0 ? SOILS[surfaceSoil(d!.soil!, k)] : 'topsoil';
 }
 
 /** Surfacing of a ground shape hit at `p` (features carry their own). */
@@ -259,16 +308,28 @@ export function isBuried(p: Piece): boolean { return buried.has(p); }
 export function buriedCount(): number { return buried.size; }
 
 const _ob: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
-/** Held up: welded to the anchor, or to a piece that reaches down to or below its underside. */
+function bottomOf(p: Piece): number { b3.b3Body_ComputeAABB(_ob, p.body); return _ob[1]; }
+
+/** Held up: welded to the anchor, or to a piece reaching down to or below its underside that is itself held up (or
+    bears on the ground: entombed, or colliding with it). Ground-floor pieces welded only to one another are not: with
+    the ground's collision off they would fall through it together. */
 function held(p: Piece): boolean {
-  let bottom = NaN;
-  for (const w of p.welds) {
-    if (!w.alive) continue;
-    if (!w.b) return true;
-    if (Number.isNaN(bottom)) { b3.b3Body_ComputeAABB(_bb, p.body); bottom = _bb[1]; }
-    const o = w.a === p ? w.b : w.a;
-    b3.b3Body_ComputeAABB(_ob, o.body);
-    if (_ob[1] <= bottom + 0.05) return true;
+  const seen = new Set<Piece>([p]), queue: Piece[] = [p], bot = [bottomOf(p)];
+  for (let h = 0; h < queue.length; h++) {
+    if (h >= 96) return true;
+    const q = queue[h], qb = bot[h];
+    for (const w of q.welds) {
+      if (!w.alive) continue;
+      if (!w.b) return true;
+      const o = w.a === q ? w.b : w.a;
+      if (o.dead || seen.has(o)) continue;
+      const ob = bottomOf(o);
+      if (ob > qb + 0.05) continue;
+      if (entombed.has(o) || !buried.has(o)) return true;
+      seen.add(o);
+      queue.push(o);
+      bot.push(ob);
+    }
   }
   return false;
 }
@@ -300,27 +361,67 @@ export function groundLost(p: Piece): void {
 /** Pieces the ground has let go of that nothing reported: fragments born in the soil, and pieces cut loose from
     everything (a member hanging from its neighbours stays theirs). */
 export function settleBuried(): void {
+  terrainStep();
+  sweep(true);
+}
+
+/** Buried pieces nothing holds up any more (`full`: also those welded only to what is not held up itself) go back to
+    the ground, or into it. Their collision with the ground is off: every step one is left falls through it. */
+function sweep(full: boolean): void {
   for (const p of buried) {
     if (p.dead) { buried.delete(p); entombed.delete(p); continue; }
-    if (entombed.has(p) || p.welds.length) continue;
+    if (entombed.has(p) || (p.welds.length && !full)) continue;
+    if (p.welds.length && (p.welds.some((w) => w.alive && !w.b) || held(p))) continue;
     if (embedded(p)) entomb(p); else free(p);
   }
 }
 
-/** Hand a piece back to the ground: dig the soil out from under its footprint where it would be inside it, so it
-    starts clear of the heightfield, then let it collide. */
+/** Hand a piece back to the ground: let it collide, and push the soil out of the way where the heightfield passes
+    into it (only under the piece itself: its own footprint, to its own underside), so it starts clear. */
 function free(p: Piece): void {
   if (entombed.delete(p)) b3.b3Body_SetType(p.body, b3.b3BodyType.b3_dynamicBody);
-  b3.b3Body_ComputeAABB(_bb, p.body);
-  carveBox(_bb[0] - 0.05, _bb[3] + 0.05, _bb[2] - 0.05, _bb[5] + 0.05, _bb[1] - 0.02);
   setGround(p, true);
   buried.delete(p);
+  clearUnder(p);
   b3.b3Body_SetAwake(p.body, true);
+}
+
+const _ks: number[] = [], _ys: number[] = [];
+/** The heightfield samples under p that stand above its underside, lowered to it (the soil displaced round it). */
+function clearUnder(p: Piece): void {
+  const d = cur();
+  if (!d) return;
+  b3.b3Body_ComputeAABB(_bb, p.body);
+  if (!d.soil) { carveBox(_bb[0] - 0.05, _bb[3] + 0.05, _bb[2] - 0.05, _bb[5] + 0.05, _bb[1] - 0.02); return; }
+  const n = d.n, c = d.cell, lo = _bb[1] - 0.05, len = _bb[4] - _bb[1] + 0.1;
+  const i0 = Math.max(1, Math.ceil((_bb[0] + d.half) / c)), i1 = Math.min(n - 2, Math.floor((_bb[3] + d.half) / c));
+  const j0 = Math.max(1, Math.ceil((_bb[2] + d.half) / c)), j1 = Math.min(n - 2, Math.floor((_bb[5] + d.half) / c));
+  _ks.length = _ys.length = 0;
+  const shapes = shapesOf(p);
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const k = i + n * j;
+    if (d.h[k] < lo || d.hole[k]) continue;
+    const x = -d.half + i * c, z = -d.half + j * c;
+    let y = Infinity;
+    for (const s of shapes) {
+      if (!b3.b3Shape_IsValid(s)) continue;
+      const r = b3.b3Shape_RayCast(s, [x, lo, z], [0, len, 0]);
+      if (r.hit && r.point[1] < y) y = r.point[1];
+    }
+    if (y - 0.02 < d.h[k]) { _ks.push(k); _ys.push(y - 0.02); }
+  }
+  if (!_ks.length) return;
+  const x0 = _bb[0] - 2 * c, x1 = _bb[3] + 2 * c, z0 = _bb[2] - 2 * c, z1 = _bb[5] + 2 * c;
+  capRegion(d, d.soil, x0, x1, z0, z1);
+  const m = displace(d, d.soil, _ks, _ys);
+  soilCost.displaced += m;
+  const b = takeBox(d.soil);
+  if (b) commitBox(d, b);
 }
 
 /* ---------------- deformation ---------------- */
 
-export interface CraterInfo { x: number; z: number; r: number; depth: number; ms: number; tiles: number; exposed: number; undermined: number }
+export interface CraterInfo { x: number; z: number; r: number; depth: number; ms: number; tiles: number; exposed: number; undermined: number; /** kg of soil thrown out (and laid back as rim, blanket and clods) */ thrown: number }
 export const craterLog: CraterInfo[] = [];
 
 function touchTiles(x0: number, x1: number, z0: number, z1: number, feat: boolean): number {
@@ -330,16 +431,17 @@ function touchTiles(x0: number, x1: number, z0: number, z1: number, feat: boolea
   let k = 0;
   for (let b = b0; b <= b1; b++) for (let a = a0; a <= a1; a++) {
     const t = a + T * b;
+    if (!feat && !stale(d, t)) continue;
     tileField(t);
     if (feat) tileFeatures(t);
     terrain.dirty.add(t);
     k++;
   }
-  terrain.version++;
+  if (k) terrain.version++;
   return k;
 }
 
-/** Lower the heightfield inside a box footprint to y (never raises). */
+/** Lower the heightfield inside a box footprint to y (never raises): ground laid without soil. */
 function carveBox(x0: number, x1: number, z0: number, z1: number, y: number): void {
   const d = cur();
   if (!d) return;
@@ -349,7 +451,9 @@ function carveBox(x0: number, x1: number, z0: number, z1: number, y: number): vo
   let changed = false;
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const k = i + n * j;
-    if (d.h[k] > y + 0.03) { d.h[k] = y; d.mat[k] = SURFACES.indexOf('soil'); changed = true; }
+    if (d.h[k] > y + 0.03) {
+      d.h[k] = y; d.mat[k] = SURFACES.indexOf('soil'); changed = true;
+    }
   }
   if (changed) touchTiles(x0 - d.cell, x1 + d.cell, z0 - d.cell, z1 + d.cell, false);
 }
@@ -379,26 +483,42 @@ export function crater(pos: Vec3, kg: number): CraterInfo | null {
     feat = true;
     if (it.pad) unpad(it.pad);
   }
-  const D = R * (bound ? 0.3 : 0.45), L = 1.45 * R, n = d.n;
-  const i0 = Math.max(1, Math.floor((px - L + d.half) / d.cell)), i1 = Math.min(n - 2, Math.ceil((px + L + d.half) / d.cell));
-  const j0 = Math.max(1, Math.floor((pz - L + d.half) / d.cell)), j1 = Math.min(n - 2, Math.ceil((pz + L + d.half) / d.cell));
-  const bowl = SURFACES.indexOf(bound ? 'rubble' : 'soil'), lip = SURFACES.indexOf('soil');
-  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-    const k = i + n * j;
-    const r = Math.hypot(-d.half + i * d.cell - px, -d.half + j * d.cell - pz);
-    if (r < R) { d.h[k] -= D * (1 - (r / R) ** 2); d.mat[k] = bowl; }
-    else if (r < L) {
-      d.h[k] += 0.12 * D * Math.sin((Math.PI * (r - R)) / (L - R));
-      if (!bound && r < 1.2 * R) d.mat[k] = lip;
+  const D = R * (bound ? 0.3 : 0.45), n = d.n;
+  const bowl = SURFACES.indexOf(bound ? 'rubble' : 'soil');
+  let L = 1.45 * R, thrown = 0;
+  if (d.soil) {
+    capRegion(d, d.soil, px - 3.5 * R - d.cell, px + 3.5 * R + d.cell, pz - 3.5 * R - d.cell, pz + 3.5 * R + d.cell);
+    const c = craterSoil(d, d.soil, px, pz, surf, R, D);
+    thrown = c.mass;
+    L = Math.max(L, (Math.max(c.i1 - c.i0, c.j1 - c.j0) * d.cell) / 2);
+    const i0 = Math.max(0, Math.floor((px - R + d.half) / d.cell)), i1 = Math.min(n - 1, Math.ceil((px + R + d.half) / d.cell));
+    const j0 = Math.max(0, Math.floor((pz - R + d.half) / d.cell)), j1 = Math.min(n - 1, Math.ceil((pz + R + d.half) / d.cell));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (Math.hypot(-d.half + i * d.cell - px, -d.half + j * d.cell - pz) < R) d.mat[i + n * j] = bowl;
+    // the ground round it is shaken: steep faces near by lose strength
+    shake(d, d.soil, px, pz, 5 * R, 25);
+    takeBox(d.soil);
+  } else {
+    const i0 = Math.max(1, Math.floor((px - L + d.half) / d.cell)), i1 = Math.min(n - 2, Math.ceil((px + L + d.half) / d.cell));
+    const j0 = Math.max(1, Math.floor((pz - L + d.half) / d.cell)), j1 = Math.min(n - 2, Math.ceil((pz + L + d.half) / d.cell));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const k = i + n * j;
+      const r = Math.hypot(-d.half + i * d.cell - px, -d.half + j * d.cell - pz);
+      if (r < R) { d.h[k] -= D * (1 - (r / R) ** 2); d.mat[k] = bowl; }
+      else if (r < L) d.h[k] += 0.12 * D * Math.sin((Math.PI * (r - R)) / (L - R));
     }
   }
   const tiles = touchTiles(px - L, px + L, pz - L, pz + L, feat);
-  // ejecta: soil thrown up and out, a dust skirt
+  // ejecta: soil thrown up and out, a dust skirt; clods of the strata it went down into
   const col = sp.dust;
   fx.debris([px, surf + 0.2, pz], Math.round(10 + 30 * R), col, 4 + 5 * R, [0, 1, 0]);
   fx.dust([px, surf, pz], 1.5 * L, col);
+  if (d.soil && R > 0.6) {
+    const deep = soilProps(d.soil.types[Math.min(d.soil.nl - 1, 1)]).color;
+    fx.debris([px, surf + 0.1, pz], Math.round(8 + 12 * R), deep, 3 + 3 * R, [0, 1, 0]);
+    fx.dust([px, surf + 0.5, pz], 0.8 * L, deep);
+  }
   const res = expose(px, pz, L);
-  const info: CraterInfo = { x: px, z: pz, r: R, depth: D, ms: performance.now() - t0, tiles, ...res };
+  const info: CraterInfo = { x: px, z: pz, r: R, depth: D, ms: performance.now() - t0, tiles, thrown, ...res };
   craterLog.push(info);
   if (craterLog.length > 32) craterLog.shift();
   return info;
@@ -414,6 +534,7 @@ function unpad(q: { x: [number, number]; z: [number, number]; top: number }): vo
     const k = i + n * j;
     d.h[k] = Math.min(d.h[k], q.top - 0.3);
     d.mat[k] = rubble;
+    if (d.soil) activate(d.soil, k);
   }
 }
 
@@ -431,11 +552,18 @@ function itemsNear(x: number, z: number, r: number): number[] {
 /** After the ground has been dug round (x, z): what it has opened up. A piece with the soil gone from under more
     than a third of its footprint is undermined: its hold on the ground goes and it drops onto what is left. */
 function expose(x: number, z: number, L: number): { exposed: number; undermined: number } {
+  return exposeBox(x - L, x + L, z - L, z + L);
+}
+
+function exposeBox(x0: number, x1: number, z0: number, z1: number): { exposed: number; undermined: number } {
   let exposed = 0, undermined = 0;
-  for (const p of [...buried]) {
+  const near: Piece[] = [];
+  // nothing founded in the ground is more than ~12 m across: a cheap cut on the centre first
+  for (const p of buried) if (!p.dead && p.curPos[0] > x0 - 12 && p.curPos[0] < x1 + 12 && p.curPos[2] > z0 - 12 && p.curPos[2] < z1 + 12) near.push(p);
+  for (const p of near) {
     if (p.dead) continue;
     b3.b3Body_ComputeAABB(_bb, p.body);
-    if (_bb[0] > x + L || _bb[3] < x - L || _bb[2] > z + L || _bb[5] < z - L) continue;
+    if (_bb[0] > x1 || _bb[3] < x0 || _bb[2] > z1 || _bb[5] < z0) continue;
     const u = under(_bb, Infinity, _bb[1] - 0.05, true);
     if (u.min < _bb[4]) exposed++;
     if (u.below > 0.34) {
@@ -447,17 +575,41 @@ function expose(x: number, z: number, L: number): { exposed: number; undermined:
   return { exposed, undermined };
 }
 
-/** Dig at (x, z): lower the ground by up to `depth` over a disc of radius r (an excavator bucket). Returns m³ taken. */
-export function dig(x: number, z: number, r: number, depth: number): number {
+/** What a bite of ground brought up: loose (bucket) m³, kg, and the soil it mostly was. */
+export interface Dug { vol: number; mass: number; soil: SoilId }
+let lastDug: SoilId = 'topsoil';
+const _acc = new Float64Array(SOILS.length);
+
+/** Dig at (x, z): a bite up to `depth` deep over a disc of radius r (an excavator bucket); what came up. An unbroken
+    pavement gives up only what lies on it. */
+export function digGround(x: number, z: number, r: number, depth: number): Dug {
   const d = cur();
-  if (!d) return 0;
+  if (!d || !(depth > 0)) return { vol: 0, mass: 0, soil: lastDug };
+  if (!d.soil) return { vol: legacyDig(d, x, z, r, depth), mass: 0, soil: 'topsoil' };
+  _acc.fill(0);
+  const mass = digSoil(d, d.soil, x, z, r, depth, _acc, true);
+  if (mass <= 0) return { vol: 0, mass: 0, soil: lastDug };
+  let best = 0;
+  for (let t = 1; t < SOILS.length; t++) if (_acc[t] > _acc[best]) best = t;
+  lastDug = SOILS[best];
+  const b = takeBox(d.soil);
+  if (b) commitBox(d, b);
+  return { vol: looseVolume(_acc) * d.cell * d.cell, mass, soil: lastDug };
+}
+
+/** Dig at (x, z): lower the ground by up to `depth` over a disc of radius r. Returns the loose m³ taken. */
+export function dig(x: number, z: number, r: number, depth: number): number {
+  return digGround(x, z, r, depth).vol;
+}
+
+function legacyDig(d: TerrainData, x: number, z: number, r: number, depth: number): number {
   const n = d.n;
   let vol = 0;
   const i0 = Math.max(1, Math.floor((x - r + d.half) / d.cell)), i1 = Math.min(n - 2, Math.ceil((x + r + d.half) / d.cell));
   const j0 = Math.max(1, Math.floor((z - r + d.half) / d.cell)), j1 = Math.min(n - 2, Math.ceil((z + r + d.half) / d.cell));
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const k = i + n * j, rr = Math.hypot(-d.half + i * d.cell - x, -d.half + j * d.cell - z);
-    if (rr >= r) continue;
+    if (rr >= r || d.hole[k]) continue;
     const dh = depth * (1 - (rr / r) ** 2);
     d.h[k] -= dh;
     d.mat[k] = SURFACES.indexOf('soil');
@@ -467,28 +619,180 @@ export function dig(x: number, z: number, r: number, depth: number): number {
   return vol;
 }
 
-/** Tip `vol` m³ of spoil at (x, z): a cone-ish heap over a disc of radius r (the inverse of dig). Returns m³ laid. */
-export function mound(x: number, z: number, r: number, vol: number): number {
+/** Tip spoil at (x, z) over a disc of radius r: `vol` loose m³ (of `mass` kg of `soil`, else of what was last dug);
+    it runs down to its angle of repose. Returns m³ laid. */
+export function mound(x: number, z: number, r: number, vol: number, mass?: number, soil?: SoilId): number {
   const d = cur();
   if (!d || !(vol > 0)) return 0;
-  const n = d.n;
-  const i0 = Math.max(1, Math.floor((x - r + d.half) / d.cell)), i1 = Math.min(n - 2, Math.ceil((x + r + d.half) / d.cell));
-  const j0 = Math.max(1, Math.floor((z - r + d.half) / d.cell)), j1 = Math.min(n - 2, Math.ceil((z + r + d.half) / d.cell));
-  let w = 0;
-  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-    const rr = Math.hypot(-d.half + i * d.cell - x, -d.half + j * d.cell - z);
-    if (rr < r && !d.hole[i + n * j]) w += 1 - (rr / r) ** 2;
-  }
-  if (w <= 0) return 0;
-  const h = vol / (w * d.cell * d.cell);
-  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-    const k = i + n * j, rr = Math.hypot(-d.half + i * d.cell - x, -d.half + j * d.cell - z);
-    if (rr >= r || d.hole[k]) continue;
-    d.h[k] += h * (1 - (rr / r) ** 2);
-    d.mat[k] = SURFACES.indexOf('soil');
-  }
-  touchTiles(x - r, x + r, z - r, z + r, false);
+  const s = d.soil;
+  if (!s) return 0;
+  const t = SOILS.indexOf(soil ?? lastDug);
+  capRegion(d, s, x - r - 2 * d.cell, x + r + 2 * d.cell, z - r - 2 * d.cell, z + r + 2 * d.cell);
+  heapSoil(d, s, x, z, r, mass ?? vol * RHO_LOOSE[t], t);
+  const b = takeBox(s);
+  if (b) commitBox(d, b);
   return vol;
+}
+
+/** A clod of `mass` kg of `soil` let go at pos with velocity vel (tipped from a bucket); it lands and is laid. */
+export function spill(pos: ArrayLike<number>, vel: ArrayLike<number>, mass: number, soil: SoilId): void {
+  const d = cur();
+  if (!d?.soil || !(mass > 0)) return;
+  spawn(d.soil, d, pos[0], pos[1], pos[2], vel[0], vel[1], vel[2], mass, SOILS.indexOf(soil));
+}
+
+/* ---------------- the soil, stepped ---------------- */
+
+let soilLast = 0, commitStep = 0, qCount = -1, qStep = 0, capStep = -1e9, heldTile = -1;
+/** per-step cost and counts; `displaced`: kg of soil pushed out from under pieces handed back to the ground; `held`:
+    kg of loose soil held under what lies on it (laid back when that goes); `capMs`: total ms refreshing the ceilings */
+export const soilCost = { ms: 0, max: 0, commitMs: 0, visits: 0, active: 0, clods: 0, fails: 0, dents: 0, displaced: 0, held: 0, capMs: 0 };
+
+const _sb: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
+const NOT_GROUND = ALL & ~CAT.ground;
+/** The soil's ceilings over a region from what lies on the ground there now: every non-static shape that collides
+    with the ground and reaches down to within 3 m of it. */
+function capRegion(d: TerrainData, s: SoilState, x0: number, x1: number, z0: number, z1: number): void {
+  const t0 = performance.now(), n = d.n;
+  const i0 = Math.max(0, Math.floor((x0 + d.half) / d.cell)), i1 = Math.min(n - 1, Math.ceil((x1 + d.half) / d.cell));
+  const j0 = Math.max(0, Math.floor((z0 + d.half) / d.cell)), j1 = Math.min(n - 1, Math.ceil((z1 + d.half) / d.cell));
+  let lo = Infinity, hi = -Infinity;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const h = d.h[i + n * j]; if (h < lo) lo = h; if (h > hi) hi = h; }
+  if (!(lo <= hi)) return;
+  const c = d.cell;
+  ceilings(s, x0, x1, z0, z1, (put) => overlapAABB([x0 - c, lo - 0.5, z0 - c], [x1 + c, hi + 3, z1 + c], NOT_GROUND, (sh) => {
+    if (b3.b3Shape_IsSensor(sh) || !(b3.b3Shape_GetFilter(sh).maskBits & CAT.ground)) return;
+    if (b3.b3Body_GetType(b3.b3Shape_GetBody(sh)) === b3.b3BodyType.b3_staticBody) return;
+    b3.b3Shape_GetAABB(_sb, sh);
+    put(_sb[0], _sb[3], _sb[2], _sb[5], _sb[1] - 0.01);
+  }));
+  soilCost.capMs += performance.now() - t0;
+}
+
+/** Ceilings wherever the soil may rise before the next refresh: its active cells and clods in flight; and, a tile at a
+    time in turn, where it holds soil under something that may since have moved. */
+function refreshCaps(d: TerrainData, s: SoilState): void {
+  const boxes = [activeBox(s)];
+  if (s.holds.size) {
+    const tiles = heldBlocks(s, TILE_CELLS);
+    let pick = -1;
+    for (const t of tiles.keys()) if (t > heldTile) { pick = t; break; }
+    if (pick < 0) pick = tiles.keys().next().value!;
+    heldTile = pick;
+    boxes.push(tiles.get(pick)!);
+  }
+  for (const b of boxes) {
+    if (b[0] > b[1]) continue;
+    capRegion(d, s, -d.half + (b[0] - 2) * d.cell, -d.half + (b[1] + 2) * d.cell, -d.half + (b[2] - 2) * d.cell, -d.half + (b[3] + 2) * d.cell);
+  }
+}
+
+/** Once per physics step (main loop; the buried-piece sweep catches up for loops that do not call it): the soil
+    runs and slips, clods land, falling pieces dent soft ground; changed ground reaches the physics at 10 Hz. */
+export function terrainStep(pieces?: Iterable<Piece>): void {
+  const d = cur(), s = d?.soil;
+  if (!d || !s) return;
+  const t0 = performance.now();
+  if (pieces) impacts(d, s, pieces);
+  const due = Math.min(30, stepCount - soilLast);
+  if (due > 0 && stepCount - capStep >= 6) { capStep = stepCount; refreshCaps(d, s); }
+  if (due > 0) {
+    soilLast = stepCount;
+    for (let q = 0; q < due; q++) soilCost.visits = soilStep(d, s);
+  }
+  if (stepCount - commitStep >= 6) {
+    commitStep = stepCount;
+    // (the structure's own sweep runs at 2 Hz; a piece cut loose between them would sink half a metre into the ground)
+    if (pieces) sweep(false);
+    const b = takeBox(s);
+    if (b) {
+      const tc = performance.now();
+      if (buried.size !== qCount || stepCount - qStep > 600) surcharge(d, s);
+      commitBox(d, b);
+      soilCost.commitMs = performance.now() - tc;
+    }
+    // slips: a burst of the soil's dust where it went
+    for (let e = 0; e + 1 < s.events.length && e < 8; e += 2) {
+      const k = s.events[e], m = s.events[e + 1], x = -d.half + (k % d.n) * d.cell, z = -d.half + Math.floor(k / d.n) * d.cell;
+      fx.dust([x, d.h[k], z], Math.min(3, 0.5 + Math.cbrt(m / 800)), soilProps(surfaceSoil(s, k)).color);
+    }
+    s.events.length = 0;
+  }
+  const ms = performance.now() - t0;
+  soilCost.ms += (ms - soilCost.ms) * 0.1;
+  soilCost.max = Math.max(soilCost.max * 0.995, ms);
+  soilCost.active = s.count;
+  soilCost.clods = s.parts.n;
+  soilCost.fails = s.stats.fails;
+  soilCost.dents = s.stats.dents;
+  if (stepCount === commitStep) { let h = 0; for (const k of s.holds) h += s.hold[k]; soilCost.held = h * d.cell * d.cell; }
+}
+
+/** the soil state of the terrain laid now (render, tools) */
+export function soilState(): SoilState | null { return cur()?.soil ?? null; }
+
+function commitBox(d: TerrainData, b: [number, number, number, number]): void {
+  const x0 = -d.half + b[0] * d.cell, x1 = -d.half + b[1] * d.cell, z0 = -d.half + b[2] * d.cell, z1 = -d.half + b[3] * d.cell;
+  touchTiles(x0 - d.cell, x1 + d.cell, z0 - d.cell, z1 + d.cell, false);
+  exposeBox(x0 - d.cell, x1 + d.cell, z0 - d.cell, z1 + d.cell);
+}
+
+/* What is founded on the ground loads it: a footing, slab or wall base bears on the soil under it at its own weight
+   over its footprint plus a storey's share (~40 kPa; strip footings of houses bear 50-150 kPa). A cut beside it
+   has that surcharge on its crest. */
+function surcharge(d: TerrainData, s: SoilState): void {
+  qCount = buried.size;
+  qStep = stepCount;
+  s.q.fill(0);
+  const n = d.n;
+  for (const p of buried) {
+    if (p.dead || p.mass < 300) continue;
+    b3.b3Body_ComputeAABB(_bb, p.body);
+    const cx = (_bb[0] + _bb[3]) / 2, cz = (_bb[2] + _bb[5]) / 2, area = (_bb[3] - _bb[0]) * (_bb[5] - _bb[2]);
+    if (area < 0.3) continue;
+    const g = surfaceY(cx, cz);
+    if (_bb[1] > g + 0.3 || _bb[4] < g - 0.5) continue;
+    const q = Math.min(150, 40 + (p.mass * 9.81) / 1000 / area);
+    const i0 = Math.max(0, Math.floor((_bb[0] - 0.25 + d.half) / d.cell)), i1 = Math.min(n - 1, Math.ceil((_bb[3] + 0.25 + d.half) / d.cell));
+    const j0 = Math.max(0, Math.floor((_bb[2] - 0.25 + d.half) / d.cell)), j1 = Math.min(n - 1, Math.ceil((_bb[5] + 0.25 + d.half) / d.cell));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) s.q[i + n * j] = Math.max(s.q[i + n * j], q);
+  }
+}
+
+/* A heavy piece landing on soft ground drives into it: the plastic work of the dent (its volume times the ground's
+   resistance, ~150 kPa for loose spoil to 1 MPa for gravel) takes about 60 % of the vertical kinetic energy lost
+   (the rest goes into the piece, the bounce and the air); the soil displaced heaves round it. */
+const fall = new WeakMap<Piece, { vy: number; st: number }>();
+function impacts(d: TerrainData, s: SoilState, pieces: Iterable<Piece>): void {
+  let budget = 6;
+  for (const p of pieces) {
+    if (p.dead || p.movedStep < stepCount - 1) continue;
+    const vy = p.movedStep === stepCount ? (p.curPos[1] - p.prevPos[1]) / FIXED_DT : 0;
+    let o = fall.get(p);
+    if (!o) { fall.set(p, { vy, st: stepCount }); continue; }
+    const v0 = o.st === stepCount - 1 ? o.vy : 0;
+    o.vy = vy; o.st = stepCount;
+    if (v0 > -2.5 || vy < v0 * 0.35 || p.mass < 40 || budget <= 0 || buried.has(p) || p.hinged) continue;
+    const sp = p.root.spec;
+    if (sp.vehicle || sp.wheel || sp.mech || sp.soft) continue;
+    b3.b3Body_ComputeAABB(_bb, p.body);
+    const cx = (_bb[0] + _bb[3]) / 2, cz = (_bb[2] + _bb[5]) / 2, g = surfaceY(cx, cz);
+    if (_bb[1] > g + 0.25 || groundAt(cx, cz) > g + 0.02) continue;
+    const k = nearest(d, cx, cz);
+    if (k < 0 || isSealed(d, s, k)) continue;
+    const qu = (s.L[k] > 0.05 ? 150 : soilProps(surfaceSoil(s, k)).qu) * 1000;
+    const dx = _bb[3] - _bb[0], dz = _bb[5] - _bb[2];
+    const E = 0.5 * p.mass * (v0 * v0 - (vy < 0 ? vy * vy : 0));
+    const A = Math.max(0.05, dx * dz * 0.6);
+    const depth = Math.min((0.6 * E) / (qu * A), 0.35, 0.5 * (_bb[4] - _bb[1]));
+    if (depth < 0.015) continue;
+    budget--;
+    capRegion(d, s, _bb[0] - 2 * d.cell, _bb[3] + 2 * d.cell, _bb[2] - 2 * d.cell, _bb[5] + 2 * d.cell);
+    dentSoil(d, s, cx - dx * 0.4, cx + dx * 0.4, cz - dz * 0.4, cz + dz * 0.4, depth);
+    fx.dust([cx, g, cz], 0.4 + 3 * depth, soilProps(surfaceSoil(s, k)).color);
+  }
+  // the dents reach the physics at once (the pieces that made them are lying in them)
+  if (budget < 6) { const b = takeBox(s); if (b) commitBox(d, b); }
 }
 
 /** the static bodies carrying the ground (tiles and apron) */

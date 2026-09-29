@@ -47,6 +47,7 @@ export interface Survey {
 const UNREACHED = 65535;
 let occ = new Uint8Array(0), por = new Uint8Array(0), cov = new Uint8Array(0), steps = new Uint16Array(0), roofed = new Uint8Array(0);
 let queue = new Int32Array(0);
+let inside = new Uint8Array(0);
 
 export function survey(pos: Vec3, radius: number, power: number): Survey {
   const t0 = performance.now();
@@ -92,28 +93,45 @@ export function survey(pos: Vec3, radius: number, power: number): Survey {
   let head = 0, tail = 0;
   const c0 = cx + n * (cy + n * cz);
   steps[c0] = 0; queue[tail++] = c0;
-  let V = 0, Av = 0;
-  const rmin: Vec3 = [Infinity, Infinity, Infinity], rmax: Vec3 = [-Infinity, -Infinity, -Infinity];
   const maxSteps = Math.round(H * 1.4);
   while (head < tail) {
     const i = queue[head++];
     const x = i % n, y = ((i / n) | 0) % n, z = (i / (n * n)) | 0;
     const s = steps[i];
-    if (roofed[i]) {
-      V++;
-      if (x < rmin[0]) rmin[0] = x; if (y < rmin[1]) rmin[1] = y; if (z < rmin[2]) rmin[2] = z;
-      if (x > rmax[0]) rmax[0] = x; if (y > rmax[1]) rmax[1] = y; if (z > rmax[2]) rmax[2] = z;
-      if (x === 0 || y === n - 1 || z === 0 || x === n - 1 || z === n - 1) Av++;
-    }
     if (s >= maxSteps) continue;
     for (let k = 0; k < 6; k++) {
       const nx = x + (k === 0 ? 1 : k === 1 ? -1 : 0), ny = y + (k === 2 ? 1 : k === 3 ? -1 : 0), nz = z + (k === 4 ? 1 : k === 5 ? -1 : 0);
       if (nx < 0 || ny < 0 || nz < 0 || nx >= n || ny >= n || nz >= n) continue;
       const j = nx + n * (ny + n * nz);
-      if (occ[j]) continue;
-      if (roofed[i] && !roofed[j]) Av++;
-      if (steps[j] !== UNREACHED) continue;
+      if (occ[j] || steps[j] !== UNREACHED) continue;
       steps[j] = s + 1;
+      queue[tail++] = j;
+    }
+  }
+  /* The room the gas fills: the covered space connected to the charge under cover. Openings to the open air vent it;
+     the wave that leaves through a window and comes back in through the next house's is the shock's business, not the
+     gas's. */
+  if (inside.length < n3) inside = new Uint8Array(n3);
+  inside.fill(0, 0, n3);
+  let V = 0, Av = 0;
+  const rmin: Vec3 = [Infinity, Infinity, Infinity], rmax: Vec3 = [-Infinity, -Infinity, -Infinity];
+  head = tail = 0;
+  if (roofed[c0]) { inside[c0] = 1; queue[tail++] = c0; }
+  while (head < tail) {
+    const i = queue[head++];
+    const x = i % n, y = ((i / n) | 0) % n, z = (i / (n * n)) | 0;
+    V++;
+    if (x < rmin[0]) rmin[0] = x; if (y < rmin[1]) rmin[1] = y; if (z < rmin[2]) rmin[2] = z;
+    if (x > rmax[0]) rmax[0] = x; if (y > rmax[1]) rmax[1] = y; if (z > rmax[2]) rmax[2] = z;
+    if (x === 0 || y === n - 1 || z === 0 || x === n - 1 || z === n - 1) Av++;
+    if (steps[i] >= maxSteps) continue;
+    for (let k = 0; k < 6; k++) {
+      const nx = x + (k === 0 ? 1 : k === 1 ? -1 : 0), ny = y + (k === 2 ? 1 : k === 3 ? -1 : 0), nz = z + (k === 4 ? 1 : k === 5 ? -1 : 0);
+      if (nx < 0 || ny < 0 || nz < 0 || nx >= n || ny >= n || nz >= n) continue;
+      const j = nx + n * (ny + n * nz);
+      if (occ[j] || inside[j]) continue;
+      if (!roofed[j]) { Av++; continue; }
+      inside[j] = 1;
       queue[tail++] = j;
     }
   }
@@ -205,6 +223,32 @@ export function loadFactors(s: Survey, cp: Vec3, d: number): { shadow: number; g
   let gas = 0;
   if (inRoom(s, cp)) gas = s.gas;
   return { shadow, gas };
+}
+
+/** Load on the face of a wall panel at c (unit normal n, facing either way): peak reflected overpressure P (Pa) and
+ * positive-phase impulse I (Pa·s) of the shock, reflected by the angle of incidence and cut where the wave has to
+ * diffract round cover, plus, when the panel bounds the charge's room, the gas phase (Pqs held for the blow-down)
+ * and the reverberations. */
+export function panelLoad(s: Survey, c: Vec3, n: Vec3): { P: number; I: number; gas: boolean } {
+  const d = Math.hypot(c[0] - s.pos[0], c[1] - s.pos[1], c[2] - s.pos[2]);
+  // sample in the air just in front of the face, not inside the wall's own cell
+  const side = (s.pos[0] - c[0]) * n[0] + (s.pos[1] - c[1]) * n[1] + (s.pos[2] - c[2]) * n[2] >= 0 ? 1 : -1;
+  const t: Vec3 = [c[0] + n[0] * 0.45 * side, c[1] + n[1] * 0.45 * side, c[2] + n[2] * 0.45 * side];
+  const L = Math.max(pathLength(s, t), d);
+  const Z = Math.max(0.2, L) / s.cw;
+  let P = pso(Z), I = s.cw * iso(Z);
+  const c1 = d > 1e-3 ? Math.abs((s.pos[0] - c[0]) * n[0] + (s.pos[1] - c[1]) * n[1] + (s.pos[2] - c[2]) * n[2]) / d : 1;
+  const r = 1 + (cr(P) - 1) * c1 * c1;
+  P *= r; I *= r;
+  if (L > d * 1.02) { const k = Math.max(0.2, d / L); P *= k; I *= k; }
+  /* the gas phase and the reverberations build only in a room that holds them: vented through openings of more than
+     about its own wall area (vent area / V^⅔ past ~1.5, an aisle bay open to a nave) the charge is effectively in
+     the open (UFC 3-340-02 §2-15: gas impulse falls away with the vent ratio) */
+  const vent = s.V > 0 ? s.Av / Math.pow(s.V, 2 / 3) : 99;
+  const held = Math.max(0, Math.min(1, (1.5 - vent) / 1.2));
+  const gas = held > 0 && inRoom(s, c, 0.3);
+  if (gas) { P = Math.max(P, s.Pqs * held); I += (s.iGas + s.iMulti) * held; }
+  return { P, I, gas };
 }
 
 /** Peak overpressure a pane facing the blast along `n` sees (reflected by the angle of incidence), and the side-on

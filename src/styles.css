@@ -640,7 +640,117 @@ svg {
   background: var(--hazard);
 }
 
-/* contracts */
+/* contracts, filed by chapter */
+
+.chapters {
+  display: grid;
+  gap: 2.2rem;
+}
+
+.chapter__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px dashed rgba(236, 234, 227, 0.14);
+}
+
+.chapter__no {
+  font-family: var(--f-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--hazard);
+}
+
+.chapter__name {
+  margin: 0;
+  font-weight: 800;
+  font-size: 1.25rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-100);
+}
+
+.chapter__count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+  font-family: var(--f-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-400);
+  font-variant-numeric: tabular-nums;
+}
+
+.chapter__count b {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.4rem;
+  font-weight: 700;
+  color: var(--c-100);
+}
+
+.chapter__count svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--hazard);
+}
+
+.chapter.is-locked .chapter__name {
+  color: var(--c-400);
+}
+
+.chapter.is-locked .card {
+  min-height: 9rem;
+}
+
+.chapter.is-locked .card__name {
+  margin-top: 1rem;
+  font-size: 1.45rem;
+}
+
+.chapter.is-done .chapter__count {
+  color: var(--hazard);
+}
+
+.terms {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.terms li {
+  position: relative;
+  padding: 0.5rem 0.7rem 0.5rem 1.6rem;
+  border: 1px solid var(--bp-line-2);
+  background: rgba(8, 26, 54, 0.4);
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: var(--c-100);
+}
+
+.terms li::before {
+  content: '';
+  position: absolute;
+  left: 0.65rem;
+  top: 0.95rem;
+  width: 0.45rem;
+  height: 2px;
+  background: var(--hazard);
+}
+
+.terms[hidden],
+.label[hidden] {
+  display: none;
+}
 
 .cards {
   display: grid;
@@ -1033,14 +1143,27 @@ svg {
   color: var(--bp-ink);
 }
 
+/* the order runs longer than a laptop screen: Start rides the bottom edge of the scrolling sheet */
 .brief__foot {
+  position: sticky;
+  /* the sheet's own bottom padding would otherwise show content scrolling under it */
+  bottom: calc(var(--gut) * -1.6);
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 0.8rem;
-  margin-top: 1.6rem;
-  padding-top: 1.1rem;
+  margin: 1.2rem -1.8rem -1.4rem;
+  padding: 1rem 1.8rem 1.2rem;
   border-top: 1px solid var(--bp-line-2);
+  background: var(--bp-grid), var(--bp);
+  box-shadow: 0 -1rem 1.6rem rgba(0, 0, 0, 0.28);
+}
+
+.brief__side .keys {
+  max-height: 15rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 /* pause */
@@ -1725,7 +1848,8 @@ svg {
   color: var(--hazard);
 }
 
-.hud-demo.is-sandbox .hud-demo__bar {
+/* free play has no target and a whole district as the denominator: the percentage only ever read 0 */
+.hud-demo.is-sandbox {
   display: none;
 }
 
@@ -2202,7 +2326,7 @@ svg {
 .hud-tool {
   position: absolute;
   left: 50%;
-  top: calc(50% + 3.4rem);
+  top: calc(50% + 5.2rem);
   display: none;
   width: min(24rem, calc(100vw - 2 * var(--gut)));
   padding: 0.35rem 0.6rem 0.4rem;
@@ -2592,6 +2716,126 @@ svg {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* collapse replay: letterboxed, the play HUD stood down */
+
+.hud-replay {
+  position: absolute;
+  left: 50%;
+  top: calc(7vh + 0.8rem);
+  z-index: 2;
+  width: min(30rem, calc(100vw - 2 * var(--gut)));
+  padding: 0.45rem 0.8rem 0.5rem;
+  border: 1px solid var(--plate-edge);
+  border-top: 3px solid var(--bad);
+  background: var(--plate-solid);
+  transform: translateX(-50%);
+  text-shadow: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0s linear 0.2s;
+}
+
+.hud-replay.is-on {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s;
+}
+
+.hud-replay__top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+  font-family: var(--f-mono);
+  font-size: 0.78rem;
+  color: var(--c-200);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-replay__top span:last-child {
+  margin-left: auto;
+}
+
+.hud-replay__rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--f-display);
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--c-100);
+}
+
+.hud-replay__rec i {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--bad);
+  box-shadow: 0 0 0.5rem var(--bad);
+  animation: rp-blink 1s steps(2, jump-none) infinite;
+}
+
+.hud-replay.is-paused .hud-replay__rec i {
+  animation: none;
+  background: var(--c-400);
+  box-shadow: none;
+}
+
+@keyframes rp-blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+.hud-replay__bar {
+  height: 4px;
+  margin: 0.4rem 0 0.35rem;
+  background: rgba(236, 234, 227, 0.14);
+}
+
+.hud-replay__bar i {
+  display: block;
+  height: 100%;
+  background: var(--bad);
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+.hud-replay__keys {
+  font-family: var(--f-mono);
+  font-size: 0.6rem;
+  line-height: 1.4;
+  color: var(--c-400);
+}
+
+.hud.is-replay::before,
+.hud.is-replay::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 7vh;
+  background: #000;
+  pointer-events: none;
+}
+
+.hud.is-replay::before {
+  top: 0;
+}
+
+.hud.is-replay::after {
+  bottom: 0;
+}
+
+.hud.is-replay .xh,
+.hud.is-replay .hud-bottom,
+.hud.is-replay .hud-tool,
+.hud.is-replay .pops,
+.hud.is-replay .hud-slowmo {
+  display: none;
 }
 
 /* ---------------- free-play overlays ---------------- */
@@ -3277,6 +3521,11 @@ svg {
 
   .brief {
     padding: 1.2rem 1.1rem 1.1rem;
+  }
+
+  .brief__foot {
+    margin: 1rem -1.1rem -1.1rem;
+    padding: 0.9rem 1.1rem 1rem;
   }
 }
 

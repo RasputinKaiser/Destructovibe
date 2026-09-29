@@ -4,13 +4,13 @@ import type { b3ShapeId, b3JointId } from 'box3d.js';
 import type { Blueprint, MaterialId, PieceSpec, Vec3, Quat } from '../types';
 import {
   b3, world, ground, CAT, ALL, filter, register, unregister, stepCount, overlapAABB, explodeImpulse,
-  entityOfShape, copy3, copy4, step as physicsStep, runawayQueue, type PhysEntity, type StepHandlers,
+  entityOfShape, copy3, copy4, step as physicsStep, runawayQueue, randomStream, type PhysEntity, type StepHandlers,
 } from '../physics/physics';
 import { MATS, pieceHp, flammable, strengthAt, grainShare, charTime, rebarTie, effectiveDensity, autoSectionInertia, REAL_SCALE, type PhysMat } from './materials';
 import * as P from './polytope';
 import * as J from './joints';
 import {
-  analysisPartition, analysisStep, analysisTouch, analysisReset, analysed, solveId, memberAxial, type AnalysisOut, type ExtraLoads, type Tie,
+  analysisPartition, analysisStep, analysisTouch, analysisReset, analysed, analysisStale, analysisUrgent, solveOfPiece, memberAxial, type AnalysisOut, type Solve, type ExtraLoads, type Tie,
 } from './analysis';
 import { specParts, type PartSpec } from './compound';
 export { sectionParts, sectionProps, specParts, specDensity } from './compound';
@@ -25,6 +25,7 @@ import { audio } from '../audio/audio';
 import { createSoftFor, stepSoft, clearSoft, softExplosion, softExtinguish } from '../sim/soft';
 import { initSoftGfx, syncSoftGfx, clearSoftGfx } from '../render/soft';
 import * as fields from '../sim/fields/index';
+import { panelLoad, type Survey } from '../sim/fields/blast';
 import * as scoring from '../game/scoring';
 import {
   memberFor, svcAdd, svcRemove, svcLink, svcLinkLost, svcHarm, servicesStep, refreshServices, clearServices,
@@ -33,7 +34,7 @@ import {
 } from './services';
 import {
   setDetailHost, attachDetail, detachDetail, clearDetail, syncDetail, detailDamage, detailFracture, detailSever, detailCrack, detailHeat,
-  hasDetail, setDetailCamera,
+  hasDetail, setDetailCamera, detailShatter, detailUnits,
 } from './detail';
 import { setServiceViewer as svcViewer } from './services';
 import { linkVehicles, stepVehicles, clearVehicles, pieceDamaged } from '../vehicles/vehicle';
@@ -75,6 +76,7 @@ const CRACK_CHANCE = 0.7;        // share of brittle joint failures that crack t
 const CRACK_MIN_VOL = 0.08;
 const CRACK_PER_STEP = 2;
 const SUPPORT_FAILS = 6;         // statically overloaded joints allowed to fail per step…
+const GROSS_FAILS = 48;          // …and joints overloaded past DAF× capacity, which no redistribution can save
 const PER_SOLVE = 60;            // …and per analysis solve of their structure: the next go once the load has redistributed
 const DAF = 2;                   // dynamic amplification of a suddenly applied static load (GSA 2016 linear static)
 const TRANSIENT_POLLS = 6;       // …a joint the analysis clears must stay overloaded this long (~0.1–0.2 s) to fail
@@ -83,6 +85,7 @@ const AGED_SAFETY = 2;           // ageing eats a joint's margin down to this mu
 const HEAT_TICK = 0.25;
 const AMBIENT = 20;
 const STEEL_DIF = 1.3;
+const chance = randomStream(0x57a0c7);
 
 export interface Root {
   spec: PieceSpec;
@@ -130,9 +133,12 @@ export interface Weld {
   supportTorque: number;     // …|moment| with P-δ amplification (Nm)
   sN: number;                // …axial force, + compression (N)
   sV: number;                // …shear (N)
+  /** …the force and moment it puts on its b side at its anchor (world frame), and the P-δ factor on the moment */
+  sF?: Float64Array;
   dmg: number;               // accumulated dynamic damage (shock, cyclic overstress), 1 = failed
   real: Caps;                // the connection's real (unscaled) strength, for the static check of real demands
   sd0: number;               // static demand / capacity when calibrated: what it carried before anything changed
+  calm: number;              // step before which a lightly loaded, barely moving joint need not be polled again
   j: J.Joint;                // what the connection physically is: mortar, bolts, glue… (joints.ts)
 }
 
@@ -255,7 +261,7 @@ let xrayCursor = 0;
 
 export const counters = {
   explosions: 0, fractures: 0, snaps: 0, props: 0, eventSnaps: 0, yields: 0, rebars: 0, spalls: 0, cracks: 0, buckles: 0,
-  slips: 0, fatigue: 0, creepFails: 0, melts: 0, delams: 0, crushes: 0,
+  slips: 0, fatigue: 0, creepFails: 0, melts: 0, delams: 0, crushes: 0, frozen: 0,
 };
 
 export let onExplosion: (pos: Vec3, radius: number) => void = () => {};
@@ -606,7 +612,7 @@ function createWeld(a: Piece, b: Piece | null, pt: Vec3, normalWorld: Vec3, area
   const kind = J.inferKind(sa, sb, !!b && a.root === b.root);
   const { j, real } = J.makeJoint(kind, sa, sb, area, env);
   if (fresh) {
-    const r = J.connRatio(real, env, kind);
+    const r = J.connRatio(real, env, kind, !!(a.root.spec.joint?.kind ?? b?.root.spec.joint?.kind));
     caps = { comp: caps.comp, ten: caps.ten * r.ten, shear: caps.shear * r.shear, torque: caps.torque * r.torque };
   }
   j.t = j.t0 = clock;
@@ -638,7 +644,7 @@ function createWeld(a: Piece, b: Piece | null, pt: Vec3, normalWorld: Vec3, area
     base: { ...caps }, cap: { ...caps }, ductile, metal, yielded: false, plastic: 0,
     limit: metal ? clamp(Math.min(a.pm.eng.ductility, b ? b.pm.eng.ductility : 1) * 4.5, 0.35, 0.9) : rebar ? 0.22 : timber ? 0.12 : 0,
     rebar, fa, fb, lastOver: -9, overSteps: 0, polled: -1, util: 0, quiet: 0, reyields: 0, calib: false, alive: true,
-    supportForce: 0, supportTorque: 0, sN: 0, sV: 0, sd0: 0, dmg: 0, real, j,
+    supportForce: 0, supportTorque: 0, sN: 0, sV: 0, sd0: 0, calm: 0, dmg: 0, real, j,
   };
   welds.set(joint.index1, w);
   a.welds.push(w);
@@ -664,8 +670,25 @@ function mountSpring(w: Weld): void {
   b3.b3WeldJoint_SetAngularDampingRatio(w.joint, 0.3);
 }
 
+/* Where the structure last changed: the members of a lost connection, the step it went. */
+const lostAt = new WeakMap<Piece, number>();
+const RECENT = 30;
+function recentlyLost(p: Piece | null): boolean {
+  const t = p ? lostAt.get(p) : undefined;
+  return t !== undefined && stepCount - t <= RECENT;
+}
+/** A connection of p's or of a member welded to it was lost in the last half second. */
+function besideChange(p: Piece | null): boolean {
+  if (!p) return false;
+  if (recentlyLost(p)) return true;
+  for (const v of p.welds) if (recentlyLost(v.a === p ? v.b : v.a)) return true;
+  return false;
+}
+
 function killWeld(w: Weld, destroyJoint: boolean): void {
   if (!w.alive) return;
+  lostAt.set(w.a, stepCount);
+  if (w.b) lostAt.set(w.b, stepCount);
   w.alive = false;
   yielding.delete(w);
   supportPressure.delete(w);
@@ -677,9 +700,9 @@ function killWeld(w: Weld, destroyJoint: boolean): void {
   if (w.b) {
     const ib = w.b.welds.indexOf(w);
     if (ib >= 0) w.b.welds.splice(ib, 1);
-    if (!w.b.welds.length) freeSection(w.b);
+    if (!w.b.welds.length) { freeSection(w.b); rubble(w.b); }
   }
-  if (!w.a.welds.length) freeSection(w.a);
+  if (!w.a.welds.length) { freeSection(w.a); rubble(w.a); }
   if (destroyJoint && b3.b3Joint_IsValid(w.joint)) b3.b3DestroyJoint(w.joint, true);
   if (!w.b && !w.a.dead) groundLost(w.a);
 }
@@ -1001,7 +1024,8 @@ function linkRopes(list: Piece[]): void {
        service wire: an overhead drop must not tie a house and a pole line into one island. */
     const ownerMech = !!owner.root.spec.mech, endMech = !!end.root.spec.mech;
     const a = endMech && !ownerMech ? end : owner, b = a === owner ? end : owner;
-    const proxy = ownerMech !== endMech || (spec.kind === 'wire' && !ownerMech);
+    /* a hook block or slung load hanging loose on a machine's line is not a resting member: it rides the line */
+    const proxy = (ownerMech !== endMech && !b.root.spec.noWeld) || (spec.kind === 'wire' && !ownerMech);
     const rest = vec3.distance(a.curPos, b.curPos);
     if (rest < 0.35) continue;
     const slack = clamp(spec.slack ?? 0.35, 0, 2);
@@ -1083,7 +1107,12 @@ const NOOP: StepHandlers = { hit() {}, begin() {}, jointBroken() {} };
 
 /* Quasi-static demand comes from a linear-elastic frame analysis of every founded structure (analysis.ts),
    re-solved in slices after each topology change; Box3D's joint forces remain the dynamic and impact check. */
-const ANALYSIS_WORK = 32e3;      // element evaluations per step for the background re-solve (~2 ms while anything is pending)
+const ANALYSIS_WORK = 20e3;      // element evaluations per step for the background re-solve (~2 ms while anything is pending)
+/* A frame whose connections are overloaded while its analysis is out of date is failing now, and a real one has
+   redistributed its load within milliseconds: its re-solve gets this many times the work for the next half second, so
+   the new load path is known in a few tenths of a second rather than seconds. Continuous (ductile) frames only, like
+   the load shedding below: masonry arrests on thrust lines the analysis finds slowly, and keeps its pace. */
+const ANALYSIS_BOOST = 5, URGENT_STEPS = 30;
 const analysisOut: AnalysisOut = { welds: [], buckled: [] };
 const buckledOnce = new WeakSet<Piece>();
 let designCheck = false;
@@ -1109,7 +1138,7 @@ function loadedByContact(w: Weld): boolean {
    structure: each failure sheds load that must redistribute (a fresh solve) before the next is judged, so a
    collapse progresses through the structure instead of every overloaded joint letting go in the same step. */
 const offers = new Map<Weld, { sev: number; quota: boolean }>();
-const spent = new Map<number, number>();
+let spent = new WeakMap<Solve, number>();
 function offerFailure(w: Weld, sev: number, quota: boolean): void {
   const o = offers.get(w);
   if (!o || o.sev < sev) offers.set(w, { sev, quota: quota || !!o?.quota });
@@ -1117,14 +1146,25 @@ function offerFailure(w: Weld, sev: number, quota: boolean): void {
 
 function settleFailures(): void {
   if (!offers.size) return;
-  const list = [...offers].sort((a, b) => b[1].sev - a[1].sev);
+  /* worst first; exact ties by place, not by the order the offers came in */
+  const list = [...offers].sort((a, b) => b[1].sev - a[1].sev || weldKey(a[0]) - weldKey(b[0]));
   offers.clear();
-  let n = 0;
+  let n = 0, gross = 0;
   for (const [w, o] of list) {
-    if (n >= SUPPORT_FAILS) break;
     if (!w.alive || w.calib) continue;
-    /* past DAF× capacity no redistribution can save it: it goes without waiting for the next solve */
-    const id = o.quota && o.sev < DAF ? solveId(w.a) : undefined;
+    /* Past DAF× capacity no redistribution can save it: it goes without waiting for the next solve, and in a
+       continuous (ductile) frame without waiting its turn behind the others either (their load arrives within the
+       ~10 ms a stress wave takes to cross the frame, well inside a step); the bound there is only the cost of a
+       step. Masonry keeps its turn: a vault that loses a pier can still find a thrust line through its neighbours. */
+    if (o.sev >= DAF && w.ductile) {
+      if (gross >= GROSS_FAILS) continue;
+      gross++;
+      counters.eventSnaps++;
+      failWeld(w, 'overload');
+      continue;
+    }
+    if (n >= SUPPORT_FAILS) continue;
+    const id = o.quota && o.sev < DAF ? solveOfPiece(w.a) : undefined;
     if (id !== undefined) {
       const used = spent.get(id) ?? 0;
       if (used >= PER_SOLVE) continue;
@@ -1134,6 +1174,12 @@ function settleFailures(): void {
     failWeld(w, 'overload');
     n++;
   }
+}
+
+/** A weld's place as one number (mm grid), for ordering that does not depend on how the structure was listed. */
+function weldKey(w: Weld): number {
+  weldPos(w, _fk);
+  return (Math.round(_fk[1] * 1000) * 2e5 + Math.round(_fk[0] * 1000)) * 2e5 + Math.round(_fk[2] * 1000);
 }
 
 /** Barely moving this step (well under the "working" threshold). */
@@ -1160,17 +1206,25 @@ function analysisTies(): Tie[] {
   const out: Tie[] = [];
   for (const r of rebars.values()) {
     if (!r.alive) continue;
-    out.push({ a: r.a, b: r.b, la: r.la, lb: r.b ? r.lb : [r.lb[0] + GROUND_POS[0], r.lb[1] + GROUND_POS[1], r.lb[2] + GROUND_POS[2]], alive: true, ea: REBAR_EA });
+    out.push({ a: r.a, b: r.b, la: r.la, lb: r.b ? r.lb : [r.lb[0] + GROUND_POS[0], r.lb[1] + GROUND_POS[1], r.lb[2] + GROUND_POS[2]], alive: true, ea: REBAR_EA, bears: true });
   }
   for (const r of ropeJoints.values()) if (r.alive) out.push({ a: r.a, b: r.b, la: r.la, lb: r.lb, alive: true, ea: r.strength / 0.012 });
   return out;
 }
 
 /* Machinery hangs its weight on the member that carries it, even while its joint rests on a stand-in. */
+let hingedList: Piece[] = [];
+let hingedScan = -Infinity;
 function hungLoads(): ExtraLoads {
   const out: ExtraLoads = new Map();
-  for (const p of live) {
-    const h = p.hinged ? machineRoot(p) : null;
+  /* machines are rigged at build and spawn; between those the list only needs an occasional refresh */
+  if (building || calibs.length || stepCount - hingedScan >= 60) {
+    hingedScan = stepCount;
+    hingedList = [];
+    for (const p of live) if (p.hinged) hingedList.push(p);
+  }
+  for (const p of hingedList) {
+    const h = p.hinged && !p.dead ? machineRoot(p) : null;
     if (!h || h === p || h.dead) continue;
     const l = out.get(h), load = { m: p.mass, at: [p.curPos[0], p.curPos[1], p.curPos[2]] as Vec3 };
     if (l) l.push(load); else out.set(h, [load]);
@@ -1180,7 +1234,7 @@ function hungLoads(): ExtraLoads {
 
 function rebuildSupportPaths(): void {
   supportDirty = false;
-  analysisPartition(live, analysisTies(), hungLoads(), building ? 1e-4 : 2e-3);
+  analysisPartition(live, analysisTies(), hungLoads(), building ? 1e-4 : 2e-3, bearings);
 }
 
 /** What the frame analysis is given besides the welds: tension-only ties and hung machinery (for reports/tests). */
@@ -1189,9 +1243,13 @@ export function analysisInputs(): { ties: Tie[]; extra: ExtraLoads } {
 }
 
 /* A slice of the analysis; fresh demands feed the progressive-collapse queue. */
+/* A collapsing structure changes every step; tracing it again every few steps batches those changes at no cost in
+   response, since its next solve waits for the one in progress anyway (analysisStale covers the gap). */
+const PARTITION_EVERY = 4;
+let partitioned = -Infinity;
 function stepAnalysis(budget: number, only?: Set<Piece>): void {
-  if (supportDirty) rebuildSupportPaths();
-  analysisStep(budget, analysisOut, only);
+  if (supportDirty && (budget === Infinity || stepCount - partitioned >= PARTITION_EVERY)) { partitioned = stepCount; rebuildSupportPaths(); }
+  analysisStep(budget, analysisOut, only, ANALYSIS_BOOST);
   for (const w of analysisOut.welds) {
     if (!w.alive || w.calib || building) continue;
     if (staticRatio(w) > 1.05) supportPressure.add(w); else supportPressure.delete(w);
@@ -1257,6 +1315,19 @@ function calibrate(): void {
   finishCalib(c, true);
 }
 
+/* A spawned structure, once it has settled, rests like a built one: put to sleep as soon as none of it is still
+   moving (a whole island sleeps at once), rather than waiting out Box3D's own timer on every last tremor. */
+const SETTLE_WATCH = 600;
+const settling: { pieces: Piece[]; until: number }[] = [];
+function watchSettling(): void {
+  for (let i = settling.length - 1; i >= 0; i--) {
+    const s = settling[i];
+    const done = s.pieces.every(p => p.dead || resting(p));
+    if (done) for (const p of s.pieces) if (!p.dead) b3.b3Body_SetAwake(p.body, false);
+    if (done || stepCount > s.until) settling.splice(i, 1);
+  }
+}
+
 function finishCalib(c: Calib, settle: boolean): void {
   designCheck = true;
   stepAnalysis(Infinity, new Set(c.pieces));
@@ -1293,6 +1364,7 @@ function finishCalib(c: Calib, settle: boolean): void {
   refreshSupportPressure();
   if (!settle) {
     for (const p of c.pieces) if (!p.dead) { copy3(p.spawnPos, p.curPos); copy4(p.spawnRot, p.curRot); }
+    settling.push({ pieces: c.pieces, until: stepCount + SETTLE_WATCH });
     return;
   }
   for (const p of c.pieces) {
@@ -1328,7 +1400,7 @@ export function clearStructures(): void {
   supportPressure.clear();
   supportDirty = true;
   offers.clear();
-  spent.clear();
+  spent = new WeakMap();
   bullets.clear();
   stressHot.clear();
   stressIter = null;
@@ -1344,13 +1416,21 @@ export function clearStructures(): void {
   clearServices();
   clearVehicles();
   calibs.length = 0;
+  hingedList = [];
+  hingedScan = -Infinity;
+  partitioned = -Infinity;
+  bearings.clear();
+  shocks.length = 0;
+  settling.length = 0;
   quakeT = -1;
   for (const k of Object.keys(counters) as (keyof typeof counters)[]) counters[k] = 0;
   dirty.length = 0;
   welds.clear();
   fractureQueue.length = 0;
+  shatterQueue.length = 0;
   fusing.length = 0;
   fading.length = 0;
+  frozenList.length = 0;
   roots = [];
   totalVol = 0; totalValueSum = 0; demolishedVol = 0; clock = 0;
 }
@@ -1366,11 +1446,33 @@ function newRoot(spec: PieceSpec, volume: number): Root {
   return root;
 }
 
+/* Pieces are made in an order of their own (bottom up by place, then by shape and material), not the order a level or
+   building happened to list them in: body and joint creation order sets the order Box3D solves them in, and a
+   re-listed but identical structure must come down the same way. Machine parts are the exception: each finds its host
+   by overlap among the parts already rigged (services.ts findHost), so they keep their authored order, after
+   everything else. A test turns the sort off to measure the rest. */
+export const spawnOrder = { canonical: true };
+const mm = (v: number) => Math.round(v * 1000);
+function specKey(s: PieceSpec): string {
+  return `${mm(s.pos[1])},${mm(s.pos[0])},${mm(s.pos[2])}|${mm(s.size[0])},${mm(s.size[1])},${mm(s.size[2])}|${mm(s.rotY ?? 0)}|${s.mat}|${s.shape ?? ''}${s.sides ?? ''}|${s.verts ? s.verts.map(v => v.map(mm).join(',')).join(';') : ''}`;
+}
+function canonical(specs: readonly PieceSpec[]): readonly PieceSpec[] {
+  if (!spawnOrder.canonical) return specs;
+  const keyed = specs.map((s, i) => ({ s, i, k: specKey(s) }));
+  keyed.sort((a, b) => {
+    const ma = a.s.mech ? 1 : 0, mb = b.s.mech ? 1 : 0;
+    if (ma !== mb) return ma - mb;
+    if (ma) return a.i - b.i;
+    return a.k < b.k ? -1 : a.k > b.k ? 1 : a.i - b.i;
+  });
+  return keyed.map(x => x.s);
+}
+
 export function buildBlueprint(bp: Blueprint): void {
   if (bp.terrain) buildTerrain(bp.terrain); else ensureTerrain();
   building = true;
   const list: Piece[] = [];
-  for (const spec of bp.pieces) {
+  for (const spec of canonical(bp.pieces)) {
     const volume = specVolume(spec);
     if (volume <= 0) continue;
     const root = newRoot(spec, volume);
@@ -1426,6 +1528,13 @@ function markDemolished(p: Piece): void {
   if (p.demolished) return;
   p.demolished = true;
   credit(p.root, p.volume, p.curPos);
+  rubble(p);
+}
+
+/* A member brought down and free of the structure is rubble: it settles into its pile like the fragments do, instead of
+   one last creeping block keeping thousands awake in the pile's solver island. */
+function rubble(p: Piece): void {
+  if (p.depth === 0 && !p.dead && p.demolished && !p.welds.length) b3.b3Body_SetSleepThreshold(p.body, p.volume < RUBBLE_VOL ? 0.1 : 0.07);
 }
 
 function pieceMoved(p: Piece): void {
@@ -1445,11 +1554,18 @@ type FailMode = 'overload' | 'blast' | 'kinetic' | 'rupture';
    rotation capacity is used up. Cracked reinforced concrete stays tied by its rebar. */
 function failWeld(w: Weld, mode: FailMode, crack = true): void {
   if (!w.alive) return;
+  weldPos(w, _fk);
+  chance.at(_fk[0], _fk[1], _fk[2], stepCount, 1);
   if (cracking.has(w)) {
     if (crack) return;
     cracking.delete(w);
   }
   if (mode === 'overload' && laminaStep(w)) return;
+  if (mode === 'overload' && opens(w)) {
+    breakWeld(w);
+    if (bearings.size < MAX_BEARINGS) bearings.add(w);
+    return;
+  }
   const hotSolder = (w.j.kind === 'solder' || w.j.kind === 'braze') && w.j.heatK < 0.5;
   if (w.ductile && !hotSolder && !yielding.has(w) && w.plastic < w.limit && w.reyields < 2 && mode !== 'rupture' && mode !== 'blast') {
     if (w.yielded) w.reyields++;
@@ -1461,12 +1577,91 @@ function failWeld(w: Weld, mode: FailMode, crack = true): void {
   const nrm = weldNormal(w, [0, 0, 0]);
   const a = w.a, b = w.b, area = w.area, reinforced = w.rebar;
   breakWeld(w, mode === 'rupture');
-  if (reinforced && (mode === 'rupture' || mode === 'kinetic' || Math.random() < 0.45)) addRebar(a, b, pos, nrm, area, 0.12, w.j.anch);
+  if (reinforced && (mode === 'rupture' || mode === 'kinetic' || chance() < 0.45)) addRebar(a, b, pos, nrm, area, 0.12, w.j.anch);
   if (mode !== 'overload' && !(mode === 'rupture' && a.pm.style === 'splinter')) return;
   for (const q of [a, b]) {
-    if (!q || q.dead || q.queued || q.pm.style !== 'splinter' || q.depth >= MAX_DEPTH || q.volume < 0.02 || Math.random() > 0.55) continue;
+    if (!q || q.dead || q.queued || q.pm.style !== 'splinter' || q.depth >= MAX_DEPTH || q.volume < 0.02 || chance() > 0.55) continue;
     q.queued = true;
     fractureQueue.push({ p: q, point: pos, intensity: 1.2, blast: false });
+  }
+}
+
+/* A connection that lets go drops the static load it carried on the members it held, and each must stay in
+   equilibrium: until the structure is solved again its other connections take that force (and its moment, carried
+   to their own anchors) in proportion to their area. That is the first hop of the redistribution a real frame makes
+   within milliseconds; if it overloads them they go in turn, so a failure runs through a frame at a member a step
+   rather than a solve at a time, and the next solve finds where the load really settles. Only continuous (ductile)
+   frames: masonry finds its way to a thrust line through arching across many blocks, which one hop cannot see, so
+   its joints wait for the solve as before. */
+const _sd: Vec3 = [0, 0, 0], _sm: Vec3 = [0, 0, 0], _sp: Vec3 = [0, 0, 0], _sn: Vec3 = [0, 0, 0];
+function shedLoad(w: Weld, at: Vec3): void {
+  const F = w.sF;
+  if (!F || !w.ductile || building || w.calib || !analysed(w.a)) return;
+  for (let side = 0; side < 2; side++) {
+    const m = side ? w.b : w.a;
+    if (!m || m.dead) continue;
+    // what w put on m: +F on its b side, −F on its a side
+    const s = side ? 1 : -1;
+    let area = 0;
+    for (const v of m.welds) if (v.alive && !v.calib && v.sF && v.ductile) area += v.area;
+    if (area <= 0) continue;
+    for (const v of m.welds) {
+      const G = v.sF;
+      if (!v.alive || v.calib || !G || !v.ductile) continue;
+      const k = (s * v.area) / area;
+      weldPos(v, _sp);
+      vec3.sub(_sd, at, _sp);
+      _sm[0] = F[3] + _sd[1] * F[2] - _sd[2] * F[1];
+      _sm[1] = F[4] + _sd[2] * F[0] - _sd[0] * F[2];
+      _sm[2] = F[5] + _sd[0] * F[1] - _sd[1] * F[0];
+      // v now supplies that share on m: on its b side if m is v's b, else the opposite on its b side
+      const t = v.b === m ? k : -k;
+      for (let q = 0; q < 3; q++) { G[q] += t * F[q]; G[3 + q] += t * _sm[q]; }
+      weldNormal(v, _sn);
+      const N = G[0] * _sn[0] + G[1] * _sn[1] + G[2] * _sn[2];
+      v.sN = N;
+      v.sV = Math.sqrt(Math.max(0, G[0] * G[0] + G[1] * G[1] + G[2] * G[2] - N * N));
+      v.supportForce = Math.hypot(G[0], G[1], G[2]);
+      v.supportTorque = Math.hypot(G[3], G[4], G[5]) * G[6];
+      if (staticRatio(v) > 1.05) supportPressure.add(v);
+    }
+  }
+}
+
+const _fk: Vec3 = [0, 0, 0];
+/** Restart the structure's and the fracture's chance from where and when a piece breaks. */
+function seedAt(p: Piece, at: ArrayLike<number>, salt: number): void {
+  chance.at(p.spawnPos[0], p.spawnPos[1], p.spawnPos[2], at[0], at[1], at[2], stepCount, salt);
+  P.rand.at(p.spawnPos[0], p.spawnPos[1], p.spawnPos[2], at[0], at[1], at[2], stepCount, salt);
+}
+
+/* Mortar and dry bearing joints have next to no tensile strength: statically pulled apart they open along the joint
+   (not through the stone), and the blocks still bear on each other wherever the load comes back into compression.
+   The frame analysis keeps such an opened joint as a compression-only bearing, as Box3D's contacts do, so a vault
+   that cracks finds its way to a thrust line instead of unzipping joint by joint. */
+const MAX_BEARINGS = 600;
+const bearings = new Set<Weld>();
+function opens(w: Weld): boolean {
+  if (w.ductile || (w.j.kind !== 'mortar' && w.j.kind !== 'bearing')) return false;
+  const c = w.cap, ten = -w.sN / c.ten;
+  return ten >= 1 && ten >= w.supportForce / c.comp && ten >= w.supportTorque / c.torque && ten >= w.sV / (c.shear + w.mu * Math.max(0, w.sN));
+}
+
+/* A bearing lasts while its blocks stay together: once they have moved apart they no longer touch there. */
+const BEAR_GAP = 0.05;
+function checkBearings(): void {
+  for (const w of bearings) {
+    const a = w.a, b = w.b;
+    let gone = a.dead || !!b?.dead;
+    if (!gone && (a.movedStep >= stepCount - 10 || (b && b.movedStep >= stepCount - 10))) {
+      toWorld(_v, a.curPos, a.curRot, w.fa.position);
+      if (b) toWorld(_w, b.curPos, b.curRot, w.fb.position);
+      else vec3.add(_w, w.fb.position, GROUND_POS);
+      gone = vec3.squaredDistance(_v, _w) > BEAR_GAP * BEAR_GAP;
+    }
+    if (!gone) continue;
+    bearings.delete(w);
+    analysisTouch(a); analysisTouch(b); supportDirty = true;
   }
 }
 
@@ -1475,6 +1670,7 @@ function breakWeld(w: Weld, ductileRupture = false): void {
   const pos = weldPos(w, [0, 0, 0]);
   counters.snaps++;
   killWeld(w, true);
+  shedLoad(w, pos);
   if (ductileRupture) audio.steelGroan(pos, 1);
   snapFx(pos, w);
 }
@@ -1567,20 +1763,30 @@ const _fbq: Quat = [0, 0, 0, 1];
 const _anchor: Vec3 = [0, 0, 0];
 const _tor: Vec3 = [0, 0, 0];
 
-/* Plastic flow: while a yielded hinge is loaded past yield its rest pose creeps toward the current
-   pose, so steel stays bent; the rotation it accumulates is its ductility budget. */
+/* Plastic flow, resolved every other step by return mapping: a yielded hinge loaded past yield has its rest pose moved
+   just far enough that the elastic hinge carries its yield moment (and force) again, so steel stays bent and a
+   mechanism turns as fast as its load outweighs the hinges. The rotation it accumulates is its ductility budget. */
+const YIELD_EVERY = 2;
+const HARDEN_POLLS = 45;         // …a hinge that has not been loaded for ~1.5 s work-hardens
 function updateYield(): void {
   for (const w of yielding) {
     if (!w.alive) { yielding.delete(w); continue; }
-    b3.b3Joint_GetConstraintTorque(_tor, w.joint);
-    const os = overstrength(w);
-    const yieldT = w.cap.torque / os;
-    b3.b3Joint_GetConstraintForce(_jf, w.joint);
-    const loaded = vec3.length(_tor) > yieldT * 0.9 || vec3.length(_jf) > (w.cap.comp / os) * 0.9;
+    const a = w.a, b = w.b;
+    let loaded = a.movedStep >= stepCount - 1 || (!!b && b.movedStep >= stepCount - 1);
+    let flowR = 0, flowL = 0;
+    if (loaded) {
+      const os = overstrength(w);
+      b3.b3Joint_GetConstraintTorque(_tor, w.joint);
+      b3.b3Joint_GetConstraintForce(_jf, w.joint);
+      const rt = (vec3.length(_tor) * os) / w.cap.torque, rf = (vec3.length(_jf) * os) / w.cap.comp;
+      loaded = rt > 0.9 || rf > 0.9;
+      flowR = rt > 1 ? Math.min(0.9, 1 - 1 / rt) : 0;
+      flowL = rf > 1 ? Math.min(0.9, 1 - 1 / rf) : 0;
+    }
     if (!loaded) {
       /* A hinge that has stopped turning work-hardens in its bent shape: stiff again, so the island
          can sleep; it re-yields if overloaded later, until its rotation capacity is spent. */
-      if (++w.quiet >= 6) {
+      if (++w.quiet >= HARDEN_POLLS) {
         yielding.delete(w);
         b3.b3WeldJoint_SetAngularHertz(w.joint, 0);
         b3.b3WeldJoint_SetLinearHertz(w.joint, 0);
@@ -1588,7 +1794,7 @@ function updateYield(): void {
       continue;
     }
     w.quiet = 0;
-    const a = w.a, b = w.b;
+    if (flowR <= 0 && flowL <= 0) continue;
     toWorld(_anchor, a.curPos, a.curRot, w.fa.position);
     quat.multiply(_q2, a.curRot, w.fa.quaternion);
     if (b) {
@@ -1599,10 +1805,9 @@ function updateYield(): void {
       quat.copy(_fbq, _q2);
       vec3.set(_w, _anchor[0] - GROUND_POS[0], _anchor[1] - GROUND_POS[1], _anchor[2] - GROUND_POS[2]);
     }
-    const creep = w.metal ? 0.3 : 0.5;
-    const step = quat.getAngle(w.fb.quaternion, _fbq) * creep;
-    quat.slerp(w.fb.quaternion, w.fb.quaternion, _fbq, creep);
-    vec3.lerp(w.fb.position, w.fb.position, _w, creep);
+    const step = quat.getAngle(w.fb.quaternion, _fbq) * flowR;
+    if (flowR > 0) quat.slerp(w.fb.quaternion, w.fb.quaternion, _fbq, flowR);
+    if (flowL > 0) vec3.lerp(w.fb.position, w.fb.position, _w, flowL);
     b3.b3Joint_SetLocalFrameB(w.joint, w.fb);
     w.plastic += step;
     if (step > 0.004 && groanT <= 0) { groanT = 0.5; audio.steelGroan(_anchor, clamp(step * 25, 0.2, 1)); }
@@ -1618,7 +1823,7 @@ function pollJoints(): void {
     const moving = dx * dx + dy * dy + dz * dz > MOVING_STEP * MOVING_STEP || Math.abs(quat.dot(p.curRot, p.prevRot)) < MOVING_TURN;
     for (let i = p.welds.length - 1; i >= 0; i--) {
       const w = p.welds[i];
-      if (!w || w.polled === stepCount || w.calib) continue;
+      if (!w || w.polled === stepCount || w.calib || (!moving && w.calm > stepCount)) continue;
       w.polled = stepCount;
       b3.b3Joint_GetConstraintForce(_jf, w.joint);
       weldNormal(w, _n);
@@ -1626,6 +1831,8 @@ function pollJoints(): void {
       const sh = Math.sqrt(Math.max(0, vec3.squaredLength(_jf) - fn * fn));
       const ratio = Math.max(-fn / w.cap.ten, sh / (w.cap.shear + w.mu * Math.max(0, fn)));
       if (ratio > 1) { overload(w, ratio); continue; }
+      /* a joint far inside its envelope on a member that is only settling cannot reach it within a few steps */
+      if (!moving && ratio < 0.35) w.calm = stepCount + 8;
       /* friction-grip bolts slip into bearing at the same share of their capacity as the real joint */
       if (w.j.kind === 'bolt' && !w.j.slipped && sh > (J.slipResistance(w.j) * w.cap.shear) / Math.max(w.real.shear, 1)) boltSlip(w);
       /* Below the static envelope a moving connection still degrades: repeated dynamic peaks
@@ -1659,7 +1866,12 @@ function overload(w: Weld, ratio: number): void {
        damages the rest in proportion. Beyond that the joint must carry the frame analysis's static
        redistribution, and a sudden release can overshoot only the *change* in its load, by at most DAF
        (undamped step load): peak = before + DAF·(after − before). A joint with that reserve rides the transient
-       out; one without it fails once the overload has lasted ~0.1 s. A joint that stays overloaded while its
+       out; one without it fails once the overload has lasted ~0.1 s. While the structure has changed since its
+       last solve the analysis cannot vouch for the joint either way: a ductile joint beside the change that stays
+       overloaded as long, with nothing striking its members, is carrying the new load path and yields (a frame that
+       lost its columns comes down at the speed of its hinges, not of the solver). Further off, or in brittle
+       masonry, a rigid island's share of the change is not to be trusted (a collapsing nave drags on a tower's
+       footings through stone that would tear first) and waits for the solve. A joint that stays overloaded while its
        members have come to rest after being struck is carrying something the analysis cannot see (rubble
        landed on a floor bears on it through contacts) and fails after ~1 s regardless. */
     if (!remote && w.overSteps === 1 && ratio >= SHOCK_FAIL) { counters.eventSnaps++; failWeld(w, 'overload'); return; }
@@ -1667,7 +1879,9 @@ function overload(w: Weld, ratio: number): void {
     if (w.overSteps === 1 && ratio > 1.5) damageWeld(w, Math.min(0.4, (ratio - 1) * SHOCK_DAMAGE * (remote ? Math.min(1, peak) : 1)));
     if (!w.alive) return;
     if (peak >= 1) { if (w.overSteps >= TRANSIENT_POLLS) offerFailure(w, peak, true); }
+    else if (w.ductile && w.overSteps >= TRANSIENT_POLLS && analysisStale(w.a) && !loadedByContact(w) && (besideChange(w.a) || besideChange(w.b))) offerFailure(w, ratio, false);
     else if (w.overSteps >= UNMODELLED_POLLS && resting(w.a) && (!w.b || resting(w.b)) && loadedByContact(w)) offerFailure(w, ratio, false);
+    else if (w.ductile && analysisStale(w.a)) analysisUrgent(w.a, URGENT_STEPS);
     return;
   } else if (w.overSteps < 4 && (ratio < SHOCK_FAIL || (w.overSteps === 1 && remote))) {
     if (w.overSteps === 1 && ratio > 1.5) damageWeld(w, Math.min(0.4, (ratio - 1) * SHOCK_DAMAGE));
@@ -1970,7 +2184,7 @@ function addRebar(a: Piece, b: Piece | null, at: Vec3, n: Vec3, area: number, d 
   jd.base.collideConnected = true;
   const joint = b3.b3CreateDistanceJoint(world, jd);
   const side = dirLocal([0, 0, 0], a.curRot, vec3.perpendicular([0, 0, 0], n));
-  const r: Rebar = { joint, a, b, la, lb, side, rest, max: rest + 0.12 + Math.random() * 0.18, vis: [rebarGfx.add(), rebarGfx.add()],
+  const r: Rebar = { joint, a, b, la, lb, side, rest, max: rest + 0.12 + chance() * 0.18, vis: [rebarGfx.add(), rebarGfx.add()],
     lastOver: -9, overSteps: 0, alive: true };
   rebars.set(joint.index1, r);
   analysisTouch(a); analysisTouch(b); supportDirty = true;
@@ -2072,7 +2286,7 @@ export function damagePiece(p: Piece, point: Vec3, energy: number, blast: boolea
   energy = pieceDamaged(p, point, energy, blast);
   const pm = p.pm;
   if (pm.explosive) {
-    if (energy > p.hp * 0.35) armFuse(p, blast ? 0.08 + Math.random() * 0.22 : 0.04);
+    if (energy > p.hp * 0.35) armFuse(p, blast ? 0.08 + chance() * 0.22 : 0.04);
     return;
   }
   if (!Number.isFinite(pm.toughness)) {
@@ -2134,6 +2348,7 @@ function pulverize(p: Piece, point: Vec3): void {
 function fracture(p: Piece, point: Vec3, intensity: number, blast: boolean): void {
   p.queued = false;
   if (p.dead) return;
+  seedAt(p, point, 2);
   const pm = p.pm;
   const style = pm.style;
   if (style === 'none') return;
@@ -2180,7 +2395,7 @@ function fracture(p: Piece, point: Vec3, intensity: number, blast: boolean): voi
   if (course) {
     seeds = courseSeeds(p.poly, bmin, bmax, li, course, crowded ? n : clamp(n + 4, 6, 12), clusterR * 1.3);
     metric[1] = (1.6 * course[1]) / course[0];
-  } else if (snap) seeds = snapSeeds(p.poly, bmin, bmax, li, axis, style === 'splinter' ? 2 + Math.floor(P.rand() * 3) : 0);
+  } else if (snap) seeds = snapSeeds(p.poly, bmin, bmax, li, axis, style === 'splinter' ? 2 + Math.floor(chance() * 3) : 0);
   else if (style === 'shards') seeds = shardSeeds(p.poly, bmin, bmax, li, n);
   else if (style === 'clean' || style === 'dice') seeds = P.makeSeeds(p.poly, li, n, 0, clusterR);
   else seeds = P.makeSeeds(p.poly, li, n, blast ? 0.45 : 0.6, clusterR);
@@ -2256,7 +2471,7 @@ function fracture(p: Piece, point: Vec3, intensity: number, blast: boolean): voi
       vec3.normalize(nrm, nrm);
       if (kept && keepSet.has(other) && !snap) {
         createWeld(m.chunk, other, mid, nrm, area, perArea(sMax, area, 1));
-      } else if (pm.rebar && tied < 10 && Math.random() < 0.6) {
+      } else if (pm.rebar && tied < 10 && chance() < 0.6) {
         addRebar(m.chunk, other, mid, nrm, area);
         tied++;
       }
@@ -2275,7 +2490,7 @@ function fracture(p: Piece, point: Vec3, intensity: number, blast: boolean): voi
       const c = pieceTouch(m.chunk, o, 0.05, 0.04);
       if (!c) continue;
       if (kept) createWeld(m.chunk, o, c.c, c.n, c.area, perArea(s, c.area, 1));
-      else if (pm.rebar && tied < 10 && Math.random() < 0.5) { addRebar(m.chunk, o, c.c, c.n, c.area); tied++; }
+      else if (pm.rebar && tied < 10 && chance() < 0.5) { addRebar(m.chunk, o, c.c, c.n, c.area); tied++; }
     }
   }
 
@@ -2285,7 +2500,7 @@ function fracture(p: Piece, point: Vec3, intensity: number, blast: boolean): voi
      into whatever it was bonded to. */
   if (!blast && intensity > 1.3 && (style === 'voronoi' || style === 'clean' || style === 'crumble')) {
     for (const [o, s] of neighbours) {
-      if (!o || o.dead || o.queued || o.pm.style === 'none' || o.pm.style === 'splinter' || Math.random() > 0.6) continue;
+      if (!o || o.dead || o.queued || o.pm.style === 'none' || o.pm.style === 'splinter' || chance() > 0.6) continue;
       const e = (intensity - 1) * o.hp * 0.45;
       o.born = Math.min(o.born, clock - IMPACT_GRACE);
       damagePiece(o, s.at, e, false);
@@ -2323,7 +2538,7 @@ function courseSeeds(poly: P.Poly, bmin: Vec3, bmax: Vec3, li: Vec3, course: [nu
       if (dx * dx + dy * dy > 1) continue;
       const q: Vec3 = [0, 0, 0];
       q[1] = y;
-      q[ax] = clamp(x + (P.rand() - 0.5) * l * 0.1, bmin[ax] + 0.02, bmax[ax] - 0.02);
+      q[ax] = clamp(x + (chance() - 0.5) * l * 0.1, bmin[ax] + 0.02, bmax[ax] - 0.02);
       q[th] = (bmin[th] + bmax[th]) / 2;
       if (P.contains(poly, q, 0.002)) near.push({ q, d: dx * dx + dy * dy });
     }
@@ -2332,7 +2547,7 @@ function courseSeeds(poly: P.Poly, bmin: Vec3, bmax: Vec3, li: Vec3, course: [nu
   const seeds = near.slice(0, units).map(u => u.q);
   for (let t = 0, far = 0; t < 40 && far < 3; t++) {
     const q: Vec3 = [0, 0, 0];
-    for (let k = 0; k < 3; k++) q[k] = bmin[k] + P.rand() * dims[k];
+    for (let k = 0; k < 3; k++) q[k] = bmin[k] + chance() * dims[k];
     q[th] = (bmin[th] + bmax[th]) / 2;
     const dx = (q[ax] - li[ax]) / rx, dy = (q[1] - li[1]) / ry;
     if (dx * dx + dy * dy < 2.2 || !P.contains(poly, q, 0.005)) continue;
@@ -2350,13 +2565,13 @@ function snapSeeds(poly: P.Poly, bmin: Vec3, bmax: Vec3, li: Vec3, axis: number,
   for (const side of [-1, 1]) {
     const q: Vec3 = [(bmin[0] + bmax[0]) / 2, (bmin[1] + bmax[1]) / 2, (bmin[2] + bmax[2]) / 2];
     q[axis] = x0 + side * a;
-    for (let k = 0; k < 3; k++) if (k !== axis) q[k] += (P.rand() - 0.5) * (bmax[k] - bmin[k]) * (splinters ? 0.6 : 0.25);
+    for (let k = 0; k < 3; k++) if (k !== axis) q[k] += (chance() - 0.5) * (bmax[k] - bmin[k]) * (splinters ? 0.6 : 0.25);
     seeds.push(q);
   }
   for (let i = 0; i < splinters; i++) {
     const q: Vec3 = [0, 0, 0];
-    for (let k = 0; k < 3; k++) q[k] = bmin[k] + P.rand() * (bmax[k] - bmin[k]);
-    q[axis] = x0 + (P.rand() - 0.5) * Math.min(0.5, len * 0.15);
+    for (let k = 0; k < 3; k++) q[k] = bmin[k] + chance() * (bmax[k] - bmin[k]);
+    q[axis] = x0 + (chance() - 0.5) * Math.min(0.5, len * 0.15);
     if (P.contains(poly, q, 0.005)) seeds.push(q);
   }
   return seeds;
@@ -2370,13 +2585,13 @@ function shardSeeds(poly: P.Poly, bmin: Vec3, bmax: Vec3, li: Vec3, n: number): 
   const reach = Math.max(dims[u], dims[v]);
   const rays = clamp(Math.round(n * 0.6), 5, 9);
   const seeds: Vec3[] = [[li[0], li[1], li[2]]];
-  const off = P.rand() * Math.PI * 2;
+  const off = chance() * Math.PI * 2;
   for (let r = 0; r < rays; r++) {
-    const a = off + (r / rays) * Math.PI * 2 + (P.rand() - 0.5) * 0.4;
+    const a = off + (r / rays) * Math.PI * 2 + (chance() - 0.5) * 0.4;
     for (const d of [0.22, 0.8]) {
       const q: Vec3 = [li[0], li[1], li[2]];
-      q[u] += Math.cos(a) * reach * d * (0.8 + P.rand() * 0.4);
-      q[v] += Math.sin(a) * reach * d * (0.8 + P.rand() * 0.4);
+      q[u] += Math.cos(a) * reach * d * (0.8 + chance() * 0.4);
+      q[v] += Math.sin(a) * reach * d * (0.8 + chance() * 0.4);
       q[thin] = (bmin[thin] + bmax[thin]) / 2;
       if (P.contains(poly, q, 0.002)) seeds.push(q);
     }
@@ -2423,7 +2638,7 @@ function runLength(q: Piece, at: Vec3, into: Vec3): number {
    joint: the member cracks a short way in, leaving a stub on its neighbour and shedding the
    crushed band between the crack faces as rubble. */
 function tryCrack(w: Weld): boolean {
-  if (crackQueue.length >= 6 || debrisCount > BUDGET * 0.7 || Math.random() > CRACK_CHANCE) return false;
+  if (crackQueue.length >= 6 || debrisCount > BUDGET * 0.7 || chance() > CRACK_CHANCE) return false;
   const nrm = weldNormal(w, [0, 0, 0]);
   const at = weldPos(w, [0, 0, 0]);
   let best: Piece | null = null, bestL = 0;
@@ -2454,7 +2669,7 @@ function processCracks(): void {
 }
 
 function tilted(n: Vec3, amount: number): Vec3 {
-  const t: Vec3 = [n[0] + (P.rand() - 0.5) * amount, n[1] + (P.rand() - 0.5) * amount, n[2] + (P.rand() - 0.5) * amount];
+  const t: Vec3 = [n[0] + (chance() - 0.5) * amount, n[1] + (chance() - 0.5) * amount, n[2] + (chance() - 0.5) * amount];
   return vec3.normalize(t, t);
 }
 
@@ -2498,6 +2713,7 @@ function reweld(chunk: Piece, neighbours: Map<Piece | null, Neighbour>): void {
 }
 
 function crackMember(p: Piece, at: Vec3, into: Vec3): boolean {
+  seedAt(p, at, 3);
   if (hasDetail(p)) return detailCrack(p, at, into);
   if (p.parts) return crackCompound(p, at, into);
   const pm = p.pm;
@@ -2522,7 +2738,7 @@ function crackMember(p: Piece, at: Vec3, into: Vec3): boolean {
   const tilt = course ? 0 : Math.min(0.45, (1.2 * half) / Math.max(lateral, 0.1));
   const reach = half + lateral * 0.5 * tilt + 0.1;
   if (L < reach * 2 + 0.15) return false;
-  let off = clamp(L * (0.1 + 0.3 * P.rand()), reach, L - reach);
+  let off = clamp(L * (0.1 + 0.3 * chance()), reach, L - reach);
   if (course) off = clamp(Math.round(off / course[0]) * course[0], reach, L - reach);
   /* Two independently tilted crack faces bound a crushed band: the stub keeps the joint, the rest
      of the member goes, and the band between them breaks into rubble (units, for masonry). */
@@ -2577,7 +2793,7 @@ function crackMember(p: Piece, at: Vec3, into: Vec3): boolean {
     const seeds: Vec3[] = [];
     for (let i = 0; i < k; i++) {
       const q: Vec3 = [cb[0], cb[1], cb[2]];
-      q[ua] = bmin[ua] + (bmax[ua] - bmin[ua]) * ((i + 0.5 + (P.rand() - 0.5) * (course ? 0.15 : 0.6)) / k);
+      q[ua] = bmin[ua] + (bmax[ua] - bmin[ua]) * ((i + 0.5 + (chance() - 0.5) * (course ? 0.15 : 0.6)) / k);
       const side = (i % 2 ? 1 : -1) * half * (course ? 0.05 : 0.4);
       q[0] += nl[0] * side; q[1] += nl[1] * side; q[2] += nl[2] * side;
       if (P.contains(band, q, 0.002)) seeds.push(q);
@@ -2599,7 +2815,7 @@ function crackMember(p: Piece, at: Vec3, into: Vec3): boolean {
   if (pm.rebar && halves.length === 2) {
     const area = Math.max(0.02, width * dims[0]);
     addRebar(halves[0], halves[1], mid, nw, area, half + 0.06);
-    for (const bit of bits.slice(0, 2)) addRebar(bit, halves[P.rand() < 0.5 ? 0 : 1], bit.curPos, nw, area * 0.3, 0.08);
+    for (const bit of bits.slice(0, 2)) addRebar(bit, halves[chance() < 0.5 ? 0 : 1], bit.curPos, nw, area * 0.3, 0.08);
   }
   const size = clamp(Math.cbrt(Math.max(vb, 0.02)) * 2.2, 0.5, 2.5);
   fx.dust(mid, size, pm.dust);
@@ -2610,11 +2826,19 @@ function crackMember(p: Piece, at: Vec3, into: Vec3): boolean {
 
 function processFractures(max: number): void {
   let n = 0;
+  /* the hardest-hit first, then by place: which pieces break this step and which wait must not follow the order the
+     blows happened to be handled in */
+  if (fractureQueue.length > max) fractureQueue.sort((a, b) => b.intensity - a.intensity || pieceKey(a.p) - pieceKey(b.p));
   while (fractureQueue.length && n < max) {
     const f = fractureQueue.shift()!;
     fracture(f.p, f.point, f.intensity, f.blast);
     n++;
   }
+}
+
+function pieceKey(p: Piece): number {
+  const s = p.spawnPos;
+  return (Math.round(s[1] * 1000) * 2e5 + Math.round(s[0] * 1000)) * 2e5 + Math.round(s[2] * 1000);
 }
 
 /* ---------------- explosives ---------------- */
@@ -2637,15 +2861,18 @@ function detonateProp(p: Piece): void {
   counters.props++;
   if (scoring.score.explosives > 1) scoring.addBonus(150 * Math.min(scoring.score.explosives, 10), 'CHAIN REACTION');
   explode(pos, ex.radius, ex.power, ex.impulse, 1);
-  fx.fire(pos, 6 + Math.random() * 4, ex.radius * 0.22);
+  fx.fire(pos, 6 + chance() * 4, ex.radius * 0.22);
 }
 
 export function explode(pos: Vec3, radius: number, power: number, impulse: number, weldReach = 1, maxFractures = BLAST_FRACTURES): void {
   counters.explosions++;
+  chance.at(pos[0], pos[1], pos[2], stepCount, 4);
   fx.explosion(pos, radius);
   if (pos[1] < 1.6) fx.scorch([pos[0], 0.01, pos[2]], radius * 0.5);
   audio.explosion(pos, radius / 3);
   onExplosion(pos, radius);
+  /* the wave lands on the next steps' solve */
+  noteShock(pos, power, radius * 2, 3);
   softExplosion(pos, radius, power, impulse);
   crater(pos, power / 60e3);
 
@@ -2668,7 +2895,7 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
     const d = vec3.distance(cp, pos);
     if ((d < radius || fields.inRoom(bl, cp)) && (!prev || d < prev.d)) near.set(p, { p, d, cp });
   });
-  const hits = [...near.values()].sort((a, b) => a.d - b.d);
+  const hits = [...near.values()].sort((a, b) => a.d - b.d || pieceKey(a.p) - pieceKey(b.p));
   let broke = 0;
   for (let i = 0; i < hits.length && i < Math.max(48, maxFractures * 3); i++) {
     const h = hits[i];
@@ -2682,8 +2909,10 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
     damagePiece(h.p, h.cp, e, true);
     if (h.p.queued && !was) broke++;
     if (sh < 0.5) continue;
-    heat(h.p, 380 * f * f * lf.shadow);
-    if (h.p.pm.thermal.ignite !== undefined && f * lf.shadow > 0.25 && Math.random() < 0.45) ignite(h.p);
+    /* a high-explosive fireball lasts milliseconds: it scorches and chars what it touches, but only what sits in it,
+       thin or finely divided, keeps burning (a gas explosion or a firebomb is another matter) */
+    heat(h.p, 300 * f * f * lf.shadow);
+    if (h.p.pm.thermal.ignite !== undefined && f * lf.shadow > 0.6 && chance() < 0.25) ignite(h.p);
   }
   /* glass well beyond the fireball: it goes at a few kPa */
   const glassR = fields.glassRange(bl.W);
@@ -2693,6 +2922,7 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
     if (d < glassR && fields.glassBreaks(bl, p)) damagePiece(p, p.curPos, p.hp * 1.5, true);
   }
   processFractures(Math.max(10, maxFractures));
+  blastPanels(bl, pos);
 
   const reach = radius * weldReach;
   /* Ductile compounds never fracture: a blast that would rupture the weld between two separate plates tears the
@@ -2719,6 +2949,146 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
   fields.fieldsBlast(pos, radius, power, bl);
   explodeImpulse(pos, radius, impulse, CAT.player | CAT.projectile);
   pushFree(pos, radius, impulse);
+}
+
+/* ---------------- blast on wall panels ----------------
+   Unreinforced masonry fails out of plane: a panel spanning a storey cracks along a bed joint at its flexural
+   tensile strength (plus whatever precompression the load above puts on it) and then rocks out as two leaves until it
+   passes its own thickness. As a single-degree-of-freedom system it has a quasi-static capacity R (Pa) and an
+   impulsive one I0 = √(m·R·t) (Pa·s, m the panel's mass per m²); it goes when the load's pressure–impulse pair lies
+   past the P–I hyperbola (P/R − 1)(I/I0 − 1) ≥ ¼. A 1.5 kg charge in a terrace front room loads every wall of that
+   room with ~0.2–0.3 MPa of gas for tens of milliseconds, far past a 9 in wall's few kPa: its walls blow out and what
+   they carried comes down. In the open the shock's impulse falls off fast and only the nearby wall goes. A panel that
+   goes loses every connection, takes the momentum the load left over, and breaks up along its joints in flight. */
+const PANEL_MATS = new Set<MaterialId>(['brick', 'cinderblock', 'stone', 'sandstone', 'adobe', 'plaster', 'concrete']);
+const MAX_PANELS = 40, SHATTER_PER_STEP = 4;
+const shatterQueue: { p: Piece; at: Vec3; step: number; blast: boolean }[] = [];
+const _pn: Vec3 = [0, 0, 0], _pu: Vec3 = [0, 0, 0], _pc: Vec3 = [0, 0, 0];
+/** last blast's panel verdicts (harness / tests) */
+export const panelLog: { id: number; mat: MaterialId; P: number; I: number; R: number; I0: number; gas: boolean; failed: boolean; v: number }[] = [];
+
+export const lastBlast: { survey: Survey | null } = { survey: null };
+function blastPanels(bl: Survey, pos: Vec3): void {
+  panelLog.length = 0;
+  lastBlast.survey = bl;
+  const g = bl.n, lo: Vec3 = [bl.x0, Math.max(bl.y0, -0.5), bl.z0], hi: Vec3 = [bl.x0 + g, bl.y0 + g, bl.z0 + g];
+  const cand: { p: Piece; d: number }[] = [];
+  const seen = new Set<Piece>();
+  overlapAABB(lo, hi, CAT.structure, shape => {
+    const e = entityOfShape(shape);
+    if (!e || e.kind !== 'piece') return;
+    const p = e as Piece;
+    if (seen.has(p) || p.dead || p.queued || p.depth > 0 || !p.welds.length || !PANEL_MATS.has(p.mat) || p.pm.rebar) return;
+    // a remnant carved out of a massive member (a pier, a buttress) is not a wall panel
+    if (Math.min(...p.root.spec.size) > 0.8) return;
+    seen.add(p);
+    cand.push({ p, d: vec3.distance(p.curPos, pos) });
+  });
+  cand.sort((a, b) => a.d - b.d || pieceKey(a.p) - pieceKey(b.p));
+  let failed = 0;
+  for (const { p } of cand) {
+    if (failed >= MAX_PANELS) break;
+    if (p.dead || !p.welds.length) continue;
+    const mn: Vec3 = [0, 0, 0], mx: Vec3 = [0, 0, 0];
+    P.bounds(p.poly, mn, mx);
+    const dims: Vec3 = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
+    const t = dims[0] <= dims[1] && dims[0] <= dims[2] ? 0 : dims[1] <= dims[2] ? 1 : 2;
+    const th = dims[t];
+    vec3.set(_pn, t === 0 ? 1 : 0, t === 1 ? 1 : 0, t === 2 ? 1 : 0);
+    vec3.transformQuat(_pn, _pn, p.curRot);
+    if (Math.abs(_pn[1]) > 0.5 || th > 0.8) continue;
+    // the in-plane axis nearest vertical spans the storey
+    const u = (t + 1) % 3, v = (t + 2) % 3;
+    vec3.set(_pu, u === 0 ? 1 : 0, u === 1 ? 1 : 0, u === 2 ? 1 : 0);
+    vec3.transformQuat(_pu, _pu, p.curRot);
+    const vert = Math.abs(_pu[1]) >= 0.7 ? u : v;
+    const h = dims[vert], L = dims[vert === u ? v : u];
+    if (h < 0.6 || L < 0.4 || h * L < 0.5) continue;
+    // load point: halfway from the face's nearest point to its middle (the SDOF sees the face's mean load)
+    b3.b3Shape_GetClosestPoint(_pc, p.shape, pos);
+    const c: Vec3 = [(_pc[0] + p.curPos[0]) / 2, (_pc[1] + p.curPos[1]) / 2, (_pc[2] + p.curPos[2]) / 2];
+    if (Math.abs(c[0] - bl.pos[0]) > g / 2 || Math.abs(c[1] - bl.pos[1]) > g / 2 || Math.abs(c[2] - bl.pos[2]) > g / 2) continue;
+    const ld = panelLoad(bl, c, _pn);
+    const area = h * L, m = p.mass / area;
+    // precompression at mid-height: what the bed below carries, less half the panel's own weight
+    let Nb = 0;
+    for (const w of p.welds) {
+      weldPos(w, _v);
+      weldNormal(w, _pu);
+      if (Math.abs(_pu[1]) > 0.7 && _v[1] < p.curPos[1]) Nb += Math.max(0, w.sN);
+    }
+    const sd = Math.max(p.pm.density * 9.81 * h / 2, (Nb - p.mass * 9.81 / 2) / Math.max(0.01, th * L));
+    const M = (p.pm.eng.ft * 1e6 + Math.min(sd, 0.4e6)) * th * th / 6;
+    // one-way over the storey, with some two-way help from the returns and arching between floors
+    const R = 1.5 * 8 * M / (h * h);
+    const I0 = Math.sqrt(m * R * th);
+    const over = ld.P > R && ld.I > I0 && (ld.P / R - 1) * (ld.I / I0 - 1) >= 0.25;
+    let vel = 0;
+    if (over) {
+      failed++;
+      vel = Math.min(25, Math.sqrt(Math.max(0, ld.I * ld.I - I0 * I0)) / m);
+      const side = (p.curPos[0] - pos[0]) * _pn[0] + (p.curPos[1] - pos[1]) * _pn[1] + (p.curPos[2] - pos[2]) * _pn[2] >= 0 ? 1 : -1;
+      for (const w of p.welds.slice()) failWeld(w, 'blast', false);
+      const lin: Vec3 = [0, 0, 0];
+      b3.b3Body_GetLinearVelocity(lin, p.body);
+      const up = Math.min(vel * 0.25, 3);
+      b3.b3Body_SetLinearVelocity(p.body, [lin[0] + _pn[0] * side * vel, lin[1] + up, lin[2] + _pn[2] * side * vel]);
+      // it hinges out about its base: the top leads
+      const spin = vel / Math.max(1, h);
+      b3.b3Body_SetAngularVelocity(p.body, [_pn[2] * side * spin * (chance() - 0.3), (chance() - 0.5) * 0.4, -_pn[0] * side * spin * (chance() - 0.3)]);
+      b3.b3Body_SetAwake(p.body, true);
+      shattering.add(p);
+      shatterQueue.push({ p, at: [_pc[0], _pc[1], _pc[2]], step: stepCount + 2 + Math.floor(chance() * 6), blast: true });
+    } else {
+      // cracked bed joints: what is left stands on weakened mortar
+      const k = Math.min(ld.I / I0, ld.P / Math.max(R, 1));
+      if (k > 0.5) for (const w of p.welds) if (!w.metal) scaleWeld(w, Math.max(0.35, 1 - 0.8 * (k - 0.5)));
+    }
+    if (panelLog.length < 200) panelLog.push({ id: p.id, mat: p.mat, P: ld.P, I: ld.I, R, I0, gas: ld.gas, failed: over, v: vel });
+  }
+}
+
+/* Loose brickwork that lands hard does not bounce as a block: lime and weak cement mortar hold a course together with
+   a few J/m² of joint, and a clump falling a storey carries hundreds of times what its joints can absorb. Anything
+   bigger than a few units comes apart where it lands, into clumps, and a clump into its bricks. */
+const LAND_J_PER_KG = 3;
+const shattering = new WeakSet<Piece>();
+function landing(p: Piece, at: Vec3, e: number): void {
+  if (p.dead || p.welds.length || shattering.has(p) || !PANEL_MATS.has(p.mat) || e < LAND_J_PER_KG * p.mass || detailUnits(p) < 6) return;
+  if (clock - p.born < 0.15) return;
+  shattering.add(p);
+  shatterQueue.push({ p, at: [at[0], at[1], at[2]], step: stepCount, blast: false });
+}
+
+/* A wall that has come down whole (toppled, or dropped a storey onto what was below) and lies there: a toppling panel
+   slaps down along its length, which the contact events see only as a string of slow hits, but no unreinforced wall
+   lands on its face from a storey up in one piece. Once it has stopped, it lies as the clumps and bricks it broke into. */
+const _fq: Quat = [0, 0, 0, 1];
+function fallen(p: Piece): void {
+  if (detailUnits(p) < 40) return;
+  const drop = p.spawnPos[1] - p.curPos[1];
+  const tilt = Math.abs(quat.dot(p.curRot, p.spawnRot));
+  if (drop < 1.2 && tilt > Math.cos(0.5 * 0.7)) return;
+  b3.b3Body_GetLinearVelocity(_v, p.body);
+  if (vec3.squaredLength(_v) > 1) return;
+  void _fq;
+  b3.b3Body_ComputeAABB(_aabb2, p.body);
+  shattering.add(p);
+  shatterQueue.push({ p, at: [p.curPos[0], _aabb2[1] + 0.1, p.curPos[2]], step: stepCount, blast: false });
+}
+
+/* A blown-out panel breaks up along its joints in flight, a few panels a step. */
+function processShatter(): void {
+  let n = 0;
+  for (let i = 0; i < shatterQueue.length && n < SHATTER_PER_STEP; ) {
+    const e = shatterQueue[i];
+    if (e.p.dead) { shatterQueue.splice(i, 1); continue; }
+    if (e.step > stepCount) { i++; continue; }
+    shatterQueue.splice(i, 1);
+    n++;
+    if (hasDetail(e.p)) { if (detailShatter(e.p, e.at) || !e.blast) continue; }
+    if (e.blast && !e.p.dead && !e.p.queued) damagePiece(e.p, e.p.curPos, e.p.hp * 2.5, true);
+  }
 }
 
 /* A heavy blunt hit: overloads joints around the impact (strength scales with energy / perJoule) and
@@ -2777,7 +3147,7 @@ function pushFree(pos: Vec3, radius: number, impulse: number): void {
       b3.b3Body_ApplyLinearImpulseToCenter(p.body, [dir[0] * j, dir[1] * j, dir[2] * j], true);
       if (j > p.mass * BULLET_SPEED) makeBullet(p);
       const a = j * Math.cbrt(p.volume) * 0.25;
-      b3.b3Body_ApplyAngularImpulse(p.body, [(Math.random() - 0.5) * a, (Math.random() - 0.5) * a, (Math.random() - 0.5) * a], true);
+      b3.b3Body_ApplyAngularImpulse(p.body, [(chance() - 0.5) * a, (chance() - 0.5) * a, (chance() - 0.5) * a], true);
     });
 }
 
@@ -2800,8 +3170,8 @@ export function onHit(a: PhysEntity | undefined, b: PhysEntity | undefined, poin
   if (pa) struck.set(pa, clock);
   if (pb) struck.set(pb, clock);
   const qa = pa?.queued, qb = pb?.queued;
-  if (pa) damagePiece(pa, point, e * (projB ? 1 : 0.55), false);
-  if (pb) damagePiece(pb, point, e * (projA ? 1 : 0.55), false);
+  if (pa) { landing(pa, point, e * (projB ? 1 : 0.55)); damagePiece(pa, point, e * (projB ? 1 : 0.55), false); }
+  if (pb) { landing(pb, point, e * (projA ? 1 : 0.55)); damagePiece(pb, point, e * (projA ? 1 : 0.55), false); }
   if (pb && !qb && pb.queued && a) punchThrough(pb, a, normal, speed, e * (projA ? 1 : 0.55));
   if (pa && !qa && pa.queued && b) punchThrough(pa, b, [-normal[0], -normal[1], -normal[2]], speed, e * (projB ? 1 : 0.55));
   if (!projA && !projB && speed > 3) {
@@ -2893,20 +3263,19 @@ function punchThrough(p: Piece, hitter: PhysEntity, n: Vec3, speed: number, e: n
   b3.b3Body_SetLinearVelocity(hitter.body, _w);
 }
 
-/* Impacts this step: a joint far from all of them that spikes past its capacity is feeling the
-   rigid-island shortcut, not the blow itself. */
-const shocks: { at: Vec3; r: number }[] = [];
-let shockStep = -1;
-function noteShock(point: Vec3, e: number): void {
+/* Blows landing now (impacts this step, a blast for the step or two its wave takes): a joint far from all of them
+   that spikes past its capacity is feeling the rigid-island shortcut, not the blow itself. With no blow landing at
+   all, a spike is the island passing on a release elsewhere (a support letting go), and is remote everywhere. */
+const shocks: { at: Vec3; r: number; until: number }[] = [];
+function noteShock(point: ArrayLike<number>, e: number, r = clamp(Math.cbrt(e / 1000) * 0.5, 1, 4), steps = 1): void {
   if (e < 5000) return;
-  if (shockStep !== stepCount) { shocks.length = 0; shockStep = stepCount; }
-  if (shocks.length < 24) shocks.push({ at: [point[0], point[1], point[2]], r: clamp(Math.cbrt(e / 1000) * 0.5, 1, 4) });
+  for (let i = shocks.length - 1; i >= 0; i--) if (shocks[i].until < stepCount) shocks.splice(i, 1);
+  if (shocks.length < 24) shocks.push({ at: [point[0], point[1], point[2]], r, until: stepCount + steps - 1 });
 }
 
 function remoteFromShock(w: Weld): boolean {
-  if (shockStep !== stepCount) return false;
   weldPos(w, _v);
-  for (const s of shocks) if (vec3.distance(_v, s.at) < s.r) return false;
+  for (const s of shocks) if (s.until >= stepCount && vec3.distance(_v, s.at) < s.r) return false;
   return true;
 }
 
@@ -2946,11 +3315,15 @@ export function afterStep(dt: number): void {
     if (p.mechs) for (const m of p.mechs.slice()) killMech(m, true);
   }
   checkTies();
+  if (bearings.size && stepCount % 10 === 3) checkBearings();
+  if (settling.length && stepCount % 15 === 5) watchSettling();
   groanT -= dt;
   strainT -= dt;
   fxBudget = Math.min(24, fxBudget + 1.5);
   if (stepCount % 2 === 0) pollJoints();
+  if (stepCount % YIELD_EVERY === 1) updateYield();
   processFractures(FRACTURE_PER_STEP);
+  if (shatterQueue.length) processShatter();
   stepAnalysis(ANALYSIS_WORK);
   /* Only overstressed paths are revisited each step; a snapped column redistributes weight
      to surviving connections and can start a cascade even when the solver island is asleep.
@@ -2965,7 +3338,7 @@ export function afterStep(dt: number): void {
   processCracks();
   updateFire(dt);
   heatT += dt;
-  if (heatT >= HEAT_TICK) { heatT -= HEAT_TICK; updateHeat(); updateYield(); refreshSupportPressure(); }
+  if (heatT >= HEAT_TICK) { heatT -= HEAT_TICK; updateHeat(); refreshSupportPressure(); }
   for (let i = calibs.length - 1; i >= 0; i--) {
     const c = calibs[i];
     c.step++;
@@ -3011,21 +3384,70 @@ export function maintain(dt: number): void {
   const doomed: Piece[] = [];
   for (const p of live) {
     if (p.curPos[1] < -15) { if (!p.demolished) markDemolished(p); doomed.push(p); continue; }
-    if (p.fade > 0 || !p.demolished || p.depth === 0 || p.rebars.length) continue;
+    if (p.depth === 0 && !p.welds.length && p.demolished && !shattering.has(p) && PANEL_MATS.has(p.mat)) fallen(p);
+    if (p.fade > 0 || !p.demolished || p.depth === 0 || p.rebars.length || frozenSet.has(p)) continue;
     if (p.movedStep < stepCount - 2) p.sleepT += 0.5;
-    if (p.volume < 0.012 && p.sleepT > 30) startFade(p);
+    if (p.volume < 0.012 && p.sleepT > 30) { if (canFreeze(p) && onRubble(p)) freezeRubble(p); else startFade(p); }
   }
   for (const p of doomed) destroyPiece(p);
   /* The limit is on bodies breakage made: intact structure costs nothing while it sleeps, and
-     culling against the whole site would erase every rubble pile on a large level. */
-  if (debrisCount > BUDGET) {
+     culling against the whole site would erase every rubble pile on a large level. Rubble that has come to rest
+     is set in place first (a heap of whole bricks stays a heap); only what is still moving fades. */
+  if (debrisCount > BUDGET * 0.8) {
     const cap = debrisCount > BUDGET * 1.15 ? 0.4 : 0.1;
     const cands = [...live].filter(p => p.debris && p.demolished && p.fade <= 0 && p.volume < cap && !p.rebars.length)
-      .sort((a, b) => a.volume * 100 - a.born * 0.01 - (b.volume * 100 - b.born * 0.01));
-    const excess = debrisCount - Math.floor(BUDGET * 0.92);
-    for (let i = 0; i < excess && i < cands.length; i++) startFade(cands[i]);
+      .map(p => ({ p, still: canFreeze(p) }))
+      .sort((a, b) => (a.still === b.still ? a.p.volume * 100 - a.p.born * 0.01 - (b.p.volume * 100 - b.p.born * 0.01) : a.still ? -1 : 1));
+    let excess = debrisCount - Math.floor(BUDGET * 0.75);
+    for (let i = 0; i < cands.length && excess > 0 && cands[i].still; i++) if (onRubble(cands[i].p)) { freezeRubble(cands[i].p); excess--; }
+    // what is still flying fades only well past the limit: a collapse in progress keeps its bricks
+    excess = debrisCount - Math.floor(BUDGET * 1.25);
+    for (let i = 0; i < cands.length && excess > 0; i++) if (!cands[i].still && cands[i].p.fade <= 0) { startFade(cands[i].p); excess--; }
   }
 }
+
+/* Settled rubble: a static body where it came to rest, still drawn and still solid underfoot, but no longer solved
+   and no longer counted against the debris limit. The oldest go once there are too many. */
+const FROZEN_MAX = 9000;
+const frozenSet = new WeakSet<Piece>();
+const frozenList: Piece[] = [];
+const slowSince = new WeakMap<Piece, number>();
+/* at rest: barely moving on two looks half a second apart (one slow sample may be the top of a bounce) */
+function canFreeze(p: Piece): boolean {
+  if (p.dead || p.welds.length || p.rebars.length || p.ropes.length || p.mechs || p.svc || hasDetail(p) || p.burning || p.curPos[1] < -1) return false;
+  if (p.movedStep < stepCount - 30) return true;
+  b3.b3Body_GetLinearVelocity(_v, p.body);
+  if (vec3.squaredLength(_v) > 0.3 * 0.3) { slowSince.delete(p); return false; }
+  const t = slowSince.get(p);
+  if (t === undefined) { slowSince.set(p, clock); return false; }
+  return clock - t >= 0.45;
+}
+/* Only what lies on the ground or on other rubble: a static brick left on a standing member would pin it. */
+function onRubble(p: Piece): boolean {
+  b3.b3Body_ComputeAABB(_aabb2, p.body);
+  let ok = true;
+  overlapAABB([_aabb2[0] - 0.05, _aabb2[1] - 0.05, _aabb2[2] - 0.05], [_aabb2[3] + 0.05, _aabb2[4] + 0.05, _aabb2[5] + 0.05], CAT.structure | CAT.debris | CAT.prop, shape => {
+    if (!ok) return;
+    const e = entityOfShape(shape);
+    if (!e || e === p) return;
+    if (e.kind !== 'piece') { ok = false; return; }
+    const q = e as Piece;
+    if (q.welds.length || q.rebars.length || q.ropes.length || q.mechs) ok = false;
+  });
+  return ok;
+}
+
+function freezeRubble(p: Piece): void {
+  if (frozenSet.has(p)) return;
+  frozenSet.add(p);
+  b3.b3Body_SetType(p.body, b3.b3BodyType.b3_staticBody);
+  if (p.debris) { p.debris = false; debrisCount--; }
+  frozenList.push(p);
+  counters.frozen++;
+  while (frozenList.length > FROZEN_MAX) { const q = frozenList.shift()!; if (!q.dead) startFade(q); }
+}
+/** settled rubble held static (harness) */
+export function frozenRubble(): number { return frozenList.length; }
 
 function fadeScale(p: Piece): number {
   return p.fade > 0 ? Math.max(0.02, p.fade / 0.7) : 1;
@@ -3085,15 +3507,24 @@ export function syncMeshes(alpha: number): void {
 
 const standIn = (p: Piece, pos: Vec3, rot: Quat): void => { if (!p.dirty) setPieceTransform(p.gfx, pos, rot); };
 
-/** Pay out (+) or haul in (−) the rope `p` hangs a load from (a crane's hoist line off its trolley or sheave): the line's
-    new working length, or null when p carries no such rope. */
-export function hoistRope(p: Piece, dL: number): number | null {
+/** Run the hoist of the rope `p` hangs a load from (a crane's line off its trolley or sheave): `speed` m/s, + pays out,
+    − hauls in, 0 holds; called once a frame. Hauling in is the drum's motor winding at up to its line pull; the rope's
+    length limit follows it in so the load stays where it has been lifted to. Returns the line's working length. */
+export function hoistRope(p: Piece, speed: number, dt = 1 / 60): number | null {
   const r = p.ropes.find((x) => x.alive && x.kind !== 'wire' && (x.a === p ? x.b : x.a).curPos[1] < p.curPos[1]);
   if (!r) return null;
-  r.maxLength = clamp(r.maxLength + dL, 0.8, 60);
+  const cur = b3.b3DistanceJoint_GetCurrentLength(r.joint);
+  if (speed < 0) {
+    b3.b3DistanceJoint_EnableMotor(r.joint, true);
+    b3.b3DistanceJoint_SetMaxMotorForce(r.joint, 0.5 * r.strength);
+    b3.b3DistanceJoint_SetMotorSpeed(r.joint, speed);
+    r.maxLength = clamp(Math.min(r.maxLength, cur + 0.01), 0.8, 60);
+  } else {
+    b3.b3DistanceJoint_EnableMotor(r.joint, false);
+    r.maxLength = clamp(speed > 0 ? r.maxLength + speed * dt : Math.min(r.maxLength, cur + 0.01), 0.8, 60);
+  }
   r.rest = Math.min(r.rest, r.maxLength);
   b3.b3DistanceJoint_SetLengthRange(r.joint, 0, r.maxLength);
-  b3.b3DistanceJoint_SetLength(r.joint, r.maxLength);
   b3.b3Joint_WakeBodies(r.joint);
   return r.maxLength;
 }
@@ -3164,13 +3595,13 @@ function buried(p: Piece): boolean {
 export function ignite(p: Piece): void {
   if (p.dead || p.burning || p.fade > 0 || !flammable(p.pm)) return;
   if (p.pm.explosive) {
-    if (p.fuse < 0) { armFuse(p, 2.5 + Math.random() * 3.5); fx.fire(p.curPos, 5, 0.5); }
+    if (p.fuse < 0) { armFuse(p, 2.5 + chance() * 3.5); fx.fire(p.curPos, 5, 0.5); }
     return;
   }
   if (burning.size >= MAX_BURNING || buried(p)) return;
   p.burning = true;
   p.temp = Math.max(p.temp, 600);
-  p.fireT = Math.random() * 0.25;
+  p.fireT = chance() * 0.25;
   burning.add(p);
   hot.add(p);
 }
@@ -3196,8 +3627,10 @@ function updateFire(dt: number): void {
     const flame = (p.char < 0.85 ? 1 : (1 - p.char) / 0.15) * fields.flameOf(p);
     if (flame > 0.05) fx.flames(p.curPos, size, 0.4 + flame * 0.6);
     for (const w of p.welds) scaleWeld(w, 0.985, false);
-    if (Math.random() < 0.1) b3.b3Body_SetAwake(p.body, true);
-    if (Math.random() < 0.18) audio.burn(p.curPos, size * flame);
+    // a burning member is nudged awake to find out whether its weakening joints still hold; loose burning rubble is
+    // not, or it would keep its whole pile awake for as long as it burns
+    if (p.welds.length && chance() < 0.1) b3.b3Body_SetAwake(p.body, true);
+    if (chance() < 0.18) audio.burn(p.curPos, size * flame);
     if (p.char >= 1) disintegrate(p);
   }
   fields.stepFields(dt);
@@ -3259,7 +3692,7 @@ function updateHeat(): void {
       if (Math.abs(k - p.heatK) > 0.03) {
         p.heatK = k;
         for (const w of p.welds) applyCaps(w);
-        b3.b3Body_SetAwake(p.body, true);
+        if (p.welds.length) b3.b3Body_SetAwake(p.body, true);
         /* softening sheds load to cooler members; a hot strut loses stiffness and buckles long before it yields */
         analysisTouch(p);
         supportDirty = true;
@@ -3271,10 +3704,10 @@ function updateHeat(): void {
       if (Math.abs(g - p.glow) > 0.03) {
         p.glow = g;
         setPieceHeat(p.gfx, g);
-        if (g > 0.2 && Math.random() < 0.1) audio.sizzle(p.curPos, g);
+        if (g > 0.2 && chance() < 0.1) audio.sizzle(p.curPos, g);
       }
     }
-    if (th.spall !== undefined && p.temp > th.spall && Math.random() < 0.05) spall(p);
+    if (th.spall !== undefined && p.temp > th.spall && chance() < 0.05) spall(p);
     if (p.welds.length) heatJoints(p);
     if (p.temp > 250) detailHeat(p);
     if (th.shock !== undefined && p.temp > th.shock && !p.queued) {
@@ -3437,13 +3870,13 @@ export function updateXray(dt: number): void {
    instead of in a blocking settle, so the rest of the site keeps simulating undisturbed. */
 export function spawnPieces(specs: PieceSpec[]): Piece[] {
   building = true;
-  const list: Piece[] = [];
-  for (const spec of specs) {
+  const list: Piece[] = [], made = new Map<PieceSpec, Piece>();
+  for (const spec of canonical(specs)) {
     const volume = specVolume(spec);
     if (volume <= 0) continue;
     const root = newRoot(spec, volume);
     const p = spawnSpec(spec, root);
-    if (p) { list.push(p); if (spec.detail) attachDetail(p); }
+    if (p) { list.push(p); made.set(spec, p); if (spec.detail) attachDetail(p); }
   }
   const before = new Set(welds.values());
   autoWeld(list);
@@ -3461,7 +3894,10 @@ export function spawnPieces(specs: PieceSpec[]): Piece[] {
   calibs.push(newCalib(fresh, list));
   refreshServices();
   createSoftFor(list);
-  return list;
+  // handed back in the caller's order
+  const out: Piece[] = [];
+  for (const spec of specs) { const p = made.get(spec); if (p) { out.push(p); made.delete(spec); } }
+  return out;
 }
 
 /* Cut a member clean through along a plane (shaped charge, thermite burn-through). Both halves keep
@@ -3638,7 +4074,7 @@ function crackCompound(p: Piece, at: Vec3, into: Vec3): boolean {
   extentAlong(p.poly, nl, _ext);
   const s0 = clamp(vec3.dot(nl, ai), _ext[0], _ext[1]), L = _ext[1] - s0;
   if (L < 1) return false;
-  const off = clamp(L * (0.1 + 0.3 * P.rand()), 0.3, L - 0.3);
+  const off = clamp(L * (0.1 + 0.3 * chance()), 0.3, L - 0.3);
   const pm = p.pm, vol = p.volume, mat = p.mat;
   const made = sliceCompound(p, nl, s0 + off);
   if (!made) return false;
@@ -3685,7 +4121,7 @@ export function extinguish(): void {
 
 export function setFrozen(frozen: boolean): void {
   for (const p of live) {
-    if (p.dead) continue;
+    if (p.dead || frozenSet.has(p)) continue;
     b3.b3Body_SetType(p.body, frozen ? b3.b3BodyType.b3_staticBody : b3.b3BodyType.b3_dynamicBody);
     if (!frozen) b3.b3Body_SetAwake(p.body, true);
   }
@@ -3714,7 +4150,7 @@ function updateWind(dt: number): void {
   if (windStrength > 0.45 && stepCount % 15 === 0) {
     let n = 0;
     for (const p of live) {
-      if (Math.random() > 0.04 || p.dead) continue;
+      if (chance() > 0.04 || p.dead) continue;
       b3.b3Shape_ApplyWind(p.shape, _wind, 1, 0.25, 60, true);
       if (++n > 60) break;
     }
