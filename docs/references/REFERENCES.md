@@ -790,6 +790,62 @@ Tells
 
 ---
 
+# E. Utilities
+
+## utility/water-burst — burst water main, geyser, flooded street
+
+Reference media
+- [Burst Water Main in Melbourne July 2019.jpg](https://commons.wikimedia.org/wiki/File:Burst_Water_Main_in_Melbourne_July_2019.jpg) - CC BY-SA 4.0, 4032x3024. Angle/shows: street level over a flooded junction; a brown sheet of water running over the asphalt, standing ripples, the kerb as a dam. — local: `refs/utility-water/01.jpg`
+- [Busted main July 2011 in Maryland IMG 1927 (5934154780).jpg](https://commons.wikimedia.org/wiki/File:Busted_main_July_2011_in_Maryland_IMG_1927_(5934154780).jpg) - CC BY 2.0, 5184x3456. Angle/shows: low over the road after a main burst under it: asphalt slabs lifted and scattered, soil and gravel washed out across the carriageway, muddy water. — local: `refs/utility-water/02.jpg`
+- [Burst water main - Collier Street - geograph.org.uk - 1696834.jpg](https://commons.wikimedia.org/wiki/File:Burst_water_main_-_Collier_Street_-_geograph.org.uk_-_1696834.jpg) - CC BY-SA 2.0, 960x1280. Angle/shows: across the street at a jet coming out of the road: a narrow white column at the foot opening into a drifting mist plume taller than the two-storey buildings, the street wet all round. — local: `refs/utility-water/03.jpg`
+- [Fire hydrant knocked over.jpg](https://commons.wikimedia.org/wiki/File:Fire_hydrant_knocked_over.jpg) - CC BY 2.5, 604x483. Angle/shows: a pillar hydrant sheared at its breakaway flange, lying beside the open stand-pipe (dry: its valve at the main held). — local: `refs/utility-water/04.jpg`
+- [(20241231) Berlin Wedding water pipe broke 01.jpg](https://commons.wikimedia.org/wiki/File:(20241231)_Berlin_Wedding_water_pipe_broke_01.jpg) - CC BY-SA 4.0, 4096x3072. Angle/shows: night, street level: a thin sheet of water over the whole road mirroring street lights, the pavement dark and glossy beside it. — local: `refs/utility-water/06.jpg`
+
+Game camera to match: (1) across the street at 10-30 m from the jet, eye height, jet against sky and buildings (ref 03); (2) low over the wet road looking along it (refs 01, 06); (3) close on the break crater (ref 02).
+
+Benchmarks
+- 16-inch ductile-iron main (Centennial, CO): water shot "about 50 feet" (15 m) into the air; the rupture was ~2 ft x 10 in; a 25 sq ft piece of asphalt was lifted and moved ~3 ft. **[S]** https://www.denverwater.org/tap/main-break-creates-impressive-geyser
+- Reported geysers: 20-30 ft (6-9 m) for a 12-inch main, 60 ft (18 m) for a 24-inch main. **[Q]** https://www.cbsnews.com/amp/pittsburgh/news/arlington-avenue-geyser , https://www.inquirer.com/philly/news/breaking/20100617_Water_main_breaks__becomes_a_geyser_in_N_E__Phila_.html
+- UK guaranteed minimum 7 m static head (0.7 bar) at the stop valve; households typically 1.5-3 bar, 3-4 bar good. **[Q]** https://www.ofwat.gov.uk/households/supply-and-standards/water-pressure/
+- Exit speed of a jet v = Cv·√(2ΔP/ρ): 3.5 bar → 26 m/s, ideal height ΔP/ρg = 36 m; a 15 m geyser from a 16-inch main is ~40 % of an ideal 3.5 bar head (drag and break-up). **[D]**
+- US minimum distribution pressure 35 psi (2.4 bar) at 1.5 gpm per connection (Texas TCEQ). **[S]** https://twri.tamu.edu/news/2020/december/the-physics-of-a-water-main-break/
+
+Tells a harsh critic should check
+1. A jet from a main is a coherent white/grey column only for its first few metres, then a mist plume that drifts downwind (ref 03); cotton-ball puffs or a clean tapered cone are wrong.
+2. Height must follow pressure: extra breaks on the same network visibly lower every jet (shared supply).
+3. Water on the ground is a thin sheet that goes where the ground slopes and stops at kerbs; wet ground is darker and glossy with sky/lamp reflections (refs 01, 06); tents or sheets draped over objects are wrong.
+4. A burst under a road brings soil: brown water, washed-out gravel and lifted asphalt (ref 02); a clean blue fountain out of intact pavement is wrong.
+
+## utility/power-fault — arc flash, downed live conductor, transformer fire, blackout
+
+Reference media
+- [Electrical arc flash.webm](https://commons.wikimedia.org/wiki/File:Electrical_arc_flash.webm) - CC BY 3.0, 960x720 video. Angle/shows: inside a switch room: the arc lights the whole room violet-white, blowing out detail. — local (poster frame): `refs/utility-power/01.jpg`
+- [Hurricane Isaias sparking electrical wires from tree branch Hatboro PA.jpeg](https://commons.wikimedia.org/wiki/File:Hurricane_Isaias_sparking_electrical_wires_from_tree_branch_Hatboro_PA.jpeg) - CC BY-SA 4.0, 4032x3024. Angle/shows: street level, daylight: a small orange-white arc and flame where a branch lies on LV/distribution conductors. — local: `refs/utility-power/02.jpg`
+- [Downed power lines in Issaquah, Washington.jpg](https://commons.wikimedia.org/wiki/File:Downed_power_lines_in_Issaquah,_Washington.jpg) - CC BY-SA 4.0, 3968x2976. Angle/shows: night, along the road: conductors hanging from a pole down to the verge and across the carriageway. — local: `refs/utility-power/03.jpg`
+- [Downed power line and closed road in Morris County, NJ after a storm at night 01.jpg](https://commons.wikimedia.org/wiki/File:Downed_power_line_and_closed_road_in_Morris_County,_NJ_after_a_storm_at_night_01.jpg) - CC BY 4.0, 3774x2830. Angle/shows: a conductor lying slack across a road from a leaning pole. — local: `refs/utility-power/04.jpg`
+- [Transformator on fire.jpg](https://commons.wikimedia.org/wiki/File:Transformator_on_fire.jpg) - CC BY 2.0, 533x800. Angle/shows: a transformer fire seen across a city: a dense black-grey smoke column rising hundreds of metres. — local: `refs/utility-power/05.jpg`
+- [Cottingham sub station fire -2535 - panoramio.jpg](https://commons.wikimedia.org/wiki/File:Cottingham_sub_station_fire_-2535_-_panoramio.jpg) - CC BY 3.0, 1200x799. Angle/shows: a substation transformer burning: orange oil flames low in the compound under a rolling black plume. — local: `refs/utility-power/06.jpg`
+- [Lechatelierite created by high voltage power line arcing on rocky soil- 2014-02-12 23-02.jpg](https://commons.wikimedia.org/wiki/File:Lechatelierite_created_by_high_voltage_power_line_arcing_on_rocky_soil-_2014-02-12_23-02.jpg) - CC BY-SA 3.0, 2178x1535. Angle/shows: close: fused glassy soil where a downed HV line arced into the ground. — local: `refs/utility-power/07.jpg`
+
+Game camera to match: (1) street level 10-20 m from a pole line, looking along the span (refs 02-04); (2) across a substation compound at 15-30 m (ref 06); (3) wide, the smoke column over the roofs (ref 05).
+
+Benchmarks
+- Arc temperatures up to 35,000 °F (19,400 °C); radiant injury out to ~20 ft (6 m); copper expands ~67,000× on vaporising (the arc blast); a 480 V, 20 kA phase-to-phase arc is ~9.6 MW, 1.6 MJ over 10 cycles. **[S]** https://en.wikipedia.org/wiki/Arc_flash
+- An arc flash lasts milliseconds to under a second (it burns until protection clears). **[Q]** https://e-hazard.com/arc-flash-temperatures-injuries-a-safety-guide/
+- Ground round a downed line may be energised out to ~35 ft (10 m); a downed line "can be completely silent and motionless" and still live, and does not always spark or arc; wet ground widens the zone. **[Q]** https://www.prairielandelectric.com/understanding-step-potential , https://www.flaggerforce.com/blog/stay-safe-when-power-lines-fall-flagger-force/
+- Step potential: the voltage between two feet in different voltage zones round a fault into the ground; shuffle away with feet together. **[S]** https://www.eversource.com/residential/safety/electric-safety/downed-power-lines
+- LV earth fault through soil: U0/R, e.g. 230 V / 15 Ω ≈ 15 A, far under any feeder fuse's melting current, so a live end on earth stays live. **[D]** (R from src/destruction/electrical.ts R_EARTH)
+- Transformer oil: ~60-80 L in a 25 kVA pole unit, 650-800 L in a 500 kVA three-phase distribution transformer. **[Q]** https://transformer4u.com/transformer-oil-capacity-chart-complete-kva-reference-table/ , https://www.yctransformer.com/blog/what-is-the-oil-capacity-of-a-pole-mounted-substation-transformer-if-oil-fill-2131145.html
+- High-pressure sodium street lamps cannot restrike hot: 1-2 min (up to 15) before they relight after an interruption, then ~4 min to full output. **[Q]** https://www.ecmweb.com/content/article/20891217/minimize-hid-lighting-system-downtime
+
+Tells a harsh critic should check
+1. The flash: blue-violet-white, lights the surroundings for a fraction of a second, then sparks of molten copper arcing down and a grey-brown puff; not a lingering glow.
+2. A snapped conductor falls and lies (or dangles) along the ground from its insulator; it does not vanish. A live one on soil may sit quietly or spit small arcs; one touching metal or the other conductor arcs hard until protection clears.
+3. Transformer failure: bang and flash, then an oil pool fire low in the compound under a dense black column that lasts (refs 05, 06).
+4. Lights on the failed network go out together, after a stutter, and sodium lamps do not come straight back on.
+
+---
+
 # Gaps (unsourced or weak)
 
 - Gothic roof pitch; church-implosion duration/pile (Bingley 1974 has no numbers in the source); retail floor-to-floor for Art Deco stores.
@@ -797,5 +853,6 @@ Tells
 - Walk-up flats dimensions and photos; chapel dimensions; Victorian terrace roof pitch and storey height.
 - Thermite burn behaviour per column; documented thermite use in building demolition (found none).
 - Hudson's and Ocean Tower collapse durations (one source each, conflicting for Hudson).
+- Utilities: no Commons photo of a pillar hydrant sheared *wet* (US wet-barrel type) or of a live LV conductor arcing on the ground; geyser heights are news reports, not measurements.
 - Fragment-size distributions for blast rubble (brick or concrete); concrete tension/compression ratio; Eurocode 3 reduction factors and rotation capacity; glass tensile strength; tempered/annealed comparison photographs.
 - Wrecking-ball swing counts and ball speeds; debris throw distances for wrecking balls and excavators.
