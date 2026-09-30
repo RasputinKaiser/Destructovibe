@@ -499,6 +499,16 @@ export interface Settings {
   aberration: boolean;
   /** fraction of the quality's pixel ratio, or 0 = dynamic (tracks a 60 fps frame-time target) */
   renderScale: number;
+  /** walking head bob */
+  headBob: boolean;
+  /** crouch / sprint keys latch on a tap instead of acting while held */
+  crouchToggle: boolean;
+  sprintToggle: boolean;
+  /** what falls and blows do to the player: 'off' a stagger at most, 'stumble' knockdowns, 'real' knockdowns and a
+      blackout (respawn) at the extremes */
+  impacts: 'off' | 'stumble' | 'real';
+  /** key chosen per action (input.ts Action → KeyboardEvent.code); unset actions keep their default */
+  keys: Record<string, string>;
 }
 
 export interface UiHandlers {

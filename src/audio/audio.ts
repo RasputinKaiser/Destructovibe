@@ -2594,7 +2594,9 @@ export const audio = {
     b.frequency.exponentialRampToValueAtTime(1800, t + 0.15);
   },
 
-  land(strength: number): void {
+  /** boots coming down: the body's thump, and what it lands on (grit on soil, a slap on slab, a hollow knock on
+      boards, a clang on plate) */
+  land(strength: number, surface: Surface = 'dirt'): void {
     if (!live()) return;
     const s = clamp(strength, 0, 1);
     if (s < 0.05) return;
@@ -2602,8 +2604,25 @@ export const audio = {
     if (!v) return;
     const t = v.t0;
     tone(v, 'sine', 95, t, 0.003, 0.9, 0.12 + 0.08 * s, 48, 0.12);
-    nburst(v, B.pink, t, 'lowpass', 420, 0.7, 0.003, 0.7, 0.14);
-    nburst(v, B.crackle, t, 'bandpass', 1800, 0.7, 0.002, 0.35 * s + 0.01, 0.08, 1.2);
+    switch (surface) {
+      case 'dirt':
+        nburst(v, B.pink, t, 'lowpass', 420, 0.7, 0.003, 0.7, 0.14);
+        nburst(v, B.crackle, t, 'bandpass', 1800, 0.7, 0.002, 0.35 * s + 0.01, 0.08, 1.2);
+        nburst(v, B.crackle, t + 0.03, 'highpass', 2600, 0.6, 0.004, 0.25 * s, 0.12, 1.4);
+        return;
+      case 'concrete':
+        nburst(v, B.white, t, 'bandpass', 1500, 1, 0.001, 0.6, 0.05);
+        nburst(v, B.pink, t, 'lowpass', 600, 0.7, 0.002, 0.45, 0.08);
+        return;
+      case 'wood':
+        strike(v, t, 'wood', 0.5 + 0.4 * s);
+        nburst(v, B.pink, t, 'bandpass', 380, 0.8, 0.002, 0.5, 0.12);
+        return;
+      case 'metal':
+        strike(v, t, 'metal', 0.35 + 0.35 * s);
+        nburst(v, B.pink, t, 'lowpass', 500, 0.7, 0.002, 0.4, 0.1);
+        return;
+    }
   },
 
   ui(kind: UiSound): void {
