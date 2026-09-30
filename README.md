@@ -81,13 +81,42 @@ node scripts/validate-levels.ts   # check every blueprint for overlaps / floatin
 
 ## Tools
 
-Four banks of six (`Q` cycles I–IV; `1–6` pick within the bank shown on the hotbar; the wheel steps through
+Five banks (`Q` cycles I–V; `1–6` pick within the bank shown on the hotbar; the wheel steps through
 every issued tool and the hotbar follows it to its bank):
 
 - **I** sledgehammer, hand cannon, rocket launcher, remote charges, airstrike marker, thermite
 - **II** cutting charge, wrecking ball, tow winch, gravity gun, firebomb, megabomb
 - **III** disc cutter, chainsaw, drill rig, hydraulic shears, plasma cutter, oxy-fuel torch
 - **IV** detonator panel, excavator remote, hydraulic breaker, water cannon, rock splitter, diamond wire saw
+- **V** grapple launcher, rigging lines, lever hoist
+
+**Rigging.** Every line — the tow winch's, a rigging line, the hoist's chain, the grapple's — is a tension-only
+spring of its own stiffness (EA/L) that knows its breaking load: it hangs in a catenary when slack, straightens under
+load, frays near its break, and when it parts the stored energy U = T²L/2EA throws both halves back past their
+anchors (stand out of line with a loaded line; the HUD says when you are in its snap-back zone). While a rigging tool
+is in hand each line shows its tension and share of its breaking load, and the tool readout has a bar per line
+(amber past 60 %, red past 85 %). Any cutting tool held on a line cuts it — a loaded one parts before the cut is
+through.
+
+- **Grapple launcher** — `LMB` throws a four-tine grapnel on 60 m of 10 mm HMPE line (34 m/s). It bites round a
+  post, beam or exposed rebar, over an edge the line runs back across (a parapet, sill, slab lip), or drags back
+  across a flat top until it catches the edge; a sheer face gives no purchase. Hold `LMB` to reel (2.45 kN, 1.1 m/s,
+  a powered ascender's drive): what is loose and light comes to you, what holds hauls you to it — off your feet, into
+  a swing, up to the ledge (`Space` at the top climbs on). `Wheel` pays line out or takes it in a metre (lower
+  yourself). `RMB` makes the line fast to the vehicle you aim at or a ground anchor at your feet (hanging in the air:
+  let go). The hook tears out of an edge past what the edge bears (one tine ~8.9 kN on steel, less on masonry) and
+  skids off if the pull swings away from the edge; a load falling away on the line tears the launcher from your hands.
+- **Rigging lines** — `LMB` one end, `LMB` the other: members, a vehicle's chassis, or a ground anchor. `Wheel`
+  picks 16 mm wire rope (179 kN), 22 mm nylon kinetic rope (127 kN, stretches up to 30 % and gives a run-up back as a
+  snatch) or 13 mm G80 chain (212 kN, no stretch, heavy). Several lines from the top of a wall to one truck and a drive
+  away is the classic pull-down (put the truck at least twice the wall's height off). `RMB` lets go of a half-made
+  line, or casts off the slack line under the crosshair (a loaded one must be slackened or cut). Eight lines.
+- **Lever hoist** — a 3.2 t lever hoist on 10 mm G80 chain: `LMB` the load, `LMB` where it hangs, then stand at it
+  and hold `LMB` to work the lever: 6 mm of chain a stroke, 363 N on the handle at the rated load, and past ~1.4 × that
+  you can't move it. `Wheel` selects PULL / LOWER / FREE chain (free runs slack through by hand, no load only). `RMB`
+  takes it down (not under load).
+- **Tow winch** — an 18,000 lb hydraulic winch on 13 mm wire rope (80 kN, 7 m/min, the speed held to the rated pull);
+  `Wheel` reeves 1–3 parts of line through snatch blocks; `LMB` on a vehicle makes the newest line fast to it.
 
 Every blow and shot reads back: heavy hits land with a beat of hitstop and a jolt through the tool in hand, blows
 that break nothing leave a strike mark on the face (cracks on masonry and glass, a scuff on metal, a bruise on
@@ -108,7 +137,7 @@ orbit camera: mouse orbits, wheel zooms, `WASD`/`Q``E` move the focus, `Space` p
 `WASD` move · `Shift` sprint · `Space` jump, or climb what is in front (a ledge up to ~1.25 m; walking into
 anything knee-high scrambles over it; fast at a low wall it is a vault) · `C`/`Ctrl` crouch · `Alt` careful: slow
 walk, and with `A`/`D` lean round a corner · `Z`/`MMB` zoom (hold) · `1–6` tool in bank · `Q` next bank ·
-`Wheel` tool setting (charge size, delay, boom…) where the tool has one, else next tool · `Shift`+`Wheel` detonator
+`Wheel` tool setting (charge size, delay, boom, line…) where the tool has one, else next tool · `Shift`+`Wheel` detonator
 delay · `LMB` fire / use · `RMB` tool's second action, else detonate · `G` detonate · `E` drive / operate / get out ·
 `U` work a breaker, valve or meter · `X` x-ray · `T` bullet time · `V` collapse replay · `P` back to spawn ·
 `Enter` call the contract early ·
