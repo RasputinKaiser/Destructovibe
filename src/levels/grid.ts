@@ -159,7 +159,7 @@ export class SiteGrid {
   hydrant(x: number, z: number, axis: 'x' | 'z', side: 1 | -1): PieceSpec[] {
     const r = MAIN.water.d / 2 + 0.15;
     const [cx, cz] = axis === 'x' ? [x, z + side * r] : [x + side * r, z];
-    const y = this.ground(cx, cz), red = { tint: SVC.hydrant, util: 'water' as const };
+    const y = this.ground(cx, cz), red = { tint: SVC.hydrant, finish: 'satin' as const, util: 'water' as const };
     return this.add([
       cyl('castiron', 0.3, [depthOf('water') - MAIN.water.d / 2, y + 0.74], cx, cz, red),
       cyl('castiron', 0.38, [y + 0.74, y + 0.84], cx, cz, red),

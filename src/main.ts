@@ -23,6 +23,7 @@ import { initGuards, setGuards, guardAt, flagGuard, updateGuards, type Guarded }
 import { initCables, cables } from './render/cables';
 import { initLampLights, lampLights, updateLampLights } from './render/lights';
 import { initWater, updateWater, clearWaterMeshes } from './render/water';
+import { updateUtilityFx } from './render/utilityfx';
 import { initTerrainGfx, updateTerrainGfx } from './render/terrain';
 import { terrainStep } from './terrain/terrain';
 import { stand } from './levels/maps/ground';
@@ -40,7 +41,7 @@ import {
 import * as scoring from './game/scoring';
 import { driving, vehicleNear, enterVehicle, exitVehicle, driveControls, driveLook, driveCamera, driveHud } from './vehicles/drive';
 import { operating, machineNear, enterMachine, exitMachine, operateControls, operateLook, operateCamera, operateHud, vehicleGear, releaseVehicleGear } from './vehicles/operate';
-import { svcInfo, svcNearestGate, svcOperate } from './destruction/services';
+import { svcInfo, svcNearestGate, svcOperate, serviceStrikes } from './destruction/services';
 import { input, initInput, requestLock, releaseLock, endFrame, hit as tapped, pollPad, canonical, setBindings, keyLabel } from './core/input';
 import { loadSave, writeSave, WORLD_DEFAULTS, type SaveData } from './core/save';
 import {
@@ -474,6 +475,7 @@ function finish(won: boolean): void {
 function failReason(c: Contract): string {
   const g = goalOf(c);
   if (scoring.goalExpired(c.target)) return 'out of time';
+  if (g?.makeSafe && scoring.struckLive()) return `live ${g.makeSafe.what} struck`;
   if (g?.salvage && scoring.salvageLost()) return 'salvage lost';
   if (scoring.objective.frac >= c.target && scoring.salvageOwed() > 0) return 'salvage not carried out';
   if (g?.fell && scoring.stillStanding()) return `${g.fell.what} still standing`;
@@ -864,6 +866,8 @@ function sagMeter(dt: number): void {
 function checkContract(dt: number): void {
   if (mode !== 'campaign') return;
   scoring.trackGoal(live, demolitionFraction());
+  const safe = goalOf(active)?.makeSafe;
+  if (safe) scoring.trackStrikes(serviceStrikes(goalOf(active)?.groups));
   sagMeter(dt);
   const pct = scoring.objective.frac;
   /* only once something has come down: a site settling onto its welds at the start moves too */
@@ -872,6 +876,11 @@ function checkContract(dt: number): void {
   const goal = goalOf(active);
   if (scoring.goalExpired(active.target)) {
     ui.toast('OUT OF TIME — THE SITE IS HANDED BACK', 'bad', 3500);
+    finish(false);
+    return;
+  }
+  if (goal?.makeSafe && scoring.struckLive()) {
+    ui.toast(`LIVE SERVICE STRUCK — ${goal.makeSafe.what.toUpperCase()} WERE NOT ISOLATED`, 'bad', 3500);
     finish(false);
     return;
   }
@@ -966,7 +975,7 @@ function updateHudState(): void {
     : xrayMode() === 'stress' ? 'X-RAY · joints: green idle · yellow loaded · red at capacity · magenta yielding · X to cycle'
     : xrayMode() === 'thermal' ? 'X-RAY · thermal: blue ambient → purple → orange 500 °C → white 1000 °C · X to cycle'
     : xrayMode() === 'fields' ? 'X-RAY · fields: temperature, smoke and fuel gas around the action · X to cycle'
-    : xrayMode() === 'services' ? 'X-RAY · services: yellow power · orange gas · blue water · white steam · grey dead · beads run from supply to load · red shut (blinking: tripped) · amber standby set · white on battery · pulsing = live break · green = running machine'
+    : xrayMode() === 'services' ? 'X-RAY · services: yellow power · orange gas · blue water · white steam · grey dead · beads run from supply to load · green ring isolated (flashing amber: tripped) · amber standby set · white on battery · pulsing = live break · green = running machine'
     : hud.chargesPlaced > 0 ? `${hud.chargesPlaced} charge${hud.chargesPlaced > 1 ? 's' : ''} armed — ${keyLabel('detonate')}${loadout.current === 'charge' || loadout.current === 'cutter' || loadout.current === 'planner' ? ' / right-click' : ''} to detonate` : null;
   hud.fps = Math.round(fpsAvg);
   hud.tool = driving.vehicle || operating.machine ? null : toolReadout();
@@ -1075,6 +1084,7 @@ function frame(dt: number): void {
   fx.update(state === 'playing' ? dt * fxScale : dt);
   updateLampLights(dt);
   updateWater();
+  updateUtilityFx();
   updateTerrainGfx(cam.position);
   const tf = performance.now();
   renderFrame(dt);

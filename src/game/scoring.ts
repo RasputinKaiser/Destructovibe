@@ -202,6 +202,9 @@ export interface Goal {
   /** a structure that has to be on the ground whatever the percentage says: nothing of `group` that was built above
       `from` m (its upper part; all of it when absent) still above `below` m */
   fell?: { group: string; what: string; below: number; from?: number };
+  /** the target's services of these kinds must be isolated before they are torn: a single live strike on one (a live
+      gas service ruptured, a live cable cut) loses the job. `what` names them in the briefing ("gas and power") */
+  makeSafe?: { kinds: ('power' | 'gas' | 'water' | 'steam')[]; what: string };
 }
 
 /** The parts of a live piece the objectives read (structure.ts Piece). */
@@ -210,7 +213,7 @@ interface Tracked { root: { spec: { group?: string; pos: ArrayLike<number> } }; 
 /** Progress on the active goal: `frac` is the target's demolished fraction, `outside` the fraction of the target's
     volume lying outside its footprint, `salvaged` items in the salvage zone out of `salvageOf` (`salvageLeft` of
     them still exist; an item broken up counts once, by its root). */
-export const objective = { frac: 0, outside: 0, salvaged: 0, salvageOf: 0, salvageLeft: 0, standing: 0 };
+export const objective = { frac: 0, outside: 0, salvaged: 0, salvageOf: 0, salvageLeft: 0, standing: 0, strikes: 0 };
 const inZone = new Set<object>(), alive = new Set<object>();
 /** below-grade parts of the target (footings, basements, piles): no demolition reaches them, so the target skips them */
 let buried = new WeakSet<object>();
@@ -240,6 +243,17 @@ export function setGoal(g: Goal | undefined, specs: { group?: string; pos: Array
   objective.frac = objective.outside = objective.salvaged = 0;
   objective.salvageLeft = objective.salvageOf;
   objective.standing = Infinity;
+  objective.strikes = 0;
+}
+
+/** Live strikes so far on the target's services of the goal's makeSafe kinds (services.serviceStrikes). */
+export function trackStrikes(byKind: Record<string, number>): void {
+  objective.strikes = goal?.makeSafe ? goal.makeSafe.kinds.reduce((n, k) => n + (byKind[k] ?? 0), 0) : 0;
+}
+
+/** A service the goal said to make safe was struck live: the job cannot be signed off. */
+export function struckLive(): boolean {
+  return !!goal?.makeSafe && objective.strikes > 0;
 }
 
 /** Re-reads the goal's progress off the live pieces; `whole` is the site-wide demolished fraction. */
@@ -286,7 +300,7 @@ export function salvageLost(): boolean {
 }
 
 export function goalMet(target: number): boolean {
-  return objective.frac >= target && salvageOwed() === 0 && !stillStanding();
+  return objective.frac >= target && salvageOwed() === 0 && !stillStanding() && !struckLive();
 }
 
 /** Out of time: the goal's limit has passed with the job unfinished. */

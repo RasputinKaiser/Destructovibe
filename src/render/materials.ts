@@ -280,6 +280,21 @@ export function setBatchHeat(mesh: THREE.BatchedMesh, instanceId: number, heat: 
   tex.needsUpdate = true;
 }
 
+/** A pane's building supply, 0 (dark) .. 1 (lit as the hour has it), kept in its instance alpha below 1 (above 1 the
+    alpha is heat, which wins: a burning pane glows whatever the supply). */
+export function setBatchPower(mesh: THREE.BatchedMesh, instanceId: number, k: number): void {
+  const b = mesh as unknown as { _colorsTexture: THREE.DataTexture | null };
+  if (!b._colorsTexture) mesh.setColorAt(instanceId, _white);
+  const tex = b._colorsTexture;
+  if (!tex) return;
+  const data = tex.image.data as Float32Array, i = instanceId * 4 + 3;
+  if (data[i] > 1.001) return;
+  const a = k >= 0.999 ? 1 : Math.max(0, k);
+  if (Math.abs(a - data[i]) < 1 / 256) return;
+  data[i] = a;
+  tex.needsUpdate = true;
+}
+
 /* Glazing, exterior faces. Transmission falls with Fresnel so grazing panes turn to mirrors of the sky.
    Building glass ('room') shows a fake office behind every pane: the view ray is cast into a world-anchored
    grid of room boxes (3.6 m bays, 3.8 m storeys, per-room depth) and the wall, floor or ceiling it meets is lit
@@ -290,6 +305,8 @@ export function setBatchHeat(mesh: THREE.BatchedMesh, instanceId: number, heat: 
 const GLASS_PARS = /* glsl */`
 uniform vec4 uDvRoom;
 uniform float uDvQ;
+// the building's own supply: 1 lit as the hour has it, 0 blacked out (set per pane in its instance colour's alpha)
+float dvPwr = 1.0;
 varying vec3 vDvW;
 varying vec3 vDvN;
 varying float vDvId;
@@ -309,7 +326,7 @@ vec3 dvRoom( vec2 f, vec2 sz, vec3 rd, float h1, float h2, float hl ) {
       panel = step( 0.72, fract( hp.x * 0.42 + h1 ) ) * step( 0.55, fract( hp.z * 0.5 ) );
     } else alb = mix( vec3( 0.12, 0.12, 0.13 ), vec3( 0.2, 0.14, 0.09 ), h2 );
   } else if ( t == tz ) alb *= 0.85;
-  float lit = step( hl, 0.12 + 0.6 * uDvRoom.a );
+  float lit = step( hl, 0.12 + 0.6 * uDvRoom.a ) * dvPwr;
   vec3 lamp = mix( vec3( 1.0, 0.8, 0.58 ), vec3( 0.86, 0.93, 1.0 ), step( 0.5, fract( h1 * 5.7 ) ) );
   vec3 c = uDvRoom.rgb * alb * ( 0.05 + 0.45 * exp( - hp.z * 0.35 ) );
   c += lit * lamp * ( alb * ( 0.12 + 0.2 * exp( - t * 0.08 ) ) + panel * 2.5 );
@@ -330,13 +347,21 @@ const GLASS_VERT = /* glsl */`
   vDvN = mat3( modelMatrix ) * dvNo;`;
 const GLASS_COLOR = /* glsl */`
   vec3 dvTint = vec3( 1.0 );
-  #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+  #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA ) || defined( USE_INSTANCING_COLOR )
     dvTint = vColor.rgb;
   #endif
   #ifdef DV_SMOKED
     float dvDark = 1.0 - dot( dvTint, vec3( 0.3, 0.55, 0.15 ) );
     diffuseColor.rgb *= mix( vec3( 1.0 ), dvTint, 0.5 ) * ( 1.0 - 0.8 * dvDark );
     diffuseColor.a = mix( diffuseColor.a, 0.9, dvDark );
+    #ifdef USE_COLOR_ALPHA
+      // a shop with its supply off after dark: the room behind goes black and the glass shows only what it reflects
+      if ( vColor.a < 0.999 ) {
+        float dvOff = ( 1.0 - smoothstep( 0.3, 0.9, vColor.a ) ) * uDvRoom.a;
+        diffuseColor.rgb *= 1.0 - 0.85 * dvOff;
+        diffuseColor.a = mix( diffuseColor.a, 0.92, dvOff );
+      }
+    #endif
   #else
     diffuseColor.rgb *= dvTint;
   #endif`;
@@ -346,6 +371,9 @@ const GLASS_FRESNEL = /* glsl */`
 const GLASS_ROOM = /* glsl */`
   #ifdef DV_ROOM
   {
+    #ifdef USE_COLOR_ALPHA
+      dvPwr = vColor.a < 0.999 ? vColor.a : 1.0;
+    #endif
     vec3 dvV = normalize( vDvW - cameraPosition );
     vec3 dvNw = normalize( vDvN );
     dvNw *= dot( dvNw, dvV ) > 0.0 ? - 1.0 : 1.0;
@@ -361,10 +389,10 @@ const GLASS_ROOM = /* glsl */`
     if ( dvHash( dvH1 * 17.0 + 3.0 ) > 0.88 ) dvHl = 1.0 - dvHl;
     vec3 dvIn;
     if ( uDvQ > 0.5 ) dvIn = dvRoom( ( dvP - dvCell ) * dvSz, dvSz, vec3( dot( dvV, dvT ), dvV.y, max( - dot( dvV, dvNw ), 1e-3 ) ), dvH1, dvH2, dvHl );
-    else dvIn = uDvRoom.rgb * vec3( 0.07, 0.068, 0.064 ) + step( dvHl, 0.12 + 0.6 * uDvRoom.a ) * vec3( 0.12, 0.1, 0.08 );
+    else dvIn = uDvRoom.rgb * vec3( 0.07, 0.068, 0.064 ) + step( dvHl, 0.12 + 0.6 * uDvRoom.a ) * dvPwr * vec3( 0.12, 0.1, 0.08 );
     // far off, a pane averages over more of the room than the ray sample shows: pull toward the mean
     float dvFar = smoothstep( 50.0, 240.0, distance( vDvW, cameraPosition ) );
-    vec3 dvMean = uDvRoom.rgb * 0.05 + vec3( 1.0, 0.86, 0.66 ) * ( 0.12 + 0.6 * uDvRoom.a ) * 0.09;
+    vec3 dvMean = uDvRoom.rgb * 0.05 + vec3( 1.0, 0.86, 0.66 ) * ( 0.12 + 0.6 * uDvRoom.a ) * 0.09 * dvPwr;
     dvIn = mix( dvIn, dvMean, dvFar * 0.55 );
     float dvClear = 1.0;
     #ifdef DV_CURTAIN
@@ -386,6 +414,8 @@ const GLASS_ROOM = /* glsl */`
       diffuseColor.a = mix( diffuseColor.a, 1.0, dvFrame );
     }
     #endif
+    // a building without its supply: no lamps, and the rooms go dark enough that the glass reads black with the sky on it
+    dvIn *= mix( 0.35, 1.0, dvPwr );
     totalEmissiveRadiance += dvIn * mix( vec3( 1.0 ), dvTint, 0.6 ) * ( 1.0 - dvFr ) * dvVert * dvClear;
     diffuseColor.a = mix( diffuseColor.a, 0.93, dvVert * ( 1.0 - dvFr ) * dvClear );
   }

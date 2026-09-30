@@ -1,4 +1,5 @@
 import { clamp } from 'math';
+import { Color } from 'three';
 import type { MaterialId, PieceSpec, Quat, Quality, Vec3 } from '../types';
 import { b3, world, stepCount, randomStream } from '../physics/physics';
 import { MATS, effectiveDensity, type PhysMat } from './materials';
@@ -231,6 +232,7 @@ interface DetailSet extends PoolOwner {
   vol0: number;            // solid unit volume of the member as built (what a carved remnant is measured against)
   lm: Float32Array | null; // unit matrices in the body frame (3 × 4 each, scale folded in), built on first redraw
   drawn: number;           // frame the units were last posed
+  dim: number;             // glazing units' tint scale: a building with its supply off after dark (services), render-only
 }
 
 const sets = new Map<Piece, DetailSet>();
@@ -244,7 +246,7 @@ function newSet(p: Piece, n: number): DetailSet {
     p, n, spec: new Array<PieceSpec>(n), kind: new Int32Array(n), lt: new Float64Array(n * 7), box: new Float64Array(n * 6),
     slots: new Int32Array(n).fill(-1), gone: new Uint8Array(n), layer: new Uint8Array(n), vol: new Float32Array(n), mass: new Float32Array(n),
     live: 0, k: 1, shown: false, pose: DEAD_POSE(), cen: [0, 0, 0], rad: 0, parts: null, pending: [], pendingVol: 0, carved: -1,
-    hit: { step: -9, at: [0, 0, 0], r: 0 }, grid: null, d: Infinity, chunk: false, lm: null, drawn: 0, vol0: 0,
+    hit: { step: -9, at: [0, 0, 0], r: 0 }, grid: null, d: Infinity, chunk: false, lm: null, drawn: 0, vol0: 0, dim: 1,
   };
 }
 
@@ -467,7 +469,8 @@ function show(s: DetailSet, pose: ArrayLike<number>): number {
   for (let i = 0; i < s.n; i++) {
     if (s.gone[i] || s.slots[i] >= 0) continue;
     const K = kinds[s.kind[i]];
-    poolAdd(kindPool(K), s, i, unitMatrix(s, i, pose), s.spec[i].tint);
+    const sl = poolAdd(kindPool(K), s, i, unitMatrix(s, i, pose), s.spec[i].tint);
+    if (s.dim !== 1 && GLAZED.has(K.mat)) dimSlot(K.pool!, sl, s.spec[i].tint, s.dim);
     n++;
   }
   s.shown = true;
@@ -1586,6 +1589,31 @@ export function detailHeat(p: Piece): void {
   for (const i of pick) { s.pending.push(i); s.pendingVol += s.vol[i]; }
   audio.spall(at);
   shrink(s);
+}
+
+/* ---------------- glazing supply ---------------- */
+
+/* A window dressed as detail units shows its room through its glass units: they are darkened together (their instance
+   tint scaled; the glass shader turns a dark tint opaque) when the services say the building's supply is off after dark,
+   and brought back when it returns. */
+const GLAZED = new Set<MaterialId>(['glass', 'tempered']);
+const _dc = new Color();
+function dimSlot(pool: DetailPool, sl: number, tint: number | undefined, k: number): void {
+  _dc.setHex(tint ?? 0xffffff).multiplyScalar(k);
+  const col = pool.mesh.instanceColor!.array as Float32Array;
+  col[sl * 3] = _dc.r; col[sl * 3 + 1] = _dc.g; col[sl * 3 + 2] = _dc.b;
+  pool.mesh.instanceColor!.needsUpdate = true;
+}
+/** Scale the tint of a member's glazing units (1 = as built). */
+export function setDetailDim(p: Piece, k: number): void {
+  const s = sets.get(p);
+  if (!s || Math.abs(s.dim - k) < 1e-3) return;
+  s.dim = k;
+  if (!s.shown) return;
+  for (let i = 0; i < s.n; i++) {
+    const sl = s.slots[i], K = kinds[s.kind[i]];
+    if (sl >= 0 && GLAZED.has(K.mat) && K.pool) dimSlot(K.pool, sl, s.spec[i].tint, k);
+  }
 }
 
 /* ---------------- stats ---------------- */
