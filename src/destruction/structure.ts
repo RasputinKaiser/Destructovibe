@@ -50,6 +50,7 @@ export function setServiceViewer(p: ArrayLike<number>): void {
 const MIN_BODY_VOL = 0.006;      // smaller Voronoi cells become particles only
 const RUBBLE_VOL = 0.02;         // chunks below this count as demolished rubble at birth
 const MIN_FRACTURE_VOL = 0.012;
+const BLOCK_VOL = 0.06;           // a fragment this big breaks again whatever its depth
 const MAX_DEPTH = 2;
 let BUDGET = 800;                // bodies made by breakage before old rubble is culled
 const IMPACT_GRACE = 0.4;        // fresh fragments ignore collision damage while they fly apart
@@ -75,6 +76,7 @@ const SHOCK_DAMAGE = 0.2;        // damage per unit of overstress from a shorter
 const CRACK_CHANCE = 0.7;        // share of brittle joint failures that crack the member instead of the seam
 const CRACK_MIN_VOL = 0.08;
 const CRACK_PER_STEP = 2;
+const HEAD_BOND = 3;              // bonded brickwork across its courses vs a bed joint (EN 1996 fxk2/fxk1 ~3-4)
 const SUPPORT_FAILS = 6;         // statically overloaded joints allowed to fail per step…
 const GROSS_FAILS = 48;          // …and joints overloaded past DAF× capacity, which no redistribution can save
 const PER_SOLVE = 60;            // …and per analysis solve of their structure: the next go once the load has redistributed
@@ -600,7 +602,7 @@ function applyCaps(w: Weld): void {
   w.cap.torque = w.base.torque * k;
   if (building || w.calib) return;
   b3.b3Joint_SetForceThreshold(w.joint, w.cap.comp);
-  b3.b3Joint_SetTorqueThreshold(w.joint, w.cap.torque);
+  b3.b3Joint_SetTorqueThreshold(w.joint, w.cap.torque + thrustMoment(w, w.sN));
 }
 
 /* Steel strain-hardens well past yield; a cracked RC hinge has little reserve once its bars yield. */
@@ -623,6 +625,11 @@ function createWeld(a: Piece, b: Piece | null, pt: Vec3, normalWorld: Vec3, area
     const r = J.connRatio(real, env, kind, !!(a.root.spec.joint?.kind ?? b?.root.spec.joint?.kind));
     caps = { comp: caps.comp, ten: caps.ten * r.ten, shear: caps.shear * r.shear, torque: caps.torque * r.torque };
   }
+  /* Bonded brickwork has no continuous vertical joint: a plane across the courses runs through staggered units and
+     head joints, so it holds several times what a bed does (EN 1996 fxk2 ≈ 3-4 × fxk1). The members' vertical faces
+     are that plane cut coarse, not a mortar joint. */
+  if (b && kind === 'mortar' && ARCH_MATS.has(a.mat) && ARCH_MATS.has(b.mat) && Math.abs(normalWorld[1]) < 0.5)
+    caps = { comp: caps.comp, ten: caps.ten * HEAD_BOND, shear: caps.shear * HEAD_BOND, torque: caps.torque * HEAD_BOND };
   j.t = j.t0 = clock;
   J.updateHeatK(j, Math.max(a.temp, b ? b.temp : AMBIENT));
   const jd = b3.b3DefaultWeldJointDef();
@@ -799,6 +806,14 @@ function checkHanging(): void {
       }
       if (metal) continue;
       if (isDeck(p)) below = deckHeld(p);
+      else if (!below) below = spansGap(p);
+      /* a cracked bed still bears: a unit sitting on what is under it is not hanging, however its mortar went */
+      if (!below && bearsOnContact(p)) {
+        below = true;
+        const n = (bearLooks.get(p) ?? 0) + 1;
+        bearLooks.set(p, n);
+        if (n < BEAR_LOOKS) queueHang(p, stepCount + BEAR_RELOOK);
+      }
       if (!below) {
         counters.hangs++;
         for (const w of p.welds.slice()) failWeld(w, 'overload', false);
@@ -806,6 +821,58 @@ function checkHanging(): void {
     }
     if (!p.dead && hasDetail(p) && ARCH_MATS.has(p.mat)) relieve(p);
   }
+}
+
+const _hbn: Vec3 = [0, 0, 0];
+function heldBelow(p: Piece): boolean {
+  for (const w of p.welds) {
+    weldNormal(w, _hbn);
+    if ((w.a === p ? _hbn[1] : -_hbn[1]) <= -0.5) return true;
+  }
+  return false;
+}
+/* A short unit bonded on both sides to neighbours in its own course that still stand on something spans the gap
+   under it as a lintel or a flat arch: the course over a notch cut in a chimney shaft, a ring closed on itself, stays
+   up and carries the stack to the remaining arc of the section, as brickwork over a felling notch does. A long lift
+   over a lost storey is not one (checkHanging drops it, relieve() arches what is over the gap). */
+const bearLooks = new WeakMap<Piece, number>();
+const BEAR_LOOKS = 12, BEAR_RELOOK = 30;
+const _bb: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
+/** Something lies right under the middle of the member's bed (its outer 30% each way is left out, so the neighbours
+    of a unit over a gap do not count as its support). */
+function bearsOnContact(p: Piece): boolean {
+  b3.b3Body_ComputeAABB(_hb, p.body);
+  const y0 = _hb[1];
+  if (y0 < 0.05) return true;
+  const mx = (_hb[3] - _hb[0]) * 0.3, mz = (_hb[5] - _hb[2]) * 0.3;
+  let found = false;
+  overlapAABB([_hb[0] + mx, y0 - 0.08, _hb[2] + mz], [_hb[3] - mx, y0 + 0.05, _hb[5] - mz], CAT.structure | CAT.debris | CAT.prop, shape => {
+    if (found) return;
+    const e = entityOfShape(shape);
+    if (!e || e === p || e.kind !== 'piece' || (e as Piece).dead) return;
+    b3.b3Shape_GetAABB(_bb, shape);
+    if (_bb[4] > y0 - 0.08 && _bb[4] < y0 + 0.1) found = true;
+  });
+  return found;
+}
+const SPAN_MAX = 2.4;
+const _abut: number[] = [];
+function spansGap(p: Piece): boolean {
+  if (!ARCH_MATS.has(p.mat)) return false;
+  const d = pieceDims(p);
+  if (Math.max(d[0], d[1], d[2]) > SPAN_MAX) return false;
+  _abut.length = 0;
+  for (const w of p.welds) {
+    const q = w.a === p ? w.b : w.a;
+    if (!q || q.dead) continue;
+    weldNormal(w, _hn);
+    if (Math.abs(_hn[1]) > 0.5 || !heldBelow(q)) continue;
+    const s = w.a === p ? 1 : -1, l = Math.hypot(_hn[0], _hn[2]) || 1;
+    const x = (_hn[0] * s) / l, z = (_hn[2] * s) / l;
+    for (let k = 0; k < _abut.length; k += 2) if (x * _abut[k] + z * _abut[k + 1] < -0.3) return true;
+    _abut.push(x, z);
+  }
+  return false;
 }
 
 /* Masonry over a lost support does not bridge it as a rigid beam: the units over the gap, inside the relieving arch
@@ -1312,10 +1379,29 @@ function settleFailures(): void {
       spent.set(id, used + 1);
     }
     counters.eventSnaps++;
+    crushBed(w);
     failWeld(w, 'overload');
     n++;
   }
 }
+
+/* A masonry bed failing in compression is the brickwork under it crushing: the unit below crumbles and the load
+   settles onto what is left, so a stack bearing on part of its section sinks on the side it is crushing into (a
+   felled chimney sits down into its notch) instead of standing at full height on dry-stacked units. */
+function crushBed(w: Weld): void {
+  if (!w.b) return;
+  if (!ARCH_MATS.has(w.a.mat) || !ARCH_MATS.has(w.b.mat)) return;
+  weldNormal(w, _cbn);
+  if (Math.abs(_cbn[1]) < 0.5 || w.sN <= 0) return;
+  const c = w.cap;
+  const crush = w.supportForce / c.comp;
+  if (crush < 1 || crush < -w.sN / c.ten || crush < w.sV / (c.shear + w.mu * w.sN)) return;
+  const low = w.a.curPos[1] < w.b.curPos[1] ? w.a : w.b;
+  if (low.dead || low.queued || low.depth >= MAX_DEPTH || low.pm.style === 'none') return;
+  low.queued = true;
+  fractureQueue.push({ p: low, point: weldPos(w, [0, 0, 0]), intensity: 1.5, blast: false });
+}
+const _cbn: Vec3 = [0, 0, 0];
 
 /** A weld's place as one number (mm grid), for ordering that does not depend on how the structure was listed. */
 function weldKey(w: Weld): number {
@@ -1332,7 +1418,15 @@ function resting(p: Piece): boolean {
 /** Static demand from the analysis against the joint's current (calibrated, degraded) capacity alone. */
 function staticDemand(w: Weld): number {
   const c = w.cap;
-  return Math.max(w.supportForce / c.comp, w.supportTorque / c.torque, -w.sN / c.ten, w.sV / (c.shear + w.mu * Math.max(0, w.sN)));
+  return Math.max(w.supportForce / c.comp, w.supportTorque / (c.torque + thrustMoment(w, w.sN)), -w.sN / c.ten, w.sV / (c.shear + w.mu * Math.max(0, w.sN)));
+}
+
+/* A masonry bed under compression N does not open until the line of thrust leaves it: it resists a moment of about
+   N·t/2 on top of its bond (rocking about the compressed edge), so a stack bearing on part of its section carries the
+   eccentric load through the arc that is left instead of every course unzipping at its bond strength. */
+function thrustMoment(w: Weld, n: number): number {
+  if (n <= 0 || w.metal || !ARCH_MATS.has(w.a.mat) || (w.b && !ARCH_MATS.has(w.b.mat))) return 0;
+  return n * armFor(w.area) * 0.5;
 }
 
 function refreshSupportPressure(): void {
@@ -2561,8 +2655,10 @@ function fracture(p: Piece, point: Vec3, intensity: number, blast: boolean): voi
   if (p.svc) svcHarm(p, true);
   // a unit landing hard snaps into a bat and a half while there is room for the bodies (a blast's shattering reduces it)
   if (p.volume < MIN_FRACTURE_VOL && p.volume > 4e-4 && p.depth < MAX_DEPTH && UNIT_MATS.has(p.mat) && intensity < 4 && debrisCount < BUDGET * 1.1 && snapUnit(p, point)) return;
-  if (p.volume < MIN_FRACTURE_VOL || p.depth >= MAX_DEPTH || (debrisCount > BUDGET * 0.85 && p.depth >= 1)) {
-    if (p.volume < 0.06) pulverize(p, point);
+  /* past the fracture depth a chunk still big enough to be a block (a quarter of a wall lift, a slab corner) keeps
+     breaking into a few pieces: only rubble-sized fragments stop at the depth limit and grind to fines */
+  if (p.volume < MIN_FRACTURE_VOL || (p.depth >= MAX_DEPTH && p.volume < BLOCK_VOL) || (debrisCount > BUDGET * 0.85 && p.depth >= 1)) {
+    if (p.volume < BLOCK_VOL) pulverize(p, point);
     else p.damage = p.hp * 0.5;
     return;
   }
@@ -3549,8 +3645,10 @@ export function onJointBroken(id: b3JointId): void {
   if (!w || w.joint.generation !== id.generation) return;
   b3.b3Joint_GetConstraintForce(_jf, w.joint);
   const f = vec3.length(_jf) / w.cap.comp;
+  const fn = vec3.dot(_jf, weldNormal(w, _n));
   b3.b3Joint_GetConstraintTorque(_jf, w.joint);
-  overload(w, Math.max(f, vec3.length(_jf) / w.cap.torque));
+  const u = Math.max(f, vec3.length(_jf) / (w.cap.torque + thrustMoment(w, fn)));
+  if (u > 1) overload(w, u);
 }
 
 export function afterStep(dt: number): void {
