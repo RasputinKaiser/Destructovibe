@@ -1,0 +1,153 @@
+{
+ "mode": "ab",
+ "base_root": "<scratch>/p2base",
+ "head_root": "~/Desktop/dv-perf-2",
+ "shifts": [
+  0.0,
+  0.15,
+  -0.15
+ ],
+ "reps": 2,
+ "concurrent": true,
+ "loadavg_start": [
+  11.35,
+  16.04,
+  40.62
+ ],
+ "scenarios": {
+  "idle_S": {
+   "kind": "idle",
+   "pairs": [
+    {
+     "shift": 0.0,
+     "order": "base-head",
+     "loadavg": 20.2,
+     "base": {
+      "ok": true,
+      "wall_s": 32.6,
+      "args": [
+       "S",
+       "600"
+      ],
+      "buildMs": 14613,
+      "result": {
+       "weldsLost": 0,
+       "runaways": 0,
+       "awakeAtEnd": 92,
+       "awakeMachine": 88,
+       "awakeOther": 4,
+       "fingerprint": "b05d04c9556dd041"
+      },
+      "demo_pct": 0,
+      "after_ms": 4.609,
+      "phys_ms": 1.259,
+      "frame_ms": 0.595,
+      "soft_ms": 1.874,
+      "joints_ms": 0.129,
+      "svc_ms": 0.288,
+      "ter_ms": 0.76,
+      "after_cpu": 3.279,
+      "phys_cpu": 0.956,
+      "awake_end": 92
+     },
+     "head": {
+      "ok": true,
+      "wall_s": 31.3,
+      "args": [
+       "S",
+       "600"
+      ],
+      "buildMs": 14498,
+      "result": {
+       "weldsLost": 0,
+       "runaways": 0,
+       "awakeAtEnd": 92,
+       "awakeMachine": 0,
+       "awakeOther": 92,
+       "fingerprint": "6bab25de1ec0bceb"
+      },
+      "demo_pct": 0,
+      "after_ms": 2.235,
+      "phys_ms": 0.994,
+      "frame_ms": 0.572,
+      "soft_ms": 0.0,
+      "joints_ms": 0.101,
+      "svc_ms": 0.0,
+      "ter_ms": 0.759,
+      "after_cpu": 1.532,
+      "phys_cpu": 0.703,
+      "awake_end": 92
+     }
+    },
+    {
+     "shift": 0.0,
+     "order": "head-base",
+     "loadavg": 44.5,
+     "head": {
+      "ok": true,
+      "wall_s": 43.8,
+      "args": [
+       "S",
+       "600"
+      ],
+      "buildMs": 22813,
+      "result": {
+       "weldsLost": 0,
+       "runaways": 0,
+       "awakeAtEnd": 92,
+       "awakeMachine": 88,
+       "awakeOther": 4,
+       "fingerprint": "b05d04c9556dd041"
+      },
+      "demo_pct": 0,
+      "after_ms": 5.908,
+      "phys_ms": 1.575,
+      "frame_ms": 0.751,
+      "soft_ms": 2.08,
+      "joints_ms": 0.207,
+      "svc_ms": 0.54,
+      "ter_ms": 1.263,
+      "after_cpu": 3.348,
+      "phys_cpu": 1.018,
+      "awake_end": 92
+     },
+     "base": {
+      "ok": true,
+      "wall_s": 43.9,
+      "args": [
+       "S",
+       "600"
+      ],
+      "buildMs": 22347,
+      "result": {
+       "weldsLost": 0,
+       "runaways": 0,
+       "awakeAtEnd": 92,
+       "awakeMachine": 88,
+       "awakeOther": 4,
+       "fingerprint": "b05d04c9556dd041"
+      },
+      "demo_pct": 0,
+      "after_ms": 5.477,
+      "phys_ms": 1.77,
+      "frame_ms": 0.77,
+      "soft_ms": 2.081,
+      "joints_ms": 0.146,
+      "svc_ms": 0.313,
+      "ter_ms": 1.169,
+      "after_cpu": 3.261,
+      "phys_cpu": 0.879,
+      "awake_end": 92
+     }
+    }
+   ]
+  }
+ },
+ "base_rev": "export",
+ "head_rev": "7ce1c56",
+ "loadavg_end": [
+  44.47,
+  23.93,
+  41.45
+ ]
+}

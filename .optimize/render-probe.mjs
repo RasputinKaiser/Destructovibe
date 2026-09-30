@@ -30,7 +30,8 @@ try {
   page.on('pageerror', (e) => errors.push(String(e).slice(0, 200)));
   const t0 = Date.now();
   await page.goto(url, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__dv && window.__dv.gfx, null, { timeout: 60e3 });
+  // main.ts builds the Clearance Zone behind the title before physics is free: start once the title is up
+  await page.waitForFunction(() => window.__dv && window.__dv.gfx && window.__dv.state === 'title', null, { timeout: 180e3 });
   out.gpu = await page.evaluate(() => {
     const gl = window.__dv.gfx.renderer.getContext();
     const ext = gl.getExtension('WEBGL_debug_renderer_info');

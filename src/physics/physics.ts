@@ -58,6 +58,11 @@ const byBody = new Map<number, PhysEntity>();
 export let stepCount = 0;
 /** the last step that moved any body (a move event got through), so per-step scans of the moved can stop early */
 export let lastMoveStep = -1;
+/* the entities whose move event got through this step and the step before, in event order: a per-step scan for what
+   moved can walk these instead of every live piece */
+let movedNow: PhysEntity[] = [], movedPrev: PhysEntity[] = [];
+/** [moved this step, moved the step before] (an entity that moved in both is in both) */
+export function recentlyMoved(): readonly [readonly PhysEntity[], readonly PhysEntity[]] { return [movedNow, movedPrev]; }
 
 let events: EventsBuffer;
 let hitEv: ContactHitEvent;
@@ -116,6 +121,7 @@ export function createWorld(): void {
   blasts.length = 0;
   stepCount = 0;
   lastMoveStep = -1;
+  movedNow.length = movedPrev.length = 0;
   for (const st of streams) st.state = mulberry32.create(st.seed);
   const wd = b3.b3DefaultWorldDef();
   wd.gravity = [0, -9.81, 0];
@@ -190,6 +196,7 @@ export function step(h: StepHandlers): void {
   b3.b3World_Step(world, FIXED_DT, SUBSTEPS);
   stepCount++;
   b3.getEvents(events, world);
+  const t = movedPrev; movedPrev = movedNow; movedNow = t; movedNow.length = 0;
 
   const nMove = b3.getNumBodyMoveEvents(events);
   for (let i = 0; i < nMove; i++) {
@@ -205,6 +212,7 @@ export function step(h: StepHandlers): void {
     if (runaway(e) || (e.kind === 'piece' && (e.mass >= GOV_MASS ? governed(e) : overspeed(e)))) continue;
     e.movedStep = stepCount;
     lastMoveStep = stepCount;
+    movedNow.push(e);
     e.onMove?.();
   }
 

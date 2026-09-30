@@ -81,3 +81,67 @@ Next run: start with backlog #2. Interleave base and head (ABAB, ≥ 3 pairs) in
 load control, because single sequential A/Bs on this shared M1 swung ±100 %. Then #1a (wake scoping for burning
 members). Dev server: port 5196 was taken by another agent's snap-recv tool; run 1 used 5206 (probes.sh names it).
 The probes are trusted; the render probe needs `npx -y playwright@1.63.0 --version` once, and it drives system Chrome.
+
+## Run 2 — 2026-09-29 (runtime focus, branch perf-2 from main 7ce1c56, worktree, CPU-time A/B, 10k tok ≈ 60 s)
+
+Machine: load average 5-180 during the run (other agents' Chrome at 230 %+ and a map agent's sims in the shared
+scratchpad). All timing claims below are interleaved, concurrent base/head pairs from `runtime.py --base`, each side's
+buildMs within 0.97-1.05 of the other; fingerprints compared per pair.
+
+Harness:
+- `runtime.py --base <dir> [--shifts 0,0.15,-0.15] [--reps N] [--concurrent]` (4b81cf1): paired A/B, order alternating,
+  blast scenarios over shifted blast x, medians and per-pair ratios of the CPU metrics, buildMs load control, per-pair
+  fingerprints, NO-MACHINES flag. `--report <json>` reprints a saved table. Base trees: `git archive <rev> | tar -x -C
+  <scratch>/<dir>` plus a node_modules symlink.
+- `.optimize/bench-tex.mjs [tier] [rounds] [root]` (21c88b6): every PBR set through texSet, CPU ms per set, pixel hash.
+  Medium, 64 sets: 3.5-3.8 s CPU, hash d1fb29e616291780.
+
+Applied:
+- `optimize: terrain impacts() walks only the pieces that moved` (771ef79). Machines-on made some body move every step,
+  so run 1's early-out never fired and impacts() walked all 5-6k live pieces. physics.step now keeps this step's and
+  the last step's moved entities; impacts() walks those in id order (= live-set order, so the dent budget is spent
+  identically), falling back to the set when a quarter of it moved. A/B vs 7ce1c56 (runs/20260929T-r2-ab-impacts.*):
+  idle_D ter 1.767 → 0.167 ms (x0.09), after_cpu 3.28 → 2.49 ms (−24 %); idle_S ter 1.80 → 0.91 ms, after_cpu
+  3.46 → 3.07 ms (−11 %). Fingerprints SAME on 9/9 pairs (idle S×3, D×3, chapel, terrace, tower); blasts neutral.
+
+Failed or not landed (numbers kept so the next run does not retry blind):
+- `impacts()` landing state on the piece instead of a WeakMap: A/B vs 771ef79 (runs/20260929T-r2-ab-fall-REVERTED.*,
+  load 5-13, 2 shifts): tower collapse after_cpu 31.32 → 31.09 ms (−1 %), terrace +1 %, idle_D +1 %. Noise; reverted.
+  (Tower profile at HEAD: impacts self 3.1 s of 124 s, 2.5 %, all in the collapse-time fallback walk.)
+- Soft bodies waking only when a bearer has shifted 2 mm / tilted 2 mrad since they fell asleep (tried in a scratch copy,
+  not landed): Clearance sandbag wakes over t5-20 s 23 → 20. The bearers (7 timbers under 4 sandbags near
+  (-12, 0.1, -62)) really are shoved at 0.16-0.32 m/s each time the bags wake, so the threshold barely bites. The loop
+  settles by 9.5 s and recurs (soft 2.7-3.0 ms/step around t 16 s and 32 s on 7ce1c56).
+
+Collapse-sleep diagnosis (backlog #1; diag scripts are in the session scratchpad: mkcalls.py builds a sim.mjs copy that
+runs N extra steps after the scenario with MODE=calls|noafter|nohits|knock, KNOCK=<regex over "b3Fn @ stack"> turning
+matching b3 calls into no-ops, and prints KEEPERS (bodies over their sleep threshold, net vs path displacement), a
+per-step event log and every b3 setter call with its stack; wake2.mjs attributes each rise of the awake count to the
+b3 call that caused it):
+- Terrace at +20 s is still collapsing (roof falling in, 15-45 bodies over threshold a step): not a waker problem.
+- Terrace at +60 s: 1580 awake. Knocking out any one family of b3 calls from afterStep (fire/heat SetAwake, machine
+  motors, vehicles, blast impulses, SetType, SetMassData, soft impulses, terrain tile remakes) changes nothing; knocking
+  out all setters sleeps it in ~3 s and a later body create/destroy wakes it again.
+- Chapel at +20-30 s: 1040-1130 awake on 7ce1c56 in every variant, including physics-only steps for 8 s and with all 36
+  filter joints destroyed. On 1a4ee3d (just before machines-on) the same pile does sleep at 21 s and is re-woken every
+  few seconds by updateHeat's SetAwake on a softening member (4 calls woke 780 bodies). b9962a7 made every open service
+  break act on the world, so the chapel's gas break now burns; its pile has hot (400-1200 °C) fragments rocking in place
+  (oak 4794: 1.0 m of path, 3.6 cm net in 4 s). The keeper is in the physics, not in an afterStep call.
+- Chapel settle_s: 12 s at run 1's end (79f5a9e), none within 30 s on 7ce1c56 (awakeOther 986 at 30 s).
+
+End checks at 771ef79 (load 9-12): tsc exit 0; npm test exit 0, 35/35 (viewer-independence green); validate:levels,
+grid, rigging, fractures exit 0; idle sim 1800 S/H/D/R: weldsLost 0, awakeOther 0 on all four (S fingerprint equals
+7ce1c56's, 6d7ac09ba5cc0d8f).
+Render (runs/20260929T-r2-render.txt, HEAD, load 9): rest 24.8 fps, p50 33.3 ms, 176 calls, 1.50 M tris, phys 3.0 ms,
+render 12.6 ms; +5 s after the tower blast 4.4 fps, p50 200 ms, phys 131.9 ms, render 29.1 ms. Still physics-bound.
+The probe now waits for the title screen (main.ts builds Clearance behind it before physics is free; the old probe hit
+`b3DefaultWorldDef` of undefined).
+
+Backlog top 3: #1 rubble piles that never sleep (find the physical keeper: hot rocking fragments), #2 collapse physics
+proper, #3 procedural textures (worker or cache).
+
+Next run: probes trusted; use `runtime.py --base <git-archive export of the base rev> --concurrent` for every timing
+claim (idle via --reps 3, blasts via --shifts 0,0.15,-0.15), CPU-time metrics, buildMs ratio as the load control.
+Start with backlog #1 from the chapel at +20 s on HEAD: build per-island keeper lists (contact BFS from the rocking hot
+fragments), then try a jitter rule next to creep(). Before that, move runtime.py's idle window to t10-20 s (backlog #4).
+Dev/probe server port 5206 (free this run). Other agents share the scratchpad and load the machine (load 5-180).

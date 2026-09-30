@@ -14,7 +14,7 @@ self_us = collections.Counter()
 for sid, dt in zip(P['samples'], P['timeDeltas']): self_us[sid] += dt
 total = sum(self_us.values())
 def key(n):
-    cf = n['callFrame']; url = cf['url'].split('/dv-perf-1/')[-1].split('?')[0]
+    cf = n['callFrame']; u = cf['url'].split('?')[0]; url = ('src/' + u.split('/src/', 1)[1]) if '/src/' in u else u.split('/')[-1]
     return f"{cf['functionName'] or '(anon)'} {url}:{cf['lineNumber'] + 1}"
 selfk, incl = collections.Counter(), collections.Counter()
 for nid, us in self_us.items():

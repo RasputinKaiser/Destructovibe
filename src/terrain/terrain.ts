@@ -1,7 +1,7 @@
 import type { b3BodyId, b3HeightFieldData, b3ShapeId } from 'box3d.js';
 import type { Vec3 } from '../types';
 import type { Piece } from '../destruction/structure';
-import { b3, world, groundSlab, CAT, ALL, filter, register, stepCount, lastMoveStep, FIXED_DT, overlapAABB, type PhysEntity } from '../physics/physics';
+import { b3, world, groundSlab, CAT, ALL, filter, register, stepCount, lastMoveStep, recentlyMoved, FIXED_DT, overlapAABB, type PhysEntity } from '../physics/physics';
 import { fx } from '../render/fx';
 import { SURFACES, TILE_CELLS, type SurfaceId, type TerrainSpec } from './spec';
 import { fieldHeight, groundHeight, isHole, rasterize, surfaceIdAt, type TerrainData } from './raster';
@@ -767,7 +767,7 @@ function impacts(d: TerrainData, s: SoilState, pieces: Iterable<Piece>): void {
   // only what moved this step or the last can be landing: with nothing moving, the walk below would skip every piece
   if (lastMoveStep < stepCount - 1) return;
   let budget = 6;
-  for (const p of pieces) {
+  for (const p of pieces instanceof Set ? movedPieces(pieces) : pieces) {
     if (p.dead || p.movedStep < stepCount - 1) continue;
     const vy = p.movedStep === stepCount ? (p.curPos[1] - p.prevPos[1]) / FIXED_DT : 0;
     let o = fall.get(p);
@@ -795,6 +795,22 @@ function impacts(d: TerrainData, s: SoilState, pieces: Iterable<Piece>): void {
   }
   // the dents reach the physics at once (the pieces that made them are lying in them)
   if (budget < 6) { const b = takeBox(s); if (b) commitBox(d, b); }
+}
+
+/* The live pieces that moved this step or the last, in the live set's order (ascending id: a piece gets its id as it
+   joins the set), so the dent budget goes to the same pieces a walk of the whole set would give it to. */
+const _moved: Piece[] = [];
+function movedPieces(live: Set<Piece>): Iterable<Piece> {
+  const recent = recentlyMoved();
+  // in a collapse most of the set moves: sorting that many costs more than the walk it saves
+  if ((recent[0].length + recent[1].length) * 4 > live.size) return live;
+  _moved.length = 0;
+  for (const list of recent) for (const e of list) if (e.kind === 'piece' && live.has(e as Piece)) _moved.push(e as Piece);
+  _moved.sort((a, b) => a.id - b.id);
+  let w = 0;
+  for (let i = 0; i < _moved.length; i++) if (w === 0 || _moved[i] !== _moved[w - 1]) _moved[w++] = _moved[i];
+  _moved.length = w;
+  return _moved;
 }
 
 /** the static bodies carrying the ground (tiles and apron) */
