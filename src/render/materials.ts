@@ -203,7 +203,11 @@ const DV_PRE = /* glsl */`
     vec3 dvN = normalize( vDvN );
     float dvG = texture2D( uDvNoise, vDvW.xz * 0.11 ).g;
     float dvGrime = ( 1.0 - smoothstep( 0.0, 0.8 + 1.4 * dvG, vDvW.y ) ) * ( 1.0 - 0.6 * max( dvN.y, 0.0 ) );
-    float dvStreak = smoothstep( 0.52, 0.8, texture2D( uDvNoise, vec2( vDvUv.x * 0.8, vDvW.y * 0.03 ) ).g ) * ( 1.0 - abs( dvN.y ) );
+    #ifdef DV_SMOOTH
+      float dvStreak = smoothstep( 0.52, 0.8, texture2D( uDvNoise, vec2( ( vDvW.x + vDvW.z ) * 0.8, vDvW.y * 0.03 ) ).g ) * ( 1.0 - abs( dvN.y ) );
+    #else
+      float dvStreak = smoothstep( 0.52, 0.8, texture2D( uDvNoise, vec2( vDvUv.x * 0.8, vDvW.y * 0.03 ) ).g ) * ( 1.0 - abs( dvN.y ) );
+    #endif
     diffuseColor.rgb *= 1.0 - 0.26 * dvGrime - 0.12 * dvStreak;
     diffuseColor.rgb = mix( diffuseColor.rgb, vec3( dot( diffuseColor.rgb, vec3( 0.3, 0.55, 0.15 ) ) ) * vec3( 1.02, 0.97, 0.9 ), 0.35 * dvGrime );
     float dvWear = vDvWear * smoothstep( 0.3, 0.7, texture2D( uDvNoise, vDvUv * 1.9 ).r + 0.25 );
