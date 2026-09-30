@@ -1167,6 +1167,23 @@ Source for the table: [S https://man.fas.org/dod-101/sys/land/m720.htm]. Wikiped
 - Game check: Young with m 129 kg, A = π·0.095² m², V 260 m/s, S 0.8 (reinforced) gives D ≈ 1.2 m **[D]**, consistent
   with "> 0.91 m". The 260 m/s impact speed and the RE 1.3 for AFX-757 (→ 21 kg TNT-eq) are assumptions, not sourced.
 
+## weapon known gaps (critic loop, 4 rounds)
+- Point charges indoors: the blast survey clears a breach sphere round the charge (≥ 1.5 m) before judging cover, so a
+  ceiling within that sphere is lost and the room never registers as confined; an HE rocket in a small room does ~30×
+  less than the thermobaric round in the same room. Fuel-air charges are judged from the real ceiling; point charges
+  are unchanged (engine).
+- Contact breaches are sized by P = R³·K·C with C fitted (3.2 → 5 lb C-4 ≈ 1 m² in plain concrete) and reinforced
+  concrete fitted to FM 3-06.11 Table 8-2; K/C tables from FM 3-34.214 were not retrieved. Holes are only as fine as
+  the pieces the wall is built of.
+- Headless scenario outcomes depend on case order within one process (shared piece ids and random streams); a marginal
+  case (four holed slabs over a contained burst) swings between ~1 % and ~78 % demolished.
+- Thermobaric in the open does little to a brick wall 1.7 m from the cloud centroid; the energy ledger beyond the
+  shock (fireball heat, afterburn) is not reported. A secondary field deflagration can follow in a burning room.
+- Flamethrower gas cells next to burning timber sit at the field's 2000 °C clamp (the existing timber fire model); the
+  fuel's own plume is gated at 1050 °C.
+- HEAT: per-round hole area is not measured; the face blast (15 % of the fill) is a calibration, not a sourced split.
+- Frames: evidence shots exist for round 1 only (in-app browser, ~10 fps).
+
 # Gaps (unsourced or weak)
 
 - Gothic roof pitch; church-implosion duration/pile (Bingley 1974 has no numbers in the source); retail floor-to-floor for Art Deco stores.
