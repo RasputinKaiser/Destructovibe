@@ -7,8 +7,10 @@
 //      as main.ts does; VPART=svc,soft,detail tells only those parts); SPF=<n> physics steps per drawn frame (default
 //      1; the renderer's syncMeshes/maintain run once a frame, as in the game); PERF=1 timing mode for the /optimize
 //      loop: adds a `PERF {...}` line before RESULT with per-second (60-step) arrays of phys/after/ter/frame/soft ms per
-//      step, the svc/joints/fields/analysis cost counters, awake bodies and live pieces, and physCpu/afterCpu (process
-//      CPU ms per step, steadier than wall time on a loaded machine) (output only, same run)
+//      step, the svc/joints/fields/analysis/frac cost counters, awake bodies and live pieces, physCpu/afterCpu (process
+//      CPU ms per step, steadier than wall time on a loaded machine), the second's worst step (stepMax wall ms,
+//      stepMaxCpu), the fracture queue length (fq) and the longest a piece broken that second had waited (fqWait, s)
+//      (output only, same run)
 // The run goes through the same per-step and per-frame calls as main.ts, so what it reports is what the player sees.
 // Neither the viewer nor the frame rate may change the outcome (tests/viewer-independence.test.ts): a run with no
 // VIEWER is the player's collapse wherever the player stands.
@@ -93,10 +95,10 @@ try {
   const perWin = [];
   const awake = () => { try { return phys.b3.b3World_GetAwakeBodyCount(phys.world); } catch { return -1; } };
   const cost0 = { svc: svc.svcCost.ms, mech: svc.mechCost.ms, field: fields.fieldCost.ms, joint: st.jointCost.ms, an: an.stats.ms };
-  const PERF = process.env.PERF === '1' ? { phys: [], after: [], ter: [], frame: [], soft: [], physCpu: [], afterCpu: [], svc: [], joints: [], fields: [], analysis: [], awake: [], pieces: [] } : null;
-  const pw = { phys: 0, after: 0, ter: 0, frame: 0, soft: 0, physCpu: 0, afterCpu: 0, c: null };
+  const PERF = process.env.PERF === '1' ? { phys: [], after: [], ter: [], frame: [], soft: [], physCpu: [], afterCpu: [], svc: [], joints: [], fields: [], analysis: [], frac: [], awake: [], pieces: [], stepMax: [], stepMaxCpu: [], fq: [], fqWait: [] } : null;
+  const pw = { phys: 0, after: 0, ter: 0, frame: 0, soft: 0, physCpu: 0, afterCpu: 0, stepMax: 0, stepMaxCpu: 0, c: null };
   const cpu = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
-  const costNow = () => ({ svc: svc.svcCost.ms, joints: st.jointCost.ms, fields: fields.fieldCost.ms, analysis: an.stats.ms });
+  const costNow = () => ({ svc: svc.svcCost.ms, joints: st.jointCost.ms, fields: fields.fieldCost.ms, analysis: an.stats.ms, frac: st.fractureCost?.ms ?? 0 });
   if (PERF) pw.c = costNow();
   for (let i = 0; i < STEPS; i++) {
     if (BOOM && i === 60) st.explode([BOOM[0], BOOM[1], BOOM[2]], BOOM[3] ?? 5, 90e3, 3200);
@@ -109,7 +111,7 @@ try {
     const c = PERF ? performance.now() : 0;
     ter?.terrainStep(st.live);
     const d = performance.now();
-    if (PERF) { pw.physCpu += cb - ca; pw.afterCpu += cpu() - cb; }
+    if (PERF) { const ce = cpu(); pw.physCpu += cb - ca; pw.afterCpu += ce - cb; pw.stepMax = Math.max(pw.stepMax, d - a); pw.stepMaxCpu = Math.max(pw.stepMaxCpu, ce - ca); }
     if ((i + 1) % SPF === 0) {
       if (VIEWER) {
         const vp = process.env.VPART ?? 'svc,soft,detail';
@@ -125,7 +127,10 @@ try {
       if ((i + 1) % 60 === 0) {
         const r2 = (x) => +(x / 60).toFixed(3), cn = costNow();
         for (const k of ['phys', 'after', 'ter', 'frame', 'soft', 'physCpu', 'afterCpu']) { PERF[k].push(r2(pw[k])); pw[k] = 0; }
-        for (const k of ['svc', 'joints', 'fields', 'analysis']) PERF[k].push(r2(cn[k] - pw.c[k]));
+        for (const k of ['svc', 'joints', 'fields', 'analysis', 'frac']) PERF[k].push(r2(cn[k] - pw.c[k]));
+        for (const k of ['stepMax', 'stepMaxCpu']) { PERF[k].push(+pw[k].toFixed(1)); pw[k] = 0; }
+        PERF.fq.push(st.stats().queued); PERF.fqWait.push(+(st.fractureCost?.waitMax ?? 0).toFixed(2));
+        if (st.fractureCost) st.fractureCost.waitMax = 0;
         pw.c = cn;
         PERF.awake.push(awake()); PERF.pieces.push(st.stats().pieces);
       }

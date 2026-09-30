@@ -286,3 +286,64 @@ Next run: probes trusted. chapel_S45 is the scenario for heap re-wakes (t 20-45 
 in the solve; rollers.py for late movers. Before any freeze rule: the terrace's rubble lies on standing floors and the
 tower's is queued for fracture, so a freeze rule needs the fracture backlog settled first. Run A/Bs only when
 `uptime` load < 50 and `vm_stat` shows free pages; this run's timings are weak.
+
+## Run 5 — 2026-09-30 (runtime focus, branch perf-5 from main 9672deb, worktree, CPU-time A/B, 10k tok ≈ 60 s)
+
+Machine: load average 11-372 (other agents; 335-372 for ~15 min mid-run). Timing pairs are concurrent (`runtime.py --base
+<git archive 9672deb + this run's sim.mjs> --concurrent --keep-perf`), buildMs ratio 0.95-1.03 on every pair; each pair's
+1-min load is in its JSON (`loadavg`). Raw data: runs/20260930T-r5-*, runs/r5-probe/.
+
+Harness:
+- sim.mjs PERF adds per second: `frac` (fracture ms/step, from structure's new `fractureCost` counter), `stepMax` /
+  `stepMaxCpu` (the second's worst step, wall and process CPU ms), `fq` (fracture queue length) and `fqWait` (longest a
+  piece broken that second had waited, s). runtime.py blast rows print collapse/aftermath_peak_cpu, collapse_frac_ms,
+  fq_max, fq_wait_max, fractures. Peaks include the blast step (window 1); the per-second arrays in the JSONs give the
+  peak without it.
+- `.optimize/fq-probe.py <tree copy>`: patches a copy so sim.mjs prints FQ rows each second (queue, ages, pieces broken
+  by path with ms, rest-vs-moving breaks, fast flyers, runaways).
+
+### Owner-approved behaviour change: a damaged piece breaks within ~1 s (fracture drain)
+
+Before (9672deb, fq-probe on tower_D shift 0, runs/r5-probe/fq-tower-base.txt): FRACTURE_PER_STEP 3, whole queue sorted by
+intensity every step. The queue holds 2000-2270 entries from t 10 s to 16 s and 1407 at 20 s; the oldest live entry is
+15.6 s old at 20 s and pieces broken at t 16-20 s had waited 9-15 s. 30 % of the entries are dead pieces (burnt, faded,
+pulverised, fallen off the map) that still take one of the 3 slots. Breaks of pieces lying at rest in the heap (|v| <
+0.3 m/s when they break): 36 over t 1-10 s, 341 over t 11-20 s. The per-step sort of ~2000 entries cost 0.5-4 ms/step.
+Most queued entries are demolished rconcrete lifts of 0.06-5 m³ at depth 1 (~900) or 0 (~500).
+
+Change (`processFractures(max, drain)`, afterStep calls it with drain): dead entries are dropped first and take no slot;
+each step breaks max(3, ⌈queue/30⌉), oldest first (then hardest-hit, then by place: order-independent as before), so a
+backlog clears in ~0.5 s; anything queued FRACTURE_WAIT = 1 s ago breaks that step regardless. The explode()/kinetic()
+calls keep their own counts and intensity order. v1 (same drain, intensity order kept; runs/…-ab-drain-v1-SUPERSEDED.json,
+3 tower + 3 terrace pairs at load 35-130) left low-intensity entries to the 1 s deadline (every second's max wait 1.02 s)
+and was replaced by the oldest-first order.
+
+Result, 5 tower_D pairs (shifts 0, ±0.15, ±0.3; loads 17-146, runs/…-ab-drain.json + -ab-drain-b.json), median of per-pair
+head/base ratios:
+- queue max 2312-2477 → 398-580; longest wait 0 (untracked) / 15.6 s → 0.58-0.65 s.
+- collapse (t 1-9 s) phys_cpu x1.01, after_cpu x1.02; fracture cost in the collapse window 5.5-10.9 ms/step (head).
+- worst step t 2-9 s (blast second excluded), CPU ms: base 682/794/785/992/731, head 710/643/693/640/661 (x0.88). No
+  breakage spike: the drain spreads a burst over ~30 steps and the busiest second averaged 35 ms/step of fracture work.
+- aftermath (t 15-19 s) phys_cpu x1.03 (per-pair 0.72-1.42), after_cpu x1.05, worst step x0.92 (0.43-3.36): trajectory
+  noise dominates; no consistent cost.
+- fractures x1.32 (1206 → 1604 median), pieces_created x0.95, awake at 16 s x1.04, awake at 20 s x1.08 (3602 → 3893).
+- demo % (shifts 0/+0.15/-0.15/+0.3/-0.3) base 58.0/64.3/58.7/56.9/58.7, head 46.9/59.8/58.1/55.4/64.1 (per-pair
+  0.81-1.09, median x0.97): within scatter. weldsLost per pair 6078/3702, 7060/6664, 6044/6046, 5935/6106, 7226/6575.
+  Runaways 24/9, 13/84, 31/20, 13/18, 19/13 (base had 324 on one run-4 trajectory: scatter).
+terrace_S, 3 pairs (loads 17-45): queue max 1-2 either way, wait ≤ 0.1 s; collapse phys x1.02, after x1.01, aftermath
+phys x1.00, after x1.14; demo 3.39 → 3.82 median (base 2.93-5.56 / head 3.36-4.23). Only dead-entry skipping touches it.
+Realism (fq-probe, tower shift 0, runs/r5-probe/fq-tower-*.txt): at-rest breaks over t 11-20 s 341 → 12 (none after
+14 s); bodies over 8 m/s summed over t 11-20 s 912 → 155; no piece waits longer than 0.6 s. Pieces break while still
+moving from the impact instead of bursting inside a settled heap 10-15 s later.
+Idle S/H/D/R 1800 steps: RESULT identical to main (weldsLost 0, awakeOther 0, awakeMachine 88/1/13/11, fingerprints
+b51ea9c8bb683f3f / d8a15bccdd0db91a / ab002adcfb6ebfe1 / afb0963e03276e0f). All blast fingerprints change (intended).
+
+### Probe: what keeps the tower heap awake at 20 s (run 4's question)
+
+keepers.py on 9672deb, tower_D shift 0, 600 tail steps after t 20 s (runs/r5-probe/keep-tower20-*.txt). Pure physics
+(MODE=noafter): awake 3374 → 3372 over 6 s, then 3656 (another island woke); bodies over their sleep threshold (excluding
+machines) fall 559 → 17-34 per step within 4 s, and those few keep the ~3400-body island awake: small steel bits
+(0.004 m³) rattling 0.5-1.2 m of path for 0.1-0.4 m net, stones rocking 2-5 cm net on 0.3-0.4 m of path, concrete lifts
+in pits below grade (y -2.5 to -3.6), plus a welded rconcrete pair that fell through the ground (y -270, the doomed
+sweep is in afterStep). Full run (MODE=plain): 131-445 over threshold per step, awake 3380-4070. So under pure physics
+the heap does not sleep either: its keepers are a few dozen jittering small or wedged bodies, not afterStep calls.

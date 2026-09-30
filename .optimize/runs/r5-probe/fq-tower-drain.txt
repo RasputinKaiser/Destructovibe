@@ -1,0 +1,107 @@
+THREE.WARNING: Multiple instances of Three.js being imported.
+FQ {"t":1,"fracRest":0,"fracMoving":0,"fly":0,"flyMax":0,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":0,"ms":0,"maxMs":0,"stepFracMax":0,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{},"stepMax":75.8,"pieces":5489,"fracs":0,"awake":7,"run":0,"demo":0}
+FQ {"t":2,"fracRest":6,"fracMoving":3,"fly":0,"flyMax":0,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":9,"ms":74.5,"maxMs":18.8,"stepFracMax":70.8,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{"voronoi":[8,74.1,15.543],"small":[1,0.3,0.009]},"stepMax":250,"pieces":5872,"fracs":8,"awake":1763,"run":0,"demo":0.01}
+FQ {"t":3,"fracRest":1,"fracMoving":1,"fly":0,"flyMax":0,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":2,"ms":2.7,"maxMs":1.9,"stepFracMax":1.9,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{"voronoi":[2,2.7,0.226]},"stepMax":131.9,"pieces":6455,"fracs":10,"awake":2346,"run":0,"demo":0.21}
+FQ {"t":4,"fracRest":2,"fracMoving":16,"fly":0,"flyMax":0,"len":2,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":28,"ms":38.1,"maxMs":9.2,"stepFracMax":16.5,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{"voronoi":[18,38,7.868],"crowd":[10,0.1,0.375]},"stepMax":161,"pieces":6882,"fracs":28,"awake":2769,"run":0,"demo":34.78}
+Box3D: WARNING: complex mesh detected, triangle buffer capacity of 256 reached
+FQ {"t":5,"fracRest":9,"fracMoving":68,"fly":544,"flyMax":30.2,"len":74,"dead":0,"age50":0.2,"age90":0.2,"ageMax":0.3,"done":139,"ms":232.5,"maxMs":29.9,"stepFracMax":39,"doneAge50":0.1,"doneAge90":0.2,"doneAgeMax":0.3,"byPath":{"voronoi":[75,230.8,6.448],"crowd":[62,1,1.875],"detail":[2,0.7,9.496]},"stepMax":173.5,"pieces":7080,"fracs":104,"awake":2963,"run":3,"demo":42.75}
+FQ {"t":6,"fracRest":8,"fracMoving":128,"fly":1937,"flyMax":26.9,"len":187,"dead":0,"age50":0.1,"age90":0.3,"ageMax":0.3,"done":327,"ms":408.9,"maxMs":79.9,"stepFracMax":85.5,"doneAge50":0.4,"doneAge90":0.4,"doneAgeMax":0.4,"byPath":{"crowd":[191,6.5,1.402],"voronoi":[126,308.7,6.184],"compound":[1,4.1,8.431],"detail":[9,89.6,8.366]},"stepMax":369.7,"pieces":7379,"fracs":240,"awake":3263,"run":4,"demo":45.15}
+FQ {"t":7,"fracRest":11,"fracMoving":103,"fly":1381,"flyMax":30.2,"len":337,"dead":0,"age50":0.2,"age90":0.4,"ageMax":0.4,"done":589,"ms":298.7,"maxMs":44.1,"stepFracMax":76.1,"doneAge50":0.4,"doneAge90":0.4,"doneAgeMax":0.4,"byPath":{"crowd":[475,4.1,2.239],"voronoi":[102,244.5,4.6],"detail":[11,6.1,6.451],"compound":[1,44.1,5.096]},"stepMax":255.3,"pieces":7120,"fracs":355,"awake":4272,"run":4,"demo":45.56}
+FQ {"t":8,"fracRest":11,"fracMoving":190,"fly":922,"flyMax":37.1,"len":504,"dead":0,"age50":0.2,"age90":0.4,"ageMax":0.4,"done":967,"ms":376.5,"maxMs":13.9,"stepFracMax":23.8,"doneAge50":0.4,"doneAge90":0.4,"doneAgeMax":0.4,"byPath":{"crowd":[766,4,2.569],"detail":[35,1.8,8.452],"voronoi":[166,370.8,3.31]},"stepMax":309,"pieces":6801,"fracs":528,"awake":3949,"run":4,"demo":46.21}
+FQ {"t":9,"fracRest":8,"fracMoving":222,"fly":655,"flyMax":44.8,"len":319,"dead":0,"age50":0.3,"age90":0.4,"ageMax":0.5,"done":853,"ms":1289.9,"maxMs":87.8,"stepFracMax":243,"doneAge50":0.5,"doneAge90":0.6,"doneAgeMax":0.6,"byPath":{"crowd":[623,7.8,2.753],"voronoi":[189,1268.1,2.546],"detail":[39,13.5,6.417],"small":[2,0.5,0.002]},"stepMax":1415,"pieces":6907,"fracs":722,"awake":4045,"run":5,"demo":46.24}
+FQ {"t":10,"fracRest":2,"fracMoving":152,"fly":379,"flyMax":48.8,"len":276,"dead":0,"age50":0.2,"age90":0.4,"ageMax":0.4,"done":621,"ms":300.3,"maxMs":18,"stepFracMax":23.8,"doneAge50":0.5,"doneAge90":0.5,"doneAgeMax":0.5,"byPath":{"crowd":[467,3.4,2.866],"voronoi":[134,286.6,4.106],"detail":[20,10.3,7.976]},"stepMax":379.1,"pieces":7004,"fracs":865,"awake":4132,"run":7,"demo":46.27}
+FQ {"t":11,"fracRest":2,"fracMoving":115,"fly":119,"flyMax":27.7,"len":145,"dead":0,"age50":0.2,"age90":0.5,"ageMax":0.5,"done":519,"ms":330.7,"maxMs":25.5,"stepFracMax":31.8,"doneAge50":0.5,"doneAge90":0.5,"doneAgeMax":0.6,"byPath":{"crowd":[402,2.7,3.421],"voronoi":[103,299,4.436],"detail":[12,28.8,6.28],"small":[2,0.3,0.008]},"stepMax":502.3,"pieces":7017,"fracs":978,"awake":4144,"run":9,"demo":46.51}
+FQ {"t":12,"fracRest":6,"fracMoving":19,"fly":22,"flyMax":12.4,"len":49,"dead":0,"age50":0.3,"age90":0.4,"ageMax":0.5,"done":236,"ms":51.5,"maxMs":13.7,"stepFracMax":13.7,"doneAge50":0.5,"doneAge90":0.6,"doneAgeMax":0.6,"byPath":{"crowd":[211,1.8,4.252],"voronoi":[15,36.6,2.257],"small":[8,0.9,0.004],"detail":[2,12.1,0.044]},"stepMax":225.2,"pieces":6876,"fracs":995,"awake":3988,"run":9,"demo":46.75}
+FQ {"t":13,"fracRest":2,"fracMoving":4,"fly":9,"flyMax":19.3,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":122,"ms":19.3,"maxMs":8.3,"stepFracMax":8.3,"doneAge50":0.2,"doneAge90":0.4,"doneAgeMax":0.5,"byPath":{"crowd":[116,1.6,6.569],"detail":[1,0.8,0.01],"voronoi":[5,16.9,1.297]},"stepMax":186,"pieces":6836,"fracs":1001,"awake":3936,"run":9,"demo":46.87}
+FQ {"t":14,"fracRest":2,"fracMoving":0,"fly":3,"flyMax":16.9,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":33,"ms":70,"maxMs":68.2,"stepFracMax":68.2,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{"crowd":[31,0.5,5.052],"voronoi":[2,69.6,60.602]},"stepMax":433,"pieces":6831,"fracs":1003,"awake":3921,"run":9,"demo":46.87}
+FQ {"t":15,"fracRest":0,"fracMoving":0,"fly":0,"flyMax":7,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":6,"ms":0.1,"maxMs":0,"stepFracMax":0,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{"crowd":[6,0.1,4.149]},"stepMax":604.1,"pieces":6830,"fracs":1003,"awake":3899,"run":9,"demo":46.9}
+FQ {"t":16,"fracRest":0,"fracMoving":0,"fly":0,"flyMax":3.4,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":6,"ms":0.1,"maxMs":0,"stepFracMax":0,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{"crowd":[6,0.1,3.93]},"stepMax":247.8,"pieces":6829,"fracs":1003,"awake":3889,"run":9,"demo":46.9}
+FQ {"t":17,"fracRest":0,"fracMoving":0,"fly":0,"flyMax":0.9,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":5,"ms":0,"maxMs":0,"stepFracMax":0,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{"crowd":[5,0,4.8]},"stepMax":395,"pieces":6829,"fracs":1003,"awake":3897,"run":9,"demo":46.9}
+FQ {"t":18,"fracRest":0,"fracMoving":0,"fly":0,"flyMax":5.8,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":0,"ms":0,"maxMs":0,"stepFracMax":0,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{},"stepMax":172.4,"pieces":6828,"fracs":1003,"awake":3896,"run":9,"demo":46.9}
+FQ {"t":19,"fracRest":0,"fracMoving":0,"fly":2,"flyMax":15.6,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":6,"ms":0,"maxMs":0,"stepFracMax":0,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{"crowd":[6,0,7.897]},"stepMax":406.5,"pieces":6828,"fracs":1003,"awake":3896,"run":9,"demo":46.9}
+FQ {"t":20,"fracRest":0,"fracMoving":0,"fly":0,"flyMax":1.8,"len":0,"dead":0,"age50":0,"age90":0,"ageMax":0,"done":0,"ms":0,"maxMs":0,"stepFracMax":0,"doneAge50":0,"doneAge90":0,"doneAgeMax":0,"byPath":{},"stepMax":191.5,"pieces":6825,"fracs":1003,"awake":3893,"run":9,"demo":46.9}
+{
+ "map": "Downtown",
+ "bpPieces": 5489,
+ "buildMs": 32554,
+ "start": {
+  "pieces": 5489,
+  "welds": 14004,
+  "snaps": 0,
+  "eventSnaps": 0,
+  "fractures": 0,
+  "cracks": 0,
+  "buckles": 0,
+  "yields": 0,
+  "creepFails": 0,
+  "fatigue": 0,
+  "crushes": 0,
+  "slips": 0,
+  "delams": 0
+ },
+ "end": {
+  "pieces": 6825,
+  "welds": 10302,
+  "snaps": 5407,
+  "eventSnaps": 7562,
+  "fractures": 1003,
+  "cracks": 98,
+  "buckles": 5,
+  "yields": 5734,
+  "creepFails": 0,
+  "fatigue": 2,
+  "crushes": 0,
+  "slips": 300,
+  "delams": 0
+ },
+ "weldsLostPct": 26.44,
+ "demolitionPct": 46.904,
+ "avgPhysMs": 91.73,
+ "avgAfterMs": 40.324,
+ "avgSoftMs": 2.494,
+ "maxStepMs": 1415,
+ "breakdownMsPerStep": {
+  "svc": 1.847,
+  "mech": 0.146,
+  "fields": 3.213,
+  "joints": 0.407,
+  "analysis": 8.635
+ },
+ "machines": {
+  "crane": {
+   "awake": 6,
+   "axes": 5,
+   "running": 2
+  },
+  "office": {
+   "awake": 1,
+   "axes": 1,
+   "running": 1
+  },
+  "store": {
+   "awake": 3885,
+   "axes": 2,
+   "running": 2
+  }
+ },
+ "runaways": 9,
+ "pumped": 5597,
+ "designIssues": 0,
+ "softKinds": {
+  "cloth:asleep": 20,
+  "cloth:awake": 2
+ },
+ "perWin": [
+  "t=2s phys 8.87 after 26.30 soft 7.06 ms | welds 14188 pieces 5872 demo 0.01% awakeBodies 1763 softAwake 3 snaps 92 evSnaps 317 frac 8 cracks 45 yields 136 hangs 0 relieved 0 frozen 0 anPending 2 anMax 3584.0 maxStep 250.0",
+  "t=4s phys 38.12 after 30.67 soft 2.58 ms | welds 13476 pieces 6882 demo 34.78% awakeBodies 2769 softAwake 2 snaps 1701 evSnaps 3179 frac 28 cracks 98 yields 1439 hangs 0 relieved 0 frozen 0 anPending 2 anMax 3584.0 maxStep 161.0",
+  "t=6s phys 66.23 after 33.39 soft 2.49 ms | welds 12803 pieces 7379 demo 45.15% awakeBodies 3263 softAwake 2 snaps 2629 evSnaps 4459 frac 240 cracks 98 yields 2340 hangs 0 relieved 0 frozen 3 anPending 0 anMax 3584.0 maxStep 369.7",
+  "t=8s phys 107.67 after 47.40 soft 2.58 ms | welds 11751 pieces 6801 demo 46.21% awakeBodies 3949 softAwake 1 snaps 3795 evSnaps 5769 frac 528 cracks 98 yields 3859 hangs 2 relieved 0 frozen 7 anPending 6 anMax 3584.0 maxStep 309.0",
+  "t=10s phys 216.19 after 101.70 soft 3.70 ms | welds 10603 pieces 7004 demo 46.27% awakeBodies 4132 softAwake 2 snaps 5095 evSnaps 7320 frac 865 cracks 98 yields 5440 hangs 2 relieved 0 frozen 7 anPending 7 anMax 3584.0 maxStep 1415.0",
+  "t=12s phys 125.96 after 47.52 soft 1.40 ms | welds 10341 pieces 6876 demo 46.75% awakeBodies 3988 softAwake 1 snaps 5381 evSnaps 7487 frac 995 cracks 98 yields 5675 hangs 2 relieved 0 frozen 12 anPending 6 anMax 3584.0 maxStep 502.3",
+  "t=14s phys 98.44 after 35.88 soft 1.45 ms | welds 10312 pieces 6831 demo 46.87% awakeBodies 3921 softAwake 2 snaps 5399 evSnaps 7527 frac 1003 cracks 98 yields 5706 hangs 2 relieved 0 frozen 12 anPending 2 anMax 3584.0 maxStep 433.0",
+  "t=16s phys 92.40 after 31.40 soft 1.31 ms | welds 10305 pieces 6829 demo 46.90% awakeBodies 3889 softAwake 1 snaps 5404 evSnaps 7549 frac 1003 cracks 98 yields 5724 hangs 2 relieved 0 frozen 12 anPending 1 anMax 3584.0 maxStep 604.1",
+  "t=18s phys 80.68 after 21.99 soft 1.25 ms | welds 10304 pieces 6828 demo 46.90% awakeBodies 3896 softAwake 2 snaps 5405 evSnaps 7556 frac 1003 cracks 98 yields 5730 hangs 2 relieved 0 frozen 12 anPending 1 anMax 3584.0 maxStep 395.0",
+  "t=20s phys 82.74 after 26.98 soft 1.12 ms | welds 10302 pieces 6825 demo 46.90% awakeBodies 3893 softAwake 2 snaps 5407 evSnaps 7562 frac 1003 cracks 98 yields 5734 hangs 2 relieved 0 frozen 12 anPending 0 anMax 3584.0 maxStep 406.5"
+ ]
+}
+RESULT {"weldsLost":3702,"runaways":9,"awakeAtEnd":3893,"awakeMachine":3892,"awakeOther":1,"fingerprint":"628e697b7526fe01"}

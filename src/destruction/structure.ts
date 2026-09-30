@@ -57,7 +57,9 @@ let BUDGET = 800;                // bodies made by breakage before old rubble is
 const IMPACT_GRACE = 0.4;        // fresh fragments ignore collision damage while they fly apart
 const FRAG_TOUGHEN = 1.2;        // fragment hp × (1 + depth × this): sounder than the parent, but a hard landing still breaks them
 const LOAD_SAFETY = 2.6;         // joint capacity ≥ measured static load × this
-const FRACTURE_PER_STEP = 3;
+const FRACTURE_PER_STEP = 3;      // pieces broken per step at the least…
+const FRACTURE_DRAIN_STEPS = 30;  // …and a 30th of the queue while a collapse keeps it long (~0.5 s to clear)
+const FRACTURE_WAIT = 1;          // s: no damaged piece waits longer than this to break
 const BLAST_FRACTURES = 14;      // beyond this a blast only pre-damages pieces
 const MAX_BURNING = 60;
 const MAX_REBAR = 260;
@@ -235,7 +237,7 @@ let movedAt = -1;
 const welds = new Map<number, Weld>();
 const rebars = new Map<number, Rebar>();
 const ropeJoints = new Map<number, Rope>();
-const fractureQueue: { p: Piece; point: Vec3; intensity: number; blast: boolean }[] = [];
+const fractureQueue: { t: number; p: Piece; point: Vec3; intensity: number; blast: boolean }[] = [];
 const fusing: Piece[] = [];
 const fading: Piece[] = [];
 const burning = new Set<Piece>();
@@ -1133,7 +1135,7 @@ function crushAhead(s: Section, d: P2, zone: P2): void {
     const low = s.under[i], c = area2(s.regions[i]).c;
     if (c[0] * d[0] + c[1] * d[1] <= tz + 0.05 * s.R || low.dead || low.queued || low.pm.style === 'none') continue;
     low.queued = true;
-    fractureQueue.push({ p: low, point: [c[0], s.y0, c[1]], intensity: 1.5, blast: false });
+    fractureQueue.push({ t: clock, p: low, point: [c[0], s.y0, c[1]], intensity: 1.5, blast: false });
   }
 }
 
@@ -1838,7 +1840,7 @@ function crushBed(w: Weld): void {
   const low = w.a.curPos[1] < w.b.curPos[1] ? w.a : w.b;
   if (low.dead || low.queued || low.depth >= MAX_DEPTH || low.pm.style === 'none') return;
   low.queued = true;
-  fractureQueue.push({ p: low, point: weldPos(w, [0, 0, 0]), intensity: 1.5, blast: false });
+  fractureQueue.push({ t: clock, p: low, point: weldPos(w, [0, 0, 0]), intensity: 1.5, blast: false });
 }
 const _cbn: Vec3 = [0, 0, 0];
 
@@ -1949,7 +1951,7 @@ function buckle(p: Piece, N: number, Pcr: number): void {
   b3.b3Body_SetAwake(p.body, true);
   if (p.pm.style === 'splinter' && !p.queued && p.depth < MAX_DEPTH) {
     p.queued = true;
-    fractureQueue.push({ p, point: [p.curPos[0], p.curPos[1], p.curPos[2]], intensity: 1.2, blast: false });
+    fractureQueue.push({ t: clock, p, point: [p.curPos[0], p.curPos[1], p.curPos[2]], intensity: 1.2, blast: false });
     return;
   }
   let worst: Weld | null = null, u = -1;
@@ -2321,7 +2323,7 @@ function failWeld(w: Weld, mode: FailMode, crack = true): void {
   for (const q of [a, b]) {
     if (!q || q.dead || q.queued || q.pm.style !== 'splinter' || q.depth >= MAX_DEPTH || q.volume < 0.02 || chance() > 0.55) continue;
     q.queued = true;
-    fractureQueue.push({ p: q, point: pos, intensity: 1.2, blast: false });
+    fractureQueue.push({ t: clock, p: q, point: pos, intensity: 1.2, blast: false });
   }
 }
 
@@ -3059,7 +3061,7 @@ export function damagePiece(p: Piece, point: Vec3, energy: number, blast: boolea
   if (p.mechs) mechHarm(p, energy);
   if (p.damage >= hp && !p.queued) {
     p.queued = true;
-    fractureQueue.push({ p, point: [point[0], point[1], point[2]], intensity: p.damage / hp, blast });
+    fractureQueue.push({ t: clock, p, point: [point[0], point[1], point[2]], intensity: p.damage / hp, blast });
   } else {
     refreshColor(p);
   }
@@ -3623,16 +3625,35 @@ function crackMember(p: Piece, at: Vec3, into: Vec3): boolean {
   return true;
 }
 
-function processFractures(max: number): void {
-  let n = 0;
-  /* the hardest-hit first, then by place: which pieces break this step and which wait must not follow the order the
-     blows happened to be handled in */
-  if (fractureQueue.length > max) fractureQueue.sort((a, b) => b.intensity - a.intensity || pieceKey(a.p) - pieceKey(b.p));
-  while (fractureQueue.length && n < max) {
-    const f = fractureQueue.shift()!;
+/** Cost of breaking queued pieces, for profiling: ms and pieces broken, and the longest a broken piece had waited (s;
+    the harness reads and resets it). */
+export const fractureCost = { ms: 0, n: 0, waitMax: 0 };
+
+function processFractures(max: number, drain = false): void {
+  /* a piece that died in the queue (burnt out, faded, ground to fines, fell off the map) takes no slot */
+  let k = 0;
+  for (const f of fractureQueue) if (!f.p.dead) fractureQueue[k++] = f;
+  fractureQueue.length = k;
+  if (!k) return;
+  /* A piece hit past its breaking point breaks then, not seconds later in the heap: while a collapse keeps the queue
+     long each step breaks enough to clear it in about half a second, the longest-waiting first, and whatever has waited
+     FRACTURE_WAIT breaks this step whatever the count. */
+  if (drain) max = Math.max(max, Math.ceil(k / FRACTURE_DRAIN_STEPS));
+  /* then the hardest-hit first, then by place: which pieces break this step and which wait must not follow the order
+     the blows happened to be handled in */
+  if (k > max) fractureQueue.sort((a, b) => (drain ? a.t - b.t : 0) || b.intensity - a.intensity || pieceKey(a.p) - pieceKey(b.p));
+  const due = drain ? clock - FRACTURE_WAIT : -Infinity;
+  const batch: typeof fractureQueue = [];
+  let j = 0;
+  for (const f of fractureQueue) if (batch.length < max || f.t <= due) batch.push(f); else fractureQueue[j++] = f;
+  fractureQueue.length = j;
+  const t0 = performance.now();
+  for (const f of batch) {
+    fractureCost.waitMax = Math.max(fractureCost.waitMax, clock - f.t);
     fracture(f.p, f.point, f.intensity, f.blast);
-    n++;
   }
+  fractureCost.ms += performance.now() - t0;
+  fractureCost.n += batch.length;
 }
 
 function pieceKey(p: Piece): number {
@@ -4171,7 +4192,7 @@ export function afterStep(dt: number): void {
   fxBudget = Math.min(24, fxBudget + 1.5);
   if (stepCount % 2 === 0) pollJoints();
   if (stepCount % YIELD_EVERY === 1) updateYield();
-  processFractures(FRACTURE_PER_STEP);
+  processFractures(FRACTURE_PER_STEP, true);
   if (shatterQueue.length) processShatter();
   detailCarveDeferred();
   lateBlastPush();
@@ -4627,7 +4648,7 @@ function updateHeat(): void {
     if (p.pm.thermal.spall !== undefined && p.pm.style !== 'shards' && p.pm.style !== 'dice') { spall(p); continue; }
     p.queued = true;
     audio.glassCrack(p.curPos);
-    fractureQueue.push({ p, point: [...p.curPos], intensity: 1.1, blast: false });
+    fractureQueue.push({ t: clock, p, point: [...p.curPos], intensity: 1.1, blast: false });
   }
   for (const p of hot) {
     if (p.dead) { hot.delete(p); continue; }
@@ -4660,7 +4681,7 @@ function updateHeat(): void {
     if (th.shock !== undefined && p.temp > th.shock && !p.queued) {
       p.queued = true;
       audio.glassCrack(p.curPos);
-      fractureQueue.push({ p, point: [...p.curPos], intensity: 1.1, blast: false });
+      fractureQueue.push({ t: clock, p, point: [...p.curPos], intensity: 1.1, blast: false });
     }
     if (!p.burning && p.temp < 60) {
       if (p.glow > 0) { p.glow = 0; setPieceHeat(p.gfx, 0); }
