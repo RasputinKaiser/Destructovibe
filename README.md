@@ -105,13 +105,26 @@ orbit camera: mouse orbits, wheel zooms, `WASD`/`Q``E` move the focus, `Space` p
 
 ## Controls
 
-`WASD` move · `Shift` sprint · `Space` jump · `1–6` tool in bank · `Q` next bank · `Wheel` tool setting
-(charge size, delay, boom…) where the tool has one, else next tool · `Shift`+`Wheel` detonator delay ·
-`LMB` fire / use · `RMB` tool's second action, else detonate · `G` detonate · `E` drive / operate / get out ·
+`WASD` move · `Shift` sprint · `Space` jump, or climb what is in front (a ledge up to ~1.25 m; walking into
+anything knee-high scrambles over it; fast at a low wall it is a vault) · `C`/`Ctrl` crouch · `Alt` careful: slow
+walk, and with `A`/`D` lean round a corner · `Z`/`MMB` zoom (hold) · `1–6` tool in bank · `Q` next bank ·
+`Wheel` tool setting (charge size, delay, boom…) where the tool has one, else next tool · `Shift`+`Wheel` detonator
+delay · `LMB` fire / use · `RMB` tool's second action, else detonate · `G` detonate · `E` drive / operate / get out ·
 `U` work a breaker, valve or meter · `X` x-ray · `T` bullet time · `V` collapse replay · `P` back to spawn ·
 `Enter` call the contract early ·
 `R` restart · `Esc` pause ·
 free play: `F` fly · `Tab` panel · `B` spawn (`wheel` rotates, `RMB` cancels) · `Backspace` remove
+
+Every key above can be rebound under Settings → Controls (a key another action had is swapped over). A standard
+gamepad works once the mouse is captured: sticks move and look, `A` jump/climb, `B` crouch, `X` drive, `Y`
+detonate, `RT`/`LT` fire/second action, `LB`/`RB` tools, `L3` sprint, `R3` zoom, `Start` pause.
+
+On foot the body has weight: a jog builds in ~0.2 s and a sprint in ~0.6 s, a standing jump lifts 0.48 m for
+about half a second in the air, and landings cost pace (bunny-hopping bleeds speed; jumps cost stamina). Falls are
+graded by the height fallen — a dip, a hard landing, a stumble from ~2.5 m, a knockdown and a limp from ~4.5 m, and
+past ~9 m a blackout and respawn — and heavy falling members knock the player down rather than throwing him.
+*Impacts* in Settings sets how far that goes (off / stumble / real); head bob, toggle crouch and toggle sprint are
+there too.
 
 Settings also carry render scale (*Auto* holds 60 fps by trading resolution, then the distance at which walls
 draw as individual bricks), camera shake (off also drops the lens punch and softens the aim kick), film grain and

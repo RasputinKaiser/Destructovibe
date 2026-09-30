@@ -392,6 +392,34 @@ try {
     return o;
   };
 
+  S.platform = () => {
+    // a 3 x 3 m kinematic deck moving at 2 m/s and turning slowly: ride it standing, then walk across it
+    const o = {};
+    world([]);
+    const b3 = phys.b3;
+    const bd = b3.b3DefaultBodyDef();
+    bd.type = b3.b3BodyType.b3_kinematicBody;
+    bd.position = [0, 0.6, 0];
+    const body = b3.b3CreateBody(phys.world, bd);
+    const sd = b3.b3DefaultShapeDef();
+    sd.filter = phys.filter(phys.CAT.structure, phys.ALL);
+    b3.b3CreateBoxShape(body, sd, 1.5, 0.1, 1.5);
+    b3.b3Body_SetLinearVelocity(body, [2, 0, 0]);
+    b3.b3Body_SetAngularVelocity(body, [0, +(process.env.SPIN ?? 0.3), 0]);
+    P.teleport([0, 0.75, 0], 0, 0);
+    const rel = () => { const q = [0, 0, 0]; b3.b3Body_GetPosition(q, body); const e = P.player.e.curPos; return [e[0] - q[0], e[2] - q[2]]; };
+    run(0.5, []);
+    const r0 = rel(), t0 = trace.length;
+    let off = 0;
+    run(3, [], (q) => { if (!q.g) off++; });
+    const r1 = rel();
+    o.ride = { drift: r3(Math.hypot(r1[0] - r0[0], r1[1] - r0[1])), airFrames: off, camPop: camPop(trace.slice(t0)) };
+    const t1 = trace.length;
+    run(0.8, ['KeyW']);
+    o.walk = { onDeck: trace.at(-1).y > 0.6, camPop: camPop(trace.slice(t1)) };
+    return o;
+  };
+
   S.blast = () => {
     // a brick bungalow blown down, then walked straight through its spoil from 8 m out
     const { PREFABS } = PFB;
