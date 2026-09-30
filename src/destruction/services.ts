@@ -55,6 +55,7 @@ export interface Member {
   up: Piece | null;         // a device's own upstream device
   flow: number;             // share of full bore reaching here past kinked joints, 0..1
   closed: boolean;          // tripped breaker, shut EFV or valve: live on its line side only
+  tripped: boolean;         // closed by its own protection (a fault, an over-flow), not by a hand
   fault: number;            // gate: seconds of fault current seen
   hit: number;              // gate: fault seen this tick (several arcs on one circuit are one fault)
   over: number;             // gas gate: seconds above its trip flow
@@ -338,7 +339,7 @@ export function memberFor(spec: PieceSpec, frag: boolean): Member | null {
   return {
     kind, fixture, part: frag ? null : spec.svcPart ?? null, grade: kind === 'power' ? 'cable' : GRADE[spec.mat] ?? 'brittle',
     bore: spec.bore ?? (source ? supplyBore(kind, spec) : s[1] * 0.7), source, lamp, glows: lamp && spec.mat === 'lamp', frag,
-    on: false, live: false, net: -1, gate: null, up: null, flow: 0, closed: false, fault: 0, hit: 0, over: 0, draw: 0, scorched: false, hotT: 0,
+    on: false, live: false, net: -1, gate: null, up: null, flow: 0, closed: false, tripped: false, fault: 0, hit: 0, over: 0, draw: 0, scorched: false, hotT: 0,
     emit: 0, blown: false, vented: false, links: [],
     r: 0, ez: Infinity, par: null, pl: null, dev: null, ib: 0, mot: false, hv: false, wet: 0, track: 0,
     fp: null, standby: source && fixture === 'generator' && !!spec.standby, run: false, startT: 0,
@@ -524,9 +525,9 @@ export function svcLinkLost(a: Piece, b: Piece, pos: Vec3, n: Vec3, record: bool
   topoDirty = true;
   if (!record) return;
   if (posB) { snapWire(a, b, pos, posB); return; }
+  strike(a, b);
   for (const [p, s] of [[a, 1], [b, -1]] as const) {
     if (p.dead || breaks.length > 400) continue;
-    strike(p);
     vec3.set(_d, n[0] * s, n[1] * s, n[2] * s);
     const m = p.svc!, o = (p === a ? b : a).svc;
     const bore = o ? Math.min(m.bore, o.bore) : m.bore;
@@ -551,12 +552,12 @@ function snapWire(a: Piece, b: Piece, pa: Vec3, pb: Vec3): void {
   /* a conductor mostly fails where it is clamped or tied at an insulator, so one half is long and the other a stub */
   const L = vec3.distance(pa, pb), e = 0.08 + 0.17 * rnd(), f = rnd() < 0.5 ? e : 1 - e;
   vec3.lerp(_c, pa, pb, f);
+  strike(a, b);
   for (const [p, at, len] of [[a, pa, f * L], [b, pb, (1 - f) * L]] as const) {
     if (fallen.length >= MAX_FALLEN) continue;
     const t = makeTail(at, _c, len);
     tailEnd(t, _w, _d);
     /* an insulator blown off with it drops its half whole, and dead */
-    if (!p.dead) strike(p);
     const br = breaks.length > 400 || p.dead ? null : addBreak(p, _w, _d, 0, true);
     if (br) { br.tail = t; tally.ruptures++; }
     fallen.push({ t, p });
@@ -580,12 +581,37 @@ export function serviceFallen(): { piece: Piece; end: Vec3; grounded: boolean; a
    (its gas, power and water isolated at the meter, stopcock or breaker) before it comes down. */
 const ZERO_K = (): Record<UtilityKind, number> => ({ power: 0, gas: 0, water: 0, steam: 0 });
 const strikes = new Map<string, Record<UtilityKind, number>>();
-function strike(p: Piece): void {
-  const m = p.svc!;
-  if (!m.on || m.frag) return;
-  const g = p.root.spec.group ?? '', k = strikes.get(g) ?? ZERO_K();
-  k[m.kind]++;
-  strikes.set(g, k);
+/* One tear of a live service is one strike against every building its live side reached: its own, and all those fed
+   through it (a service head torn feeds a whole shop; a main torn, every building behind it that was not isolated). A
+   closed device stops the count: past a shut meter or an open breaker nothing is live, so tearing beyond it is safe,
+   and tearing upstream of it strikes only what is still live. Walked once per tear, over the live side only. */
+const STRIKE_WALK = 1200;
+const strikeSeen = new Set<Piece>(), strikeQ: Piece[] = [], strikeGroups = new Set<string>();
+function strike(...ends: Piece[]): void {
+  strikeSeen.clear(); strikeGroups.clear(); strikeQ.length = 0;
+  let kind: UtilityKind | null = null;
+  for (const p of ends) {
+    const m = p.svc;
+    if (!m || p.dead || !m.on || m.frag) continue;
+    kind = m.kind;
+    strikeSeen.add(p); strikeQ.push(p);
+  }
+  if (!kind) return;
+  for (let i = 0; i < strikeQ.length && i < STRIKE_WALK; i++) {
+    const p = strikeQ[i], m = p.svc!;
+    if (p.root.spec.group) strikeGroups.add(p.root.spec.group);
+    if (m.closed && i >= ends.length) continue;
+    for (const l of m.links) {
+      const o = l.a === p ? l.b : l.a, om = o.svc;
+      if (!om || strikeSeen.has(o) || om.kind !== kind || !om.on || om.source) continue;
+      strikeSeen.add(o); strikeQ.push(o);
+    }
+  }
+  for (const g of strikeGroups) {
+    const k = strikes.get(g) ?? ZERO_K();
+    k[kind]++;
+    strikes.set(g, k);
+  }
 }
 /** Live service strikes, by kind, on members of these groups (every group when absent). */
 export function serviceStrikes(groups?: Iterable<string>): Record<UtilityKind, number> {
@@ -642,6 +668,7 @@ export function svcIsolate(p: Piece, closed: boolean): boolean {
   const m = p.svc;
   if (!m || !isGate(m) || m.closed === closed) return false;
   m.closed = closed;
+  m.tripped = false;
   m.fault = 0;
   m.over = 0;
   if (m.dev) { m.dev.H = 0; m.dev.armed = false; }
@@ -652,6 +679,7 @@ export function svcIsolate(p: Piece, closed: boolean): boolean {
 
 function trip(g: Piece): void {
   if (!svcIsolate(g, true)) return;
+  g.svc!.tripped = true;
   const k = gateKind(g);
   if (k === 'efv') tally.shut++; else tally.trips++;
   audio.snap(g.curPos, k === 'relay' ? 0.5 : 0.15);
@@ -1196,7 +1224,7 @@ export function svcInfo(p: Piece): { kind: UtilityKind; live: boolean; title: st
   if (!m || p.dead) return null;
   const k = m.kind, n = nets[m.net];
   const what = m.source ? (m.standby ? 'standby generator' : ({ transformer: k === 'power' && p.root.volume < 0.5 ? 'consumer unit' : 'transformer', generator: 'generator', gasmain: 'gas supply', watermain: 'water supply', boiler: 'boiler' } as Record<string, string>)[m.fixture!] ?? 'supply')
-    : m.part === 'breaker' ? 'breaker / RCD' : m.part === 'fuse' ? 'fuse' : m.part === 'efv' ? (k === 'gas' ? 'meter / excess-flow valve' : 'excess-flow valve')
+    : m.part === 'breaker' ? 'consumer unit (MCB + RCD)' : m.part === 'fuse' ? 'fuse switch' : m.part === 'efv' ? (k === 'gas' ? 'gas meter (control valve + excess-flow valve)' : 'excess-flow valve')
     : m.part === 'valve' ? 'isolating valve' : m.part === 'sprinkler' ? 'sprinkler head' : m.lamp ? (p.root.spec.emergency ? 'emergency luminaire' : 'lamp')
     : m.fixture === 'motor' ? 'motor' : m.fixture === 'radiator' ? 'radiator' : k === 'power' ? 'cable' : 'pipe';
   const label = { power: 'POWER', gas: 'GAS', water: 'WATER', steam: 'STEAM' }[k];
@@ -1206,28 +1234,31 @@ export function svcInfo(p: Piece): { kind: UtilityKind; live: boolean; title: st
     const c = svcCircuit(p);
     if (m.on && c) parts.push(`${c.hv ? '11 kV' : Math.round(c.u0) + ' V'} · Zs ${c.ez.toFixed(2)} Ω · fault ${c.ibf > 1000 ? (c.ibf / 1000).toFixed(1) + ' kA' : Math.round(c.ibf) + ' A'}`);
     else parts.push('0 V');
+    if (m.on && m.closed && !m.source) parts[parts.length - 1] = 'line side ' + parts[parts.length - 1];
     if (m.dev) parts.push(`${m.dev.curve}${Math.round(m.dev.In)} A${m.dev.rcd ? ' + RCD' : ''}`);
     if (m.lamp && m.batt >= 0) parts.push(m.on ? 'battery charging' : m.batt > 0 ? `on battery ${Math.ceil(m.batt / 60)} min` : 'battery flat');
     if (m.standby) parts.push(m.run ? 'RUNNING on load' : m.startT > 0 ? `cranking ${m.startT.toFixed(1)} s` : 'standing by, mains healthy');
   } else if (m.on && n) {
     const P = pressureAt(p);
-    parts.push(k === 'gas' ? `${(P * GAUGE.gas / 100).toFixed(1)} mbar` : `${(P * GAUGE[k] / 1e5).toFixed(2)} bar`);
+    parts.push((m.closed ? 'inlet ' : '') + (k === 'gas' ? `${(P * GAUGE.gas / 100).toFixed(1)} mbar` : `${(P * GAUGE[k] / 1e5).toFixed(2)} bar`));
     parts.push(`${Math.round(P * 100)} % supply`);
+    if (m.source && k === 'water') { const pu = pumpsOf(n); if (pu.n) parts.push(pu.on ? `pumps ${pu.on}/${pu.n} running` : `pumps stopped: static head only`); }
     if (m.flow < 0.95) parts.push(`kinked: ${Math.round(m.flow * 100)} % bore`);
   } else parts.push('no pressure');
   if (isGate(m)) {
     const f = fedBy(p);
-    parts.push(`feeds ${f.members} member${f.members === 1 ? '' : 's'}` + (f.lamps ? ` · ${f.lamps} lamp${f.lamps > 1 ? 's' : ''}` : '') + (f.motors ? ` · ${f.motors} motor${f.motors > 1 ? 's' : ''}` : '') + (f.heads ? ` · ${f.heads} sprinklers` : ''));
+    if (m.closed && !m.source) parts.push(k === 'power' ? 'load side 0 V' : 'outlet 0');
+    parts.push(`${m.closed ? 'isolates' : 'feeds'} ${f.members} part${f.members === 1 ? '' : 's'}` + (f.lamps ? ` · ${f.lamps} lamp${f.lamps > 1 ? 's' : ''}` : '') + (f.motors ? ` · ${f.motors} motor${f.motors > 1 ? 's' : ''}` : '') + (f.heads ? ` · ${f.heads} sprinklers` : ''));
   }
   const leaks = breaks.filter((b) => !b.gone && b.p.svc!.net === m.net && m.net >= 0 && (b.q > 0 || b.arcing)).length;
   if (leaks) parts.push(`${leaks} open break${leaks > 1 ? 's' : ''} on this network`);
   let action: string | null = null;
   if (isGate(m) && !p.dead) {
     if (m.standby) action = m.run ? 'stop the set' : 'start the set';
-    else if (k === 'power') action = m.closed ? (m.fault > 0 || m.dev?.H ? 'reset' : 'switch on') : 'switch off';
+    else if (k === 'power') action = m.closed ? (m.tripped ? (m.part === 'fuse' ? 'replace the fuse' : 'reset') : 'switch on') : 'switch off';
     else action = m.closed ? 'open' : 'close';
   }
-  const state = m.closed ? (k === 'power' ? 'OFF / TRIPPED' : 'SHUT') : live ? 'LIVE' : 'DEAD';
+  const state = m.closed ? (m.tripped ? (k === 'power' ? (m.part === 'fuse' ? 'BLOWN' : 'TRIPPED') : 'SHUT (tripped)') : k === 'power' ? 'OFF' : 'SHUT') : live ? 'LIVE' : 'DEAD';
   return { kind: k, live, title: `${label} · ${what} · ${state}`, detail: parts.join(' · '), action };
 }
 
@@ -1276,7 +1307,8 @@ export function svcOperate(p: Piece): string | null {
   audio.utility(m.kind === 'power' ? 'breaker' : 'valve', p.curPos);
   if (surge > 0) waterHammer(p, surge);
   const what = m.kind === 'power' ? (closing ? 'switched off' : 'switched on') : closing ? 'shut' : 'opened';
-  return `${m.kind === 'power' ? 'Breaker' : 'Valve'} ${what}${surge > 5e3 ? ` · water hammer ${(surge / 1e5).toFixed(1)} bar` : ''}`;
+  const noun = m.kind === 'power' ? (m.part === 'fuse' ? 'Fuse switch' : m.source ? 'Supply' : 'Breaker') : m.part === 'efv' && m.kind === 'gas' ? 'Meter control valve' : m.source ? 'Supply valve' : 'Valve';
+  return `${noun} ${what}${surge > 5e3 ? ` · water hammer ${(surge / 1e5).toFixed(1)} bar` : ''}`;
 }
 
 const CLOSE_T = 1.5;         // s to run a valve's handwheel home
@@ -1584,12 +1616,27 @@ function mainLoss(b: Break): number {
    power cut, tripped, wrecked) the network falls back to the ~30 % its reservoir's static head gives, and every jet on
    it drops. A supply with no pumps of its own is a gravity main. */
 const STATIC_HEAD = 0.3;
-function boost(n: Net): number {
+function pumpsOf(n: Net): { n: number; on: number } {
   const g = n.src.root.spec.group;
-  if (!g) return 1;
   let pumps = 0, on = 0;
-  for (const m of mechs.values()) if (m.alive && m.drive?.kind === 'electric' && m.part.root.spec.group === g) { pumps++; if (m.running) on++; }
-  return pumps ? STATIC_HEAD + (1 - STATIC_HEAD) * (on / pumps) : 1;
+  /* the sets are the motors in the supply's own building, driving a pump casing on the main (a water member) */
+  if (g) for (const m of mechs.values()) if (m.alive && m.drive?.kind === 'electric' && m.part.root.spec.group === g && pumpNear(m)) { pumps++; if (m.running) on++; }
+  return { n: pumps, on };
+}
+const pumpSets = new WeakMap<Mech, boolean>();
+function pumpNear(m: Mech): boolean {
+  let y = pumpSets.get(m);
+  if (y === undefined) {
+    y = false;
+    for (const p of members) if (p.svc!.kind === 'water' && p.root.spec.group === m.part.root.spec.group && vec3.squaredDistance(p.curPos, m.part.curPos) < 2.25) { y = true; break; }
+    pumpSets.set(m, y);
+  }
+  return y;
+}
+/* duty and standby: any one set running holds the head; with none running it falls to the static head */
+function boost(n: Net): number {
+  const p = pumpsOf(n);
+  return p.n ? (p.on ? 1 : STATIC_HEAD) : 1;
 }
 
 /* A fragment re-welded where its parent broke closes the gap again. */
@@ -2128,7 +2175,9 @@ function igniteAround(pos: Vec3, r: number, chance: number): void {
 /* ---------------- device state lamps ---------------- */
 
 /* The gear within reach of the player shows its state on a small lamp (render/utilityfx.ts): drawn only, nearest first,
-   so who watches changes what is lit and nothing else. A buried valve shows on its surface box. */
+   so who watches changes what is lit and nothing else. A buried valve shows on its surface box. Switchgear convention:
+   red = closed and live (danger), green = open, isolated; flashing amber = tripped by its protection; white = a standby set
+   running. A dead device (nothing reaching it) shows no lamp. */
 const IND_RANGE = 40, IND_MAX = 48;
 const indicators: Indicator[] = [];
 const indNear: { p: Piece; d: number }[] = [];
@@ -2145,9 +2194,9 @@ function deviceLamps(): void {
     if (indicators.length >= IND_MAX) break;
     const m = p.svc!;
     let color = 0, blink = false;
-    if (m.standby) { if (m.run) color = 0xffa020; else if (m.on || m.live) color = 0x30ff60; else continue; }
-    else if (m.closed) { color = 0xff2a1a; blink = m.kind === 'power' && (m.fault > 0 || !!m.dev?.H); }
-    else if (m.on || (m.source && m.live)) color = 0x30ff60;
+    if (m.standby) { if (m.run) color = 0xf0f4ff; else if (m.on || m.live) color = 0x28ff50; else continue; }
+    else if (m.closed) { color = m.tripped ? 0xffb000 : 0x28ff50; blink = m.tripped; }
+    else if (m.on || (m.source && m.live)) color = 0xff1a0a;
     else continue;
     const x = p.curPos[0], z = p.curPos[2], g = groundAt(x, z);
     const top = p.curPos[1] + p.root.spec.size[1] / 2 + 0.03;
@@ -3384,7 +3433,8 @@ export function serviceDots(push: (p: Vec3, r: number, cr: number, cg: number, c
   for (const p of members) {
     const m = p.svc!;
     const c = KIND_RGB[m.kind];
-    if (m.closed) { if (!(m.fault > 0 || m.dev?.H) || blink) push(p.curPos, 0.18, 1, 0.1, 0.1); }
+    /* the device lamps' convention: open / isolated green, tripped flashing amber */
+    if (m.closed) { if (!m.tripped) push(p.curPos, 0.18, 0.15, 1, 0.3); else if (blink) push(p.curPos, 0.18, 1, 0.7, 0); }
     else if (m.standby) push(p.curPos, 0.24, 1, m.run ? 0.85 : 0.55, m.run || !(m.startT > 0 && blink) ? 0.1 : 0.6);
     else if (m.lamp && !m.on && m.batt > 0) push(p.curPos, 0.12, 0.9, 1, 0.95);
     else if (m.on) push(p.curPos, m.source ? 0.2 : 0.07, c[0], c[1], c[2]);

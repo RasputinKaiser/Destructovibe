@@ -969,7 +969,7 @@ function updateHudState(): void {
     : xrayMode() === 'stress' ? 'X-RAY · joints: green idle · yellow loaded · red at capacity · magenta yielding · X to cycle'
     : xrayMode() === 'thermal' ? 'X-RAY · thermal: blue ambient → purple → orange 500 °C → white 1000 °C · X to cycle'
     : xrayMode() === 'fields' ? 'X-RAY · fields: temperature, smoke and fuel gas around the action · X to cycle'
-    : xrayMode() === 'services' ? 'X-RAY · services: yellow power · orange gas · blue water · white steam · grey dead · beads run from supply to load · red shut (blinking: tripped) · amber standby set · white on battery · pulsing = live break · green = running machine'
+    : xrayMode() === 'services' ? 'X-RAY · services: yellow power · orange gas · blue water · white steam · grey dead · beads run from supply to load · green ring isolated (flashing amber: tripped) · amber standby set · white on battery · pulsing = live break · green = running machine'
     : hud.chargesPlaced > 0 ? `${hud.chargesPlaced} charge${hud.chargesPlaced > 1 ? 's' : ''} armed — G${loadout.current === 'charge' || loadout.current === 'cutter' || loadout.current === 'planner' ? ' / right-click' : ''} to detonate` : null;
   hud.fps = Math.round(fpsAvg);
   hud.tool = driving.vehicle || operating.machine ? null : toolReadout();
