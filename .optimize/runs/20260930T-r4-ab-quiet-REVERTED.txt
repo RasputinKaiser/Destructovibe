@@ -1,0 +1,15 @@
+A/B base export (<scratch>/perf4/base) vs head c5daec1; load 305.92 -> 363.67; concurrent=True
+
+chapel_S45: 3 pairs
+  shift +0.00 base-head  buildMs 38709/38813 (x1.00)  fp CHANGED  weldsLost 1002/1000  awakeOther 374/1555
+  shift +0.15 head-base  buildMs 51052/52087 (x1.02)  fp CHANGED  weldsLost 333/349  awakeOther 5/958
+  shift -0.15 base-head  buildMs 13375/12772 (x0.95)  fp CHANGED  weldsLost 357/357  awakeOther 0/787
+  metric                     base med   head med    d med med ratio  base range / head range
+  late_phys_cpu                 8.967     13.844     +54%     x0.95  6.327-14.517 / 5.503-17.596
+  late_after_cpu                8.223      8.212      -0%     x1.00  5.623-8.775 / 5.493-10.349
+  late_total_ms                74.018     69.061      -7%     x0.93  17.274-150.323 / 16.106-179.359
+  awake_at_45s                   1253       1253      +0%     x1.00  93-1645 / 93-1613
+  awake_min_late                   68         72      +6%     x1.01  32-72 / 69-1209
+  awake_mean_late               569.4     898.48     +58%     x0.99  553.72-969.56 / 546.56-1371.32
+  awake_end                        73       1026   +1305%    x12.57  68-402 / 855-1583
+  demo_pct                      3.784      3.781      -0%     x1.00  3.683-8.939 / 3.669-8.79

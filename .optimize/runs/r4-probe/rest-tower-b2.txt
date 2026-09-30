@@ -1,0 +1,21 @@
+REST {"t":1,"awake":7,"awakeDyn":0,"rest1":0,"rest1v":0,"rest3":0,"big":0,"frozen":0,"thawed":0,"fq":0,"fracs":0,"pieces":5489,"phys":19,"byVol":[0,0,0,0]} {}
+REST {"t":2,"awake":1763,"awakeDyn":24,"rest1":0,"rest1v":0,"rest3":0,"big":0,"frozen":0,"thawed":0,"fq":0,"fracs":8,"pieces":5872,"phys":4098,"byVol":[0,0,0,0]} {}
+REST {"t":3,"awake":2346,"awakeDyn":218,"rest1":2,"rest1v":0.02,"rest3":0,"big":0,"frozen":0,"thawed":0,"fq":0,"fracs":10,"pieces":6455,"phys":11254,"byVol":[1,1,0,0]} {}
+REST {"t":4,"awake":2769,"awakeDyn":625,"rest1":12,"rest1v":0.9,"rest3":0,"big":0,"frozen":0,"thawed":0,"fq":2,"fracs":28,"pieces":6882,"phys":18615,"byVol":[1,2,9,0]} {}
+REST {"t":5,"awake":2973,"awakeDyn":1204,"rest1":0,"rest1v":0,"rest3":0,"big":0,"frozen":0,"thawed":0,"fq":75,"fracs":113,"pieces":7090,"phys":24887,"byVol":[0,0,0,0]} {}
+REST {"t":6,"awake":3190,"awakeDyn":1615,"rest1":0,"rest1v":0,"rest3":0,"big":0,"frozen":0,"thawed":0,"fq":336,"fracs":203,"pieces":7308,"phys":30755,"byVol":[0,0,0,0]} {}
+REST {"t":7,"awake":4038,"awakeDyn":1651,"rest1":3,"rest1v":0.34,"rest3":0,"big":0,"frozen":4,"thawed":0,"fq":751,"fracs":289,"pieces":7160,"phys":52715,"byVol":[0,0,3,0]} {}
+REST {"t":8,"awake":3714,"awakeDyn":1701,"rest1":6,"rest1v":13.5,"rest3":0,"big":0,"frozen":7,"thawed":0,"fq":1405,"fracs":358,"pieces":6845,"phys":103502,"byVol":[0,1,1,4]} {}
+REST {"t":9,"awake":4092,"awakeDyn":2051,"rest1":21,"rest1v":53.09,"rest3":0,"big":0,"frozen":12,"thawed":0,"fq":1668,"fracs":437,"pieces":6962,"phys":146946,"byVol":[0,6,1,14]} {}
+REST {"t":10,"awake":4184,"awakeDyn":2331,"rest1":70,"rest1v":157.71,"rest3":5,"big":0,"frozen":25,"thawed":0,"fq":1966,"fracs":537,"pieces":7087,"phys":168021,"byVol":[3,7,7,53]} {}
+REST {"t":11,"awake":3882,"awakeDyn":2274,"rest1":164,"rest1v":322.34,"rest3":18,"big":0,"frozen":37,"thawed":0,"fq":2077,"fracs":618,"pieces":6802,"phys":191540,"byVol":[6,14,14,130]} {}
+REST {"t":12,"awake":3564,"awakeDyn":2812,"rest1":242,"rest1v":431.15,"rest3":39,"big":0,"frozen":37,"thawed":0,"fq":2002,"fracs":681,"pieces":6773,"phys":206210,"byVol":[12,20,15,195]} {}
+REST {"t":13,"awake":3837,"awakeDyn":2926,"rest1":323,"rest1v":538.72,"rest3":101,"big":0,"frozen":40,"thawed":0,"fq":2062,"fracs":760,"pieces":6776,"phys":213480,"byVol":[13,14,20,276]} {}
+REST {"t":14,"awake":3545,"awakeDyn":2913,"rest1":514,"rest1v":1041.36,"rest3":178,"big":0,"frozen":40,"thawed":0,"fq":2243,"fracs":878,"pieces":6755,"phys":220579,"byVol":[21,20,24,449]} {}
+REST {"t":15,"awake":3852,"awakeDyn":2863,"rest1":697,"rest1v":1441.28,"rest3":266,"big":0,"frozen":40,"thawed":0,"fq":2207,"fracs":964,"pieces":6706,"phys":227122,"byVol":[23,29,34,611]} {}
+REST {"t":16,"awake":3430,"awakeDyn":2785,"rest1":1522,"rest1v":3374.13,"rest3":470,"big":0,"frozen":40,"thawed":0,"fq":2101,"fracs":1015,"pieces":6653,"phys":231777,"byVol":[47,55,75,1345]} {}
+REST {"t":17,"awake":3795,"awakeDyn":2763,"rest1":1707,"rest1v":3645.44,"rest3":617,"big":0,"frozen":40,"thawed":0,"fq":1954,"fracs":1068,"pieces":6671,"phys":235971,"byVol":[53,53,92,1509]} {}
+REST {"t":18,"awake":3413,"awakeDyn":2768,"rest1":1728,"rest1v":3536.3,"rest3":1207,"big":0,"frozen":40,"thawed":0,"fq":1790,"fracs":1125,"pieces":6691,"phys":239677,"byVol":[59,77,95,1497]} {}
+REST {"t":19,"awake":3399,"awakeDyn":2792,"rest1":1840,"rest1v":3626.55,"rest3":1242,"big":0,"frozen":43,"thawed":0,"fq":1611,"fracs":1185,"pieces":6703,"phys":243101,"byVol":[58,83,90,1609]} {}
+REST {"t":20,"awake":3742,"awakeDyn":2781,"rest1":1867,"rest1v":3447.14,"rest3":1237,"big":0,"frozen":44,"thawed":0,"fq":1432,"fracs":1240,"pieces":6696,"phys":246288,"byVol":[64,101,86,1616]} {}
+RESULT {"weldsLost":6057,"runaways":324,"awakeAtEnd":3746,"awakeMachine":3341,"awakeOther":405,"fingerprint":"0e043470049cd55e"}

@@ -219,3 +219,70 @@ if pure physics sleeps the pile, the keeper is a wake call, find it with MODE=ca
 (3600 steps, t 45-60 s): A/B vs ee1aac2, 2 pairs: late phys_cpu 12.6 -> 11.1 ms, after_cpu 7.1 -> 6.7 ms, awake_min_late 60 / 52 (both piles do sleep between deflagrations; neither run changes the cadence). Start with backlog #1: why round stones roll 7 m on the
 chapel heap (rolling resistance of pieces over RUBBLE_VOL), then the gas deflagration cadence (#4) with the owner's
 view on realism. No fire-collapse scenario exists: add one before touching heat/fire rules again (heatWake, f1d2a50).
+
+## Run 4 — 2026-09-30 (runtime focus, branch perf-4 from main efe6d57, worktree, CPU-time A/B, 10k tok ≈ 60 s)
+
+Machine: load average 12-570 and swapping (16 GB, 116 MB free, 5.5 GB compressed; other agents). Timing pairs are
+concurrent (`runtime.py --base <git archive> --concurrent`), buildMs ratio 0.93-1.05 on every pair, but with 2-3 pairs
+at this load only large or one-sided deltas count. **No src change landed this run** (both candidate rules reverted);
+the committed work is harness + diagnosis. Raw data: runs/20260930T-r4-*, runs/20260929T-r4-*, runs/r4-probe/.
+
+Harness:
+- `.optimize/rollers.py <tree> <out.mjs>`: sim.mjs copy tracking every loose demolished non-machine piece from t 16 s
+  (ROLL0): late path, net displacement, rolling signature |v|/(|w| r). ROLLSUM + top-30 ROLLERS.
+- `.optimize/rest-probe.py <tree> <out.mjs>`: per-second census of awake loose rubble at rest (<1 cm/s, by volume bin),
+  frozen/thawed, fracture queue length (fq), fractures, pieces, cumulative phys ms.
+- runtime.py: new scenario chapel_S45 (S 2700, kind late, window t 20-45 s; prints awake_mean_late). 'late' scenarios
+  take an optional (lo, hi) window.
+
+Re-measured (backlog #4, gas-settle merged): terrace_S60 A/B 4917780 (pre gas-settle) vs efe6d57, 2 pairs
+(runs/20260929T-r4-terrace60-gas.*): shift 0 fingerprint SAME (awakeOther 25/25: the leak there never mattered);
+shift +0.15 awake_end 1733 -> 115, awakeOther 1684 -> 26. Both trajectories now sleep by 60 s. #4 closed.
+
+Backlog #1 (rolling rubble) not reproduced at HEAD (engine round 4 changed the trajectories): rollers.py on chapel +0.15,
+t 16-30 s (runs/r4-probe/roll-c015.txt): 1548 loose pieces, 139 m total late path, 10 over 3 m. The long paths are
+crane/rope loads (castiron 702 on 2 ropes), conveyor crates and machine parts; the only free rollers are oak log
+fragments (cylinder prisms, 0.007-0.1 m³) rolling 2-4 m on flat ground at y 0.1-0.2. No stone moves over 1 m. No change;
+closed. What keeps that pile awake instead (keepers.py MODE=calls + a WAKER wrapper, runs/r4-probe/keep*.txt): it sleeps
+(~90 awake, machines) and each b3DestroyBody of a piece in it wakes ~960 bodies: detailHeat shrink of a burnt-out
+detail piece, fire disintegrate, pulverize, fade. 5 such destroys in 10 s.
+
+Failed (reverted, numbers kept):
+- **freeze-v1** (runs/20260930T-r4-freeze-v1-REVERTED.diff, -ab-freeze-v1-REVERTED.json): loose rubble of any size at
+  rest 2 s (1 cm, 1°), touching only ground or unjointed rubble, set static; thawed by a hit able to lift it 2 cm, a
+  blast over it, applyImpulseAt (tools), gravgun grab, magnet reach, a moving machine/vehicle contact, or a support
+  (contact below/beside) shifting 1 cm or dying; mass data restored on thaw. A/B 2 pairs: tower_D aftermath phys_cpu
+  78.7 -> 70.6 ms (-10 %, ranges overlap 55-102 / 55-86), collapse neutral, demo 61.0 -> 57.0 % (57.7-64.3 / 56.0-57.9);
+  terrace_S aftermath phys_cpu 14.8 -> 23.7 ms, shift 0 base slept at 16 s (93 awake), head did not (1826), weldsLost
+  1018 -> 2063. Why it cannot bite (rest-probe with debug counters, runs/r4-probe/rest-*-h*.txt): in the tower at
+  t 20 s the ~1900 resting loose pieces are mostly queued for fracture (p.queued, ~1600 a tick) or detail pieces;
+  of 918 candidates 483 froze and 315 were thawed again (287 by a support creeping 1 cm). On the terrace 2993 of 3231
+  candidates lie on standing (welded) floors, which must not be frozen (static rubble would stop loading the floor).
+- **quiet destroy** (runs/20260930T-r4-quiet-destroy-REVERTED.diff, -ab-quiet-REVERTED.*): a sleeping unjointed piece
+  whose dynamic contacts are all asleep and either below it or pressing on it with < 5 % of their weight
+  (totalNormalImpulse) is destroyed and its neighbours put back to sleep (SetAwake(false) splits the island first).
+  Qualified 1 of 5 chapel destroys. A/B chapel_S45, 3 pairs: awake_mean_late 569 -> 898 (shift 0: 569 -> 1371;
+  ±0.15 neutral 970/898, 554/547), late_phys_cpu median ratio x0.95, awake_end 73 -> 1026 (3/3 pairs higher). Realism
+  probe (chapel +0.15, 45 s): wake test moved > 2 cm 9 -> 4, dropped 1 / 1. No win.
+
+Diagnosis for the next run (backlog #2, tower collapse):
+- The tower's fracture queue (FRACTURE_PER_STEP 3, sorted by intensity) holds 75 entries at t 5 s, 1966 at 10 s, 2243
+  at 14 s and still 1432 at 20 s (fractures 537 -> 1240 over t 10-20 s, ~70 a second). Queued pieces lie in the heap
+  for 10-20 s before breaking late. Experiment (scratch, not landed): processFractures(max(3, ceil(queue / 30))) empties
+  it by t 18 s with 1632 fractures total (so many queued entries were stale), awake at 20 s 3598 vs 3742, pieces 6612
+  vs 6696, demo 57.88 vs 57.73 %, cumulative phys ms 255 s vs 246 s (concurrent, same load): no speed gain by itself.
+- The sim's "awakeMachine 3341" on the tower is its AABB flood reaching the heap through a store machine that is not
+  running (axes 1, running 0), not a motor keeping it awake.
+
+End checks at c5daec1 + this ledger (src/scripts/tests identical to efe6d57: `git diff efe6d57 --stat -- src scripts
+tests package.json` empty): tsc exit 0. npm test / validate / idle sims / render probe not re-run: no code under test
+changed, and the machine was swapping (load 275-570).
+
+Backlog top 3: #2 tower collapse (fracture backlog: decide with the owner whether a piece past its hp at impact breaks
+within ~1 s, then measure; what keeps 3400 awake at 20 s: keepers MODE=noafter at t 20 s), #1 burning-heap re-wakes
+(destroys of burnt/faded pieces), #3 procedural textures.
+
+Next run: probes trusted. chapel_S45 is the scenario for heap re-wakes (t 20-45 s); rest-probe.py for what rubble sits
+in the solve; rollers.py for late movers. Before any freeze rule: the terrace's rubble lies on standing floors and the
+tower's is queued for fracture, so a freeze rule needs the fracture backlog settled first. Run A/Bs only when
+`uptime` load < 50 and `vm_stat` shows free pages; this run's timings are weak.
