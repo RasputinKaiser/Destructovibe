@@ -42,13 +42,15 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     name: 'Garden Variety',
     location: '9 Larch Avenue, back garden · 12:05',
     brief: 'The new owners want a lawn, and they want it by teatime: shed, greenhouse, outdoor facilities, the lot — and the back wall. '
-      + 'Start with the sledge: hold to wind it up, let go to strike. The greenhouse glass goes at a tap and the privy in a few full '
-      + 'swings. The back wall is nearly half the job and the shed is most of the rest: that is cannon work, low. Every ball the '
-      + 'sledge saves you is money back.',
-    tip: 'Sledge the greenhouse and the privy first, then put the cannonballs into the back wall and the shed, low.',
+      + 'Start with the sledge: hold to wind it up, let go to strike. The greenhouse glass goes at a tap and the privy\'s thin boards '
+      + 'go one a full swing. The back wall is nearly half the job and the shed is most of the rest: that is cannon work, low. '
+      + 'A cannonball you don\'t fire is worth about seven seconds on the clock: the privy and the glass are quicker by sledge, '
+      + 'the wall and the shed are not.',
+    tip: 'Sledge the privy flat and break the greenhouse glass first, then put the cannonballs into the back wall and the shed, low.',
     target: 0.45,
     par: 120,
-    stars: [1800, 2800],
+    stars: [0, 0],
+    primary: 'hammer',
     ammo: { hammer: -1, cannon: 12 },
     env: 'noon',
     build: () => bp([0, 0, 6],
@@ -69,8 +71,9 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + 'heavy and they know it. Give it a few seconds once it starts to go.',
     tip: 'Corners alone will not drop it: spread the cannonballs along the walls under the eaves, all four sides, then wait for the roof.',
     target: 0.6,
-    par: 150,
-    stars: [20000, 30000],
+    par: 120,
+    stars: [0, 0],
+    primary: 'cannon',
     ammo: { hammer: -1, cannon: 18 },
     env: 'golden',
     unlockText: 'ROCKETS UNLOCKED',
@@ -91,8 +94,9 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + '"on target: steel" before you fire. The pump house is not precious.',
     tip: 'Rocket both legs on one side, then a cannonball into the lean. Fire when the readout says "on target: steel", not before.',
     target: 0.55,
-    par: 120,
-    stars: [6000, 10000],
+    par: 75,
+    stars: [0, 0],
+    primary: 'rocket',
     ammo: { hammer: -1, cannon: 10, rocket: 6 },
     env: 'overcast',
     build: () => bp([0, 0, 6],
@@ -108,13 +112,15 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     name: 'Four Stacks, No Scratches',
     location: 'Old Brickworks Yard · 18:40',
     brief: 'Four boiler stacks round a yard, and parked in the middle of it the site office, the foreman\'s van and a surveyor\'s very '
-      + 'clean car. Everything tall comes down; everything with wheels or a kettle stays pristine. Three or four cannonballs into '
+      + 'clean car. The stacks come down, most of their brick on the ground to sign it off and every stack you drop is more on the '
+      + 'fee; everything with wheels or a kettle stays pristine. Three or four cannonballs into '
       + 'the bottom course brings a stack down, but which way it goes once the course lets go is its own business: watch the first '
       + 'one, and pick the side you shoot the rest from by what it did. The rockets stay in the van today.',
     tip: 'Three or four cannonballs into each stack\'s bottom course. Watch which way the first one goes and shoot the rest from the side that sends them away from the vehicles.',
     target: 0.55,
-    par: 180,
-    stars: [8000, 11000],
+    par: 130,
+    stars: [0, 0],
+    primary: 'cannon',
     ammo: { hammer: -1, cannon: 14 },
     env: 'dusk',
     protectedNote: 'PROTECTED: site office, van and car — any damage is deducted from your fee.',
@@ -141,8 +147,9 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + 'the steel columns (the wheel sizes them), walk out, G. The gas is stacked down the gatehouse side and goes when the columns '
       + 'do: the smaller the charges, and the further from the gas, the less of the fireball reaches the gatehouse.',
     target: 0.55,
-    par: 150,
-    stars: [50000, 70000],
+    par: 80,
+    stars: [0, 0],
+    primary: 'charge',
     ammo: { hammer: -1, charge: 6 },
     env: 'night',
     protectedNote: 'PROTECTED: the canal trust gatehouse by the road — let, occupied, and not insured for propane.',
@@ -164,8 +171,9 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + 'you cut. Nobody on this crew has felled one this tall, so take it steady and watch which way it leans.',
     tip: 'Cannon the stack\'s shaft just above the plinth, one face, from the mill side, and watch it lean before you add more. The mill goes on charges along its ground-floor piers.',
     target: 0.5,
-    par: 240,
-    stars: [65000, 90000],
+    par: 130,
+    stars: [0, 0],
+    primary: 'cannon',
     goal: { fell: { group: 'chimney', what: 'the chimney', below: 6, from: 12 } },
     ammo: { hammer: -1, cannon: 12, charge: 6, winch: 2 },
     env: 'golden',
@@ -186,8 +194,9 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + 'rockets; someone also abandoned a lorry-load of fuel up top. The bus shelter is council property.',
     tip: 'Three pier bents of two columns each: four charges low on four columns, cannon or rockets on the other two, G from well back.',
     target: 0.75,
-    par: 180,
-    stars: [60000, 90000],
+    par: 100,
+    stars: [0, 0],
+    primary: 'charge',
     ammo: { hammer: -1, cannon: 8, rocket: 3, charge: 4, airstrike: 1 },
     env: 'overcast',
     protectedNote: 'PROTECTED: the bus shelter by the east abutment.',
@@ -203,12 +212,13 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     name: 'Last Orders',
     location: 'Carrow Heights · 21:00',
     brief: 'Six storeys of 1960s optimism, now mostly pigeons. Bring it straight down into its own footprint: take the ground-floor '
-      + 'columns and let gravity handle the paperwork. Nine columns, five charges and four of the new cutting charges: one to a '
-      + 'column, fired together. A cutting charge goes on along the line it shows and severs the column clean, and throws next to '
+      + 'columns and let gravity handle the paperwork. Nine columns, five charges and four of the new cutting charges: enough for one '
+      + 'to a column, fired together. A cutting charge goes on along the line it shows and severs the column clean, and throws next to '
       + 'nothing: those go on the side facing the chip shop across the road, which is open until midnight and staying open.',
     target: 0.9,
-    par: 240,
-    stars: [90000, 115000],
+    par: 90,
+    stars: [0, 0],
+    primary: 'cutter',
     tip: 'Nine ground-floor columns in a three-by-three grid, one device each, low: cutting charges on the row facing the chip shop, charges on the rest, then G.',
     ammo: { hammer: -1, charge: 5, cutter: 4, airstrike: 1 },
     env: 'night',

@@ -223,11 +223,12 @@ export function initWeapons(s: THREE.Scene): void {
   };
 }
 
-export function setLoadout(ammo: Partial<Record<WeaponId, number>>): void {
+export function setLoadout(ammo: Partial<Record<WeaponId, number>>, primary?: WeaponId): void {
   loadout.ammo = { ...ammo };
   for (const w of WEAPONS) lastFire[w.id] = -99;
   now = 0;
-  const first = WEAPONS.find(w => ammo[w.id] !== undefined && ammo[w.id] !== 0) ?? WEAPONS.find(w => ammo[w.id] !== undefined);
+  const first = (primary && ammo[primary] !== undefined ? WEAPONS.find(w => w.id === primary) : undefined)
+    ?? WEAPONS.find(w => ammo[w.id] !== undefined && ammo[w.id] !== 0) ?? WEAPONS.find(w => ammo[w.id] !== undefined);
   loadout.current = first ? first.id : 'hammer';
   viewmodel.setWeapon(loadout.current);
 }
@@ -1340,7 +1341,26 @@ export function weaponsAfterStep(dt: number): void {
     const p = projectiles[i];
     if (p.dead) { projectiles.splice(i, 1); continue; }
     const age = now - p.born;
-    if (p.stuck && p.joint && !b3.b3Joint_IsValid(p.joint)) { p.stuck = false; p.joint = null; p.host = null; }
+    if (p.stuck && p.joint && !b3.b3Joint_IsValid(p.joint)) {
+      const n = faceNormal(p, [0, 0, 0]);
+      p.stuck = false; p.joint = null; p.host = null;
+      /* a planted charge whose member broke under it (a ball, another blast) stays on what is left of the member; one
+         with nothing left to hold it has fallen away, and rather than lie armed as a dud that holds up sign-off it goes
+         back in the bag */
+      if ((p.type === 'charge' || p.type === 'cutter') && !detonations.some(d => d.p === p)) {
+        const q = nearestPiece(p.curPos, 0.5);
+        if (q) {
+          const off = STICK_OFFSET[p.type] ?? 0.05;
+          stick(p, [p.curPos[0] - n[0] * off, p.curPos[1] - n[1] * off, p.curPos[2] - n[2] * off], n, q, [...p.curRot] as Quat);
+        } else {
+          const a = loadout.ammo[p.type];
+          if (a !== undefined && a >= 0) loadout.ammo[p.type] = a + 1;
+          removeProjectile(p);
+          onDeny(`${p.type === 'cutter' ? 'Cutting charge' : 'Charge'} fell off its member — back in the bag`);
+          continue;
+        }
+      }
+    }
     switch (p.type) {
       case 'rocket':
         if (age > 7) blowUp(p, [...p.curPos]);

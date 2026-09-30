@@ -1,5 +1,7 @@
 /* Points come from demolished volume × material value. Demolition events that land inside the
-   combo window of each other build a multiplier (up to ×4); the window refills on every event. */
+   combo window of each other build a multiplier (up to ×4); the window refills on every event. What the multiplier adds
+   on top of the demolition itself is capped (setComboCap) so the same plan lands in the same star band: how long a
+   collapse keeps chaining is the physics' business, how much comes down and how fast is the player's. */
 
 const COMBO_WINDOW = 3.2;
 const COMBO_STEP = 0.1;
@@ -15,7 +17,14 @@ export const score = {
   elapsed: 0,
   bestChain: 0,
   explosives: 0,
+  /** demolition credited before the multiplier */
+  base: 0,
+  /** what the multiplier added, up to the cap */
+  comboExtra: 0,
 };
+let comboCap = Infinity;
+/** The most the multiplier can add over the whole job (points). */
+export function setComboCap(cap: number): void { comboCap = cap; }
 
 let popAcc = 0;
 let lastLink = -99;
@@ -33,7 +42,7 @@ export function resetScore(): void {
   pendingRaw = unbooked = 0;
   for (const a of book.values()) { a.hurt = 0; a.fine = 0; a.incident = 0; a.lastAt = -1e9; a.incidentFine = 0; }
   score.points = 0; score.penalty = 0; score.chain = 0; score.comboTimer = 0;
-  score.elapsed = 0; score.bestChain = 0; score.explosives = 0;
+  score.elapsed = 0; score.bestChain = 0; score.explosives = 0; score.base = 0; score.comboExtra = 0;
   popAcc = 0; popTimer = -1; popLabel = ''; lastLink = -99;
 }
 
@@ -49,7 +58,10 @@ export function addDemolition(value: number, label = 'DEMOLITION'): number {
     score.bestChain = Math.max(score.bestChain, score.chain);
   }
   score.comboTimer = COMBO_WINDOW;
-  const pts = Math.round(value * comboMult());
+  const extra = Math.max(0, Math.min(value * (comboMult() - 1), comboCap - score.comboExtra));
+  score.base += value;
+  score.comboExtra += extra;
+  const pts = Math.round(value + extra);
   score.points += pts;
   pop(pts, label);
   return pts;
@@ -68,7 +80,7 @@ export function addBonus(points: number, label: string): void {
    the job's own currency (a fraction of what the job pays), capped at the structure's liability. Damage that keeps
    coming within INCIDENT_GAP of the last is the same incident. */
 export const LIABILITY = 0.3;     // of the job's value: what wrecking one protected structure costs at most
-const FIRST_FINE = 0.15;          // of the liability: the first scratch
+const FIRST_FINE = 0.03;          // of the liability: the first scratch; the rest scales with how much is hurt
 /* How much of a structure is hurt (its raw fine so far over its whole): under DAMAGED it is a ding (a blast wave's
    broken windows reach every building on a site and cannot be helped), past it the job is capped at ★★, past WRECKED
    at ★. */
@@ -114,7 +126,8 @@ export function chargePenalty(key: string | null): void {
   if (opened) { a.incident++; a.incidentFine = 0; }
   a.lastAt = score.elapsed;
   a.hurt += raw;
-  const k = Math.min(1, FIRST_FINE + (1 - FIRST_FINE) * (a.hurt / Math.max(a.raw, 1)) * 3);
+  // full liability at WRECKED: a pane of glass and a blown-in gable are different bills
+  const k = Math.min(1, FIRST_FINE + (1 - FIRST_FINE) * (a.hurt / Math.max(a.raw, 1)) / WRECKED);
   const fine = Math.round(a.cap * k);
   const delta = fine - a.fine;
   a.fine = fine;
