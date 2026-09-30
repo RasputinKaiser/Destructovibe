@@ -28,7 +28,7 @@ Metrics are ms per physics step (phys = b3World_Step + event dispatch, after = a
 syncMeshes/maintain) and awake bodies; *_cpu = process CPU ms per step (user+sys, includes GC threads), steadier
 than wall time when other agents load the machine, though the M1's efficiency cores still inflate it under load.
 """
-import argparse, json, os, subprocess, sys, time, statistics
+import argparse, json, os, re, subprocess, sys, time, statistics
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -117,11 +117,16 @@ def run(name, root=ROOT, shift=0.0):
     m['perf'] = P
     return m
 def brief(s): return {k: v for k, v in s.items() if k not in ('perf', 'tail')}
+def anon(p):
+    """run records are committed to a public repo: never store the home or temp path"""
+    s = re.sub(r'/private/tmp/claude-\d+/[^/\s"\']+/[^/\s"\']+/scratchpad', '<scratch>', str(p))
+    s = re.sub(r'/private/tmp/claude-\d+/[^/\s"\']+/[^/\s"\']+', '<tmp>', s)
+    return s.replace(str(Path.home()), '~').replace(Path.home().name, 'user')
 def ab(a):
     base, head = Path(a.base).resolve(), ROOT
     names = a.only.split(',') if a.only else list(SCEN)
     shifts = [float(x) for x in a.shifts.split(',')]
-    out = {'mode': 'ab', 'base_root': str(base), 'head_root': str(head), 'shifts': shifts, 'reps': a.reps,
+    out = {'mode': 'ab', 'base_root': anon(base), 'head_root': anon(head), 'shifts': shifts, 'reps': a.reps,
            'concurrent': a.concurrent, 'loadavg_start': [round(x, 2) for x in os.getloadavg()], 'scenarios': {}}
     for tree, key in ((base, 'base'), (head, 'head')):
         g = lambda *c: subprocess.run(['git', *c], cwd=tree, capture_output=True, text=True).stdout.strip()
@@ -149,7 +154,7 @@ def ab(a):
             if not a.keep_perf:
                 for p in s['pairs']:
                     for k in ('base', 'head'): p[k].pop('perf', None)
-        Path(a.out).write_text(json.dumps(out, indent=1))
+        Path(a.out).write_text(anon(json.dumps(out, indent=1)))
     report(out)
 def report(out):
     print(f"A/B base {out.get('base_rev')} ({out['base_root']}) vs head {out.get('head_rev')}; load {out['loadavg_start'][0]} -> {out['loadavg_end'][0]}; concurrent={out['concurrent']}")
@@ -203,7 +208,7 @@ def main():
         print(f'[runtime] {n}: ' + json.dumps(brief(s)), file=sys.stderr, flush=True)
     out['loadavg_end'] = [round(x, 2) for x in os.getloadavg()]
     if a.out:
-        Path(a.out).write_text(json.dumps(out, indent=1))
+        Path(a.out).write_text(anon(json.dumps(out, indent=1)))
     if a.compare:
         prev = json.loads(Path(a.compare).read_text())['scenarios']
         print(f"{'scenario.metric':44} {'before':>10} {'after':>10} {'delta':>8}")
