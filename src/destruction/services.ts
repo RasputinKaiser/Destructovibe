@@ -864,9 +864,9 @@ function buildingSupply(): void {
     if (want === was) continue;
     paneShown.set(g, want);
     /* first sight: as it stands, no stutter */
-    if (was === undefined) { for (const p of list) if (!p.dead) paneLevel(p, want ? LIT : 0); continue; }
+    if (was === undefined) { paneAt.set(g, want ? LIT : 0); for (const p of list) if (!p.dead) paneLevel(p, want ? LIT : 0); continue; }
     paneFlick.set(g, 0.25 + vrnd() * 0.4);
-    if (!want) for (const p of list) if (!p.dead) paneLevel(p, 0.6);
+    if (!want) { paneAt.set(g, 0.6); for (const p of list) if (!p.dead) paneLevel(p, 0.6); }
   }
 }
 /** Buildings with wiring and windows: how many panes, whether their supply is shown on (tools, tests). */
@@ -882,11 +882,22 @@ function paneLevel(p: Piece, k: number): void {
 }
 
 /* the stutter of a dying (or struck) supply, stepped only while one runs */
+/* the stutter steps at ~15 Hz (a fluorescent tube's or a lamp's), and a building's panes are only rewritten when its
+   level changes */
+let paneT = 0;
+const paneAt = new Map<string, number>();
+const paneDip = new Map<string, number>();
 function stepPanes(dt: number): void {
+  paneT += dt;
+  if (paneT < 1 / 15) return;
+  const step = paneT;
+  paneT = 0;
   for (const [g, t] of paneFlick) {
-    const list = panes.get(g), left = t - dt;
+    const list = panes.get(g), left = t - step;
     const k = left <= 0 ? (paneShown.get(g) ?? 1) * LIT : vrnd() < 0.45 ? 0.05 : (0.4 + 0.6 * vrnd()) * LIT;
     if (left <= 0) paneFlick.delete(g); else paneFlick.set(g, left);
+    if (paneAt.get(g) === k) continue;
+    paneAt.set(g, k);
     if (list) for (const p of list) if (!p.dead) paneLevel(p, k);
   }
 }
@@ -2045,7 +2056,7 @@ function arc(b: Break, strength: number): void {
     /* a bolted fault's dip puts a sodium lamp out */
     if (strength >= 0.3 && sodium(p) && m.relight < clock && m.emit > 0) m.relight = clock + RESTRIKE;
   }
-  for (const [g, n] of paneNet) if (n === net && !paneFlick.has(g) && paneShown.get(g) !== 0) paneFlick.set(g, 0.08 + vrnd() * 0.12);
+  for (const [g, n] of paneNet) if (n === net && !paneFlick.has(g) && paneShown.get(g) !== 0 && clock - (paneDip.get(g) ?? -1) > 0.5) { paneDip.set(g, clock); paneFlick.set(g, 0.08 + vrnd() * 0.12); }
   const r = 0.8;
   const src = b.p;
   overlapAABB([_v[0] - r, _v[1] - r, _v[2] - r], [_v[0] + r, _v[1] + r, _v[2] + r], CAT.structure | CAT.debris | CAT.prop, shape => {
@@ -3286,7 +3297,7 @@ export function clearServices(): void {
   clearWaterJets();
   setIndicators([]);
   fallen.length = 0;
-  panes.clear(); paneNet.clear(); paneShown.clear(); paneFlick.clear(); panesAt = -1e9; vs = 0x9e3779b9;
+  panes.clear(); paneNet.clear(); paneShown.clear(); paneFlick.clear(); paneAt.clear(); paneDip.clear(); panesAt = -1e9; paneT = 0; vs = 0x9e3779b9;
   strikes.clear();
 }
 

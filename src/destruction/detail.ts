@@ -1604,20 +1604,16 @@ function dimSlot(pool: DetailPool, sl: number, tint: number | undefined, k: numb
   col[sl * 3] = _dc.r; col[sl * 3 + 1] = _dc.g; col[sl * 3 + 2] = _dc.b;
   pool.mesh.instanceColor!.needsUpdate = true;
 }
-/** Scale the tint of a member's glazing units (1 = as built); returns how many units it has. */
-export function setDetailDim(p: Piece, k: number): number {
+/** Scale the tint of a member's glazing units (1 = as built). */
+export function setDetailDim(p: Piece, k: number): void {
   const s = sets.get(p);
-  if (!s) return 0;
-  let n = 0;
-  for (let i = 0; i < s.n; i++) if (GLAZED.has(kinds[s.kind[i]].mat)) n++;
-  if (Math.abs(s.dim - k) < 1e-3) return n;
+  if (!s || Math.abs(s.dim - k) < 1e-3) return;
   s.dim = k;
-  if (!s.shown) return n;
+  if (!s.shown) return;
   for (let i = 0; i < s.n; i++) {
     const sl = s.slots[i], K = kinds[s.kind[i]];
     if (sl >= 0 && GLAZED.has(K.mat) && K.pool) dimSlot(K.pool, sl, s.spec[i].tint, k);
   }
-  return n;
 }
 
 /* ---------------- stats ---------------- */

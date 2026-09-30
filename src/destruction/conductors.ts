@@ -21,6 +21,8 @@ export interface Tail {
   awake: boolean;
   still: number;              // steps it has been still
   grounded: boolean;          // its free end lies on the ground
+  gy: Float32Array;           // ground height under each node, sampled where gs holds (the terrain query is not free)
+  gs: Float32Array;           // x, z each node's ground was sampled at
 }
 
 /** A tail from `anchor` running `len` m straight toward `toward`. */
@@ -31,7 +33,7 @@ export function makeTail(anchor: ArrayLike<number>, toward: ArrayLike<number>, l
   dx /= d; dy /= d; dz /= d;
   const seg = Math.max(0.05, len) / (n - 1);
   for (let i = 0; i < n; i++) { x[i * 3] = anchor[0] + dx * seg * i; x[i * 3 + 1] = anchor[1] + dy * seg * i; x[i * 3 + 2] = anchor[2] + dz * seg * i; }
-  return { x, px: x.slice(), seg, awake: true, still: 0, grounded: false };
+  return { x, px: x.slice(), seg, awake: true, still: 0, grounded: false, gy: new Float32Array(n).fill(NaN), gs: new Float32Array(n * 2) };
 }
 
 /** One physics step: node 0 follows the insulator at `anchor` (null: the insulator is gone and the whole length
@@ -65,7 +67,11 @@ export function stepTail(t: Tail, anchor: ArrayLike<number> | null, dt: number, 
   }
   t.grounded = false;
   for (let i = i0; i < n; i++) {
-    const o = i * 3, gy = ground(x[o], x[o + 2]) + R;
+    const o = i * 3;
+    /* resample the ground only once the node has moved a quarter metre across it */
+    const dx = x[o] - t.gs[i * 2], dz = x[o + 2] - t.gs[i * 2 + 1];
+    if (!(dx * dx + dz * dz < 0.0625)) { t.gy[i] = ground(x[o], x[o + 2]); t.gs[i * 2] = x[o]; t.gs[i * 2 + 1] = x[o + 2]; }
+    const gy = t.gy[i] + R;
     if (x[o + 1] < gy) {
       x[o + 1] = gy;
       /* lying on the ground: a slow creep is held by static friction, a slide loses most of its speed */
