@@ -3957,11 +3957,29 @@ function updateFire(dt: number): void {
     for (const w of p.welds) scaleWeld(w, 0.985, false);
     // a burning member is nudged awake to find out whether its weakening joints still hold; loose burning rubble is
     // not, or it would keep its whole pile awake for as long as it burns
-    if (p.welds.length && chance() < 0.1) b3.b3Body_SetAwake(p.body, true);
+    if (p.welds.length && chance() < 0.1) heatWake(p);
     if (chance() < 0.18) audio.burn(p.curPos, size * flame);
     if (p.char >= 1) disintegrate(p);
   }
   fields.stepFields(dt);
+}
+
+/* Waking a sleeping member wakes its whole solver island: a burning beam under a rubble heap wakes the heap, every time.
+   The solver can only break a heat-weakened joint whose load comes near what the joint now holds, and a sleeping joint
+   still carries the load it last carried, so a member whose joints all sit well inside their reduced capacity holds as
+   it lies and stays asleep. Failure from the static load itself (settleFailures, creep rupture) runs on the analysis,
+   awake or not. */
+const HEAT_WAKE = 0.6;
+function heatWake(p: Piece): void {
+  if (b3.b3Body_IsAwake(p.body)) return;
+  for (const w of p.welds) {
+    if (!w.alive) continue;
+    b3.b3Joint_GetConstraintForce(_jf, w.joint);
+    let r = vec3.length(_jf) / w.cap.comp;
+    b3.b3Joint_GetConstraintTorque(_jf, w.joint);
+    r = Math.max(r, vec3.length(_jf) / w.cap.torque, staticRatio(w));
+    if (r >= HEAT_WAKE) { b3.b3Body_SetAwake(p.body, true); return; }
+  }
 }
 
 const INCANDESCENT = new Set<MaterialId>(['steel', 'castiron', 'aluminum', 'metal', 'copper', 'machine']);
@@ -4020,7 +4038,7 @@ function updateHeat(): void {
       if (Math.abs(k - p.heatK) > 0.03) {
         p.heatK = k;
         for (const w of p.welds) applyCaps(w);
-        if (p.welds.length) b3.b3Body_SetAwake(p.body, true);
+        if (p.welds.length) heatWake(p);
         /* softening sheds load to cooler members; a hot strut loses stiffness and buckles long before it yields */
         analysisTouch(p);
         supportDirty = true;
