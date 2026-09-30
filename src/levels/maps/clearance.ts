@@ -6,7 +6,7 @@ import { boilerHouse } from '../plant.ts';
 import * as M from '../machines.ts';
 import * as EL from '../electrical.ts';
 import { MAIN, SiteGrid, checkGrid, depthOf, intakes, kindOf, networks, pumpHall, substation, unsource } from '../grid.ts';
-import { bench, bollard, fence, litterBin, marker, phoneBox, postBox, sign, stand, stopFlag, wheelieBin } from './ground.ts';
+import { barrier, bench, bollard, cone, fence, heras, litterBin, marker, palisade, phoneBox, postBox, sign, stand, stopFlag, wheelieBin } from './ground.ts';
 import { TerrainPlan } from '../../terrain/plan.ts';
 import { found, onFoundation, type FoundOpts } from '../../terrain/foundations.ts';
 import { groundFn, groundHeight } from '../../terrain/raster.ts';
@@ -233,8 +233,12 @@ export function clearanceZone(): Blueprint {
   bld('semis', semiPair({ x: 28, z: 51.4, rot: 2 }), 'drop', true, false, true);
   bld('chapel', chapelLite({ x: -53, z: -8 }), 'drop', false, false, false, { depth: 1.0 });
   // the boiler house at the east end of the works yard; the brick chimney is its flue, so the guyed steel stack the
-  // plant kit stands on its end wall (and the stack's guys) is left out
-  bld('boilerhouse', place(boilerHouse({ x: 0, z: 0 }).filter((q) => q.pos[0] < 5.12 && Math.abs(q.pos[2]) < 4.2), BH.x, BH.z, 1), 'ground', true, true);
+  // plant kit stands on its end wall (and the stack's guys) is left out. It is the next job on the demolition
+  // programme, so its power and gas services have already been cut back to the mains and capped: its transformer and
+  // gas intake are dead ends (no tail runs to them), and a felling that wrecks the house cannot draw a fault or a leak
+  const bhps = unsource(house(place(boilerHouse({ x: 0, z: 0 }).filter((q) => q.pos[0] < 5.12 && Math.abs(q.pos[2]) < 4.2), BH.x, BH.z, 1)), ['power', 'gas']);
+  for (const q of bhps) if (q.fixture === 'lamp') delete q.fixture;
+  buildings.push({ ps: bhps, gas: false, steam: true, water: false, name: 'boilerhouse' });
   // its brick chimney west of it on a mass-concrete pad, the flue duct running to the boiler house's west wall between
   // its windows; felled west along z -10 it comes down the length of the works yard (the felling lane, kept clear of
   // plant) and its top lands on Works Road: ~36 m of open ground for a ~34 m pile
@@ -319,7 +323,6 @@ export function clearanceZone(): Blueprint {
     M.mixerTruck({ x: 11, z: -36, rot: 2 }),
     // clear of the frame: its bundle set down inside the frame's bay and slewed out through the west wall
     M.mobileCrane({ x: 2, z: -37, rot: 2 }),
-    M.bulldozer({ x: 15, z: -50 }),
     M.compressor({ x: 14, z: -18.5 }),
     M.scissorLift({ x: 9.5, z: -18.2 }),
     M.lightTower({ x: -12, z: -46 }),
@@ -399,10 +402,10 @@ export function clearanceZone(): Blueprint {
   // side walls closing the gardens off from Mill Lane and from the cleared plots east of the semis
   coped([-16.25, -16.02], [FW[0], 59.3], 1.5);
   coped([35.4, 35.63], [FW[0], 59.3], 1.5);
-  // the builders' merchant's yard: palisade on its west side, along the green
-  furn.push(...fence('z', 12.2, 32.3, 33.2, 0, 2.0, 'steel', 0x2f3a36, 6.8));
-  // the works yard's frontage to High Street: palisade, open at the yard gate
-  furn.push(...fence('x', 32.4, 63.6, -1.95, 0, 2.0, 'steel', 0x2f3a36, 6.8).filter((q) => q.pos[0] < 38.5 || q.pos[0] > 45.5));
+  // the builders' merchant's yard: steel palisade on its west side, along the green (pales toward the green)
+  furn.push(...palisade('z', 12.2, 32.3, 33.2, 0, 2.0, 0x2f3a36, 6.8, -1));
+  // the works yard's frontage to High Street: palisade, open at the yard gate (pales toward the street)
+  furn.push(...palisade('x', 32.4, 63.6, -1.95, 0, 2.0, 0x2f3a36, 6.8, 1).filter((q) => q.pos[0] < 38.5 || q.pos[0] > 45.5));
   // a cut-through path across the green from High Street to Terrace Row, with a bench on it
   plan.mat([21.3, 22.7], [11.65, 32.85], 'paving');
   furn.push(bench(23.6, 22, 0, false, 1), litterBin(23.4, 24.6, 0));
@@ -423,10 +426,37 @@ export function clearanceZone(): Blueprint {
   }
   add(rubble(58.5, 52, 29));
 
+  /* the chimney's exclusion zone. The fall line runs west down the yard (a bed of broken-out slab and soil laid along
+     it to take the impact); a spoil bund across its end on the concrete behind the shops catches what skids and
+     bounces on past Works Road short of shop-a, with mesh fencing along its front; Works Road and the High Street
+     stretch past the yard are closed at barriers for the felling, and the yard gate is fenced shut. */
+  plan.mat([31.2, 47.5], [-13.5, -6.5], 'soil');
+  for (const [i, y] of [0.6, 1.2, 1.8, 2.3].entries()) plan.level([14.8 + i * 0.5, 20.4 - i * 0.5], [-15.0 + i * 0.4, -3.4 - i * 0.4], y, 'soil');
+  furn.push(heras('z', -15.3, -2.9, 21.4, lv(21.4, -9)), heras('x', 38.5, 45.5, -2.3, lv(42, -2.3)));
+  const closed = (axis: 'x' | 'z', a: number, b: number, at: number, cones: [number, number][], sx: number, sz: number) => {
+    const mid = (a + b) / 2, y = axis === 'x' ? lv(mid, at) : lv(at, mid);
+    furn.push(barrier(axis, a, b, at, y), ...cones.map(([x, z]) => cone(x, z, lv(x, z))), sign(sx, sz, lv(sx, sz), axis === 'x', 0xe8e8e2, 0.75, 1.9));
+  };
+  closed('x', 23.3, 28.7, -1.6, [[23.8, -0.4], [26, 0]], 23.2, -1.3);
+  closed('x', 23.3, 28.7, -24, [], 28.8, -24.3);
+  closed('z', 2.8, 9.2, 12.4, [[13.8, 3.4], [15.2, 4.4]], 12.4, 2.3);
+  closed('z', 2.8, 9.2, 35.4, [[34, 8.6], [32.6, 7.6]], 35.4, 9.7);
+
+  /* the demolition contractor's staging ground by the Mill Lane entrance: a hardcore laydown with two stockpiles of
+     crushed brick, a dozer, and a rutted haul track in from the lane with standing water in the ruts */
+  plan.mat([-62, -29], [43, 63], 'rubble').mat([-50, -28], [55.6, 58.4], 'soil');
+  for (const z of [56.3, 57.7]) plan.mat([-54, -28], [z - 0.3, z + 0.3], 'soil');
+  for (const [x, z, w] of [[-31, 56.3, 1.6], [-36.5, 57.7, 1.2], [-41, 56.4, 2.0], [-47, 57.6, 1.4], [-40, 47, 2.6]]) plan.decal('puddle', x, z, w, w * 0.45);
+  world.push(stockpile('gravel', [-45, -40.5], [49, 53], 1.6, 'staging'), stockpile('gravel', [-40, -37], [52.5, 55.3], 1.2, 'staging'));
+  add(M.bulldozer({ x: -31, z: 45, rot: 1 }));
+
   const pieces = [...world, ...g.ps, ...furn];
   for (const q of pieces) delete q.protected;
   plan.seat(pieces);
-  return { pieces, spawn: { pos: [-22, lv(-22, 61), 61], yaw: 0 }, terrain: plan.spec };
+  // the player starts at the back of the staging ground looking north-east over it and across Terrace Row: the
+  // stockpiles and dozer, Mill Lane, the terrace, the High Street roofs and the works chimney (bearing 54 deg, 16 deg
+  // right of the view's centre) all in the first frame
+  return { pieces, spawn: { pos: [-46, lv(-46, 61), 61], yaw: -0.66 }, terrain: plan.spec, backdrop: 'town' };
 }
 
 /** Grid check for this map: every consumer reaches a grid (or site plant) source. */

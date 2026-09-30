@@ -365,6 +365,9 @@ export interface Blueprint {
   spawn?: { pos: Vec3; yaw: number };
   /** the site's ground (heightfield, surfacing, kerbs, walls, holes); default a flat plain at y = 0 */
   terrain?: import('./terrain/spec').TerrainSpec;
+  /** render-only surroundings past the site fence: 'town' lays terraced streets out to the view's edge (default open
+      country) */
+  backdrop?: 'town';
 }
 
 export interface Contract {

@@ -96,6 +96,58 @@ export function boundaryWall(axis: 'x' | 'z', a: number, b: number, at: number, 
     ? block(mat, u, [y, y + h], [at - 0.11, at + 0.11], { tint, group: 'walls', anchored: true }) : block(mat, [at - 0.11, at + 0.11], [y, y + h], u, { tint, group: 'walls', anchored: true })));
 }
 
+/** Steel palisade along X or Z: pales (65 mm, 150 mm centres) bolted to two angle rails on posts set in concrete, one
+    welded run per `maxL`. Light and see-through; `side` is the face the pales are on. */
+export function palisade(axis: 'x' | 'z', a: number, b: number, at: number, y: number, h = 2.0, tint = 0x2f3a36, maxL = 6.8, side: 1 | -1 = 1): PieceSpec[] {
+  const B = (u: Range, yy: Range, v: Range) => {
+    const w = [at + side * v[0], at + side * v[1]].sort((p, q) => p - q) as Range;
+    return axis === 'x' ? block('steel', u, yy, w) : block('steel', w, yy, u);
+  };
+  return splitRange(Math.min(a, b), Math.max(a, b), maxL).map(([u0, u1]) => {
+    const parts: PieceSpec[] = [];
+    const nb = Math.max(1, Math.round((u1 - u0) / 2.75)), step = (u1 - u0) / nb;
+    // (no part thinner than 40 mm: a finer part is not drawn)
+    for (let i = 0; i <= nb; i++) { const u = Math.min(u1 - 0.05, Math.max(u0 + 0.05, u0 + i * step)); parts.push(B([u - 0.05, u + 0.05], [y, y + h - 0.12], [-0.19, -0.09])); }
+    for (const ry of [0.3, h - 0.45]) parts.push(B([u0, u1], [y + ry, y + ry + 0.05], [-0.09, -0.04]));
+    const n = Math.floor((u1 - u0) / 0.15);
+    for (let i = 0; i < n; i++) { const u = u0 + (u1 - u0 - (n - 1) * 0.15) / 2 + i * 0.15; parts.push(B([u - 0.0325, u + 0.0325], [y + 0.06, y + h - (i % 2) * 0.04], [-0.04, 0.0])); }
+    return weldParts(parts, { tint, group: 'walls', anchored: true });
+  });
+}
+
+/** Road-closure barrier run: interlocking plastic barrier sections (red and white boards on feet), loose on the road. */
+export function barrier(axis: 'x' | 'z', a: number, b: number, at: number, y: number, tint = 0xc8302a): PieceSpec {
+  const lo = Math.min(a, b), hi = Math.max(a, b), parts: PieceSpec[] = [];
+  const B = (u: Range, yy: Range, v: Range) => (axis === 'x' ? block('pvc', u, yy, [at + v[0], at + v[1]]) : block('pvc', [at + v[0], at + v[1]], yy, u));
+  const n = Math.max(1, Math.round((hi - lo) / 2)), s = (hi - lo) / n;
+  for (let i = 0; i <= n; i++) { const u = Math.min(hi - 0.04, Math.max(lo + 0.04, lo + i * s)); parts.push(B([u - 0.04, u + 0.04], [y, y + 0.08], [-0.3, 0.3]), B([u - 0.035, u + 0.035], [y + 0.08, y + 1.0], [-0.035, 0.035])); }
+  parts.push(B([lo, hi], [y + 0.78, y + 0.98], [-0.03, 0.03]), B([lo, hi], [y + 0.3, y + 0.42], [-0.03, 0.03]));
+  return weldParts(parts, { tint, noWeld: true, group: 'closure' });
+}
+
+/** Traffic cone (base and body, one loose piece). */
+export function cone(x: number, z: number, y: number): PieceSpec {
+  return weldParts([block('pvc', [x - 0.19, x + 0.19], [y, y + 0.04], [z - 0.19, z + 0.19]), cyl('pvc', 0.2, [y + 0.04, y + 0.75], x, z)],
+    { tint: 0xe0602a, noWeld: true, group: 'closure' });
+}
+
+/** Temporary mesh fence (Heras) along X or Z: 3.45 m panels of framed mesh clipped end to end on concrete feet, one
+    loose run; the mesh is drawn as its vertical wires at 0.3 m and a mid rail (no part thinner than 40 mm is drawn). */
+export function heras(axis: 'x' | 'z', a: number, b: number, at: number, y: number): PieceSpec {
+  const lo = Math.min(a, b), hi = Math.max(a, b), parts: PieceSpec[] = [];
+  const B = (m: MaterialId, u: Range, yy: Range, v: Range) => (axis === 'x' ? block(m, u, yy, [at + v[0], at + v[1]]) : block(m, [at + v[0], at + v[1]], yy, u));
+  const n = Math.max(1, Math.round((hi - lo) / 3.45)), s = (hi - lo) / n;
+  for (let i = 0; i < n; i++) {
+    const u0 = lo + i * s + 0.03, u1 = lo + (i + 1) * s - 0.03;
+    for (const u of [u0, u1 - 0.04]) parts.push(B('steel', [u, u + 0.04], [y + 0.14, y + 2.0], [-0.02, 0.02]));
+    for (const yy of [y + 0.14, y + 1.05, y + 1.96]) parts.push(B('steel', [u0, u1], [yy, yy + 0.04], [-0.02, 0.02]));
+    for (let u = u0 + 0.3; u < u1 - 0.15; u += 0.3) parts.push(B('steel', [u - 0.02, u + 0.02], [y + 0.18, y + 1.96], [-0.02, 0.02]));
+  }
+  // the feet (the run's material is its steel: the feet are drawn as blocks at the panel joints)
+  for (let i = 0; i <= n; i++) { const u = Math.min(hi - 0.08, Math.max(lo + 0.08, lo + i * s)); parts.push(B('concrete', [u - 0.08, u + 0.08], [y, y + 0.14], [-0.25, 0.25])); }
+  return weldParts(parts, { tint: 0x9aa0a0, noWeld: true, group: 'closure' });
+}
+
 /** Palisade / close-boarded fence panels along X or Z. */
 export function fence(axis: 'x' | 'z', a: number, b: number, at: number, y: number, h = 1.8, mat: MaterialId = 'wood', tint = 0x7a5c3e, maxL = 6): PieceSpec[] {
   return splitRange(Math.min(a, b), Math.max(a, b), maxL).map((u) => (axis === 'x'

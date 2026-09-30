@@ -15,6 +15,8 @@ const LAMPS: Record<EnvPreset, number> = { noon: 0, golden: 0, overcast: 0, dusk
 const BASE_HALF = 64;
 let outset = 0;
 let FENCE = 66;
+/** the map's surroundings: open country (default) or the town it was cut out of */
+let TOWN = false;
 let TOWERS: [number, number][] = [[70, 70], [-70, 70], [70, -70], [-70, -70]];
 const LAMP_Y = 20.4;
 
@@ -226,7 +228,7 @@ function trees(mats: Mats): THREE.Object3D[] {
       const a = rnd() * Math.PI * 2, r = 95 + Math.pow(rnd(), 0.8) * 360, x = Math.sin(a) * r, z = -Math.cos(a) * r;
       const az = Math.abs(a > Math.PI ? a - Math.PI * 2 : a);
       if (r > 300 && az < 0.6) continue;
-      if (Math.max(Math.abs(x), Math.abs(z)) < FENCE) continue;
+      if (Math.max(Math.abs(x), Math.abs(z)) < (TOWN ? 185 : FENCE)) continue;
       if (Math.hypot(x + 48, z + 112 + outset) < 16 || (x < -70 - outset && x > -95 - outset && z > 20 && z < 55)) continue;
       return [x, z];
     }
@@ -442,6 +444,90 @@ function crane(mats: Mats): THREE.Object3D[] {
   return [g];
 }
 
+/* ---------------- townscape ---------------- */
+
+/* The town round an inner-city clearance site (render only, no pieces): its streets run on past the site fence
+   between terraced rows (brick fronts, slate roofs, a stack on each party wall) out to the edge of the view. The
+   site's own streets continue: Mill Lane (x -22) north and south, Works Road (x 26) north, High Street (z 6) east,
+   Terrace Row (z 38) east and west; further streets make up the blocks. One instanced mesh for the houses and one
+   merged mesh for the carriageways and footways. */
+let townMat: THREE.MeshStandardMaterial | null = null;
+function townscape(): THREE.Object3D[] {
+  townMat ??= new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
+  const E = FENCE + 12, R = 172;
+  const xs = [-166, -118, -70, -22, 26, 74, 122, 170], zs = [-154, -106, -58, 6, 38, 86, 134, 182];
+  // the unit house: 1 m of frontage (scaled per instance to 4.6-5.6 m), 8 m deep, front toward -z
+  const box = (w: number, h: number, d: number, x: number, y: number, z: number, c: number) => colorGeo(new THREE.BoxGeometry(w, h, d).translate(x, y, z).deleteAttribute('uv'), c);
+  const roof = new THREE.BufferGeometry();
+  const rp = [-0.5, 5.4, -4.25, 0.5, 5.4, -4.25, 0.5, 8.1, 0, -0.5, 8.1, 0, -0.5, 5.4, 4.25, 0.5, 5.4, 4.25];
+  roof.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3));
+  roof.setIndex([0, 2, 1, 0, 3, 2, 4, 5, 2, 4, 2, 3]);
+  const slate = colorGeo(roof.toNonIndexed(), 0x4a4e55);
+  slate.computeVertexNormals();
+  const gable = new THREE.BufferGeometry();
+  gable.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 5.4, -4, -0.5, 5.4, 4, -0.5, 8.0, 0, 0.5, 5.4, 4, 0.5, 5.4, -4, 0.5, 8.0, 0], 3));
+  gable.computeVertexNormals();
+  colorGeo(gable, 0xffffff);
+  const dark = 0x1c1f24;
+  const unit = merge([
+    box(1, 5.4, 8, 0, 2.7, 0, 0xffffff),
+    slate, gable,
+    box(0.14, 1.5, 0.9, 0.5, 8.3, 0, 0x7a4a38),
+    box(0.3, 2.1, 0.06, -0.28, 1.05, -4.02, 0x2b2320), box(0.34, 1.3, 0.06, 0.17, 1.0 + 0.9, -4.02, dark),
+    box(0.26, 1.4, 0.06, -0.26, 3.9, -4.02, dark), box(0.26, 1.4, 0.06, 0.2, 3.9, -4.02, dark),
+    box(0.26, 1.2, 0.06, 0.15, 1.8, 4.02, dark), box(0.26, 1.3, 0.06, -0.2, 3.9, 4.02, dark),
+  ]);
+  const spots: [number, number, number, number][] = [];
+  const rnd = makeRng(1904);
+  const inSite = (x: number, z: number) => Math.max(Math.abs(x), Math.abs(z)) < E;
+  const clear = (x: number, z: number) => !inSite(x, z) && Math.hypot(x, z) < R && Math.hypot(x + 48, z + 112 + outset) > 14
+    && TOWERS.every(([tx, tz]) => Math.hypot(x - tx, z - tz) > 9);
+  for (let j = 0; j + 1 < zs.length; j++) for (let i = 0; i + 1 < xs.length; i++) {
+    const x0 = xs[i] + 5.5, x1 = xs[i + 1] - 5.5;
+    // a row facing each street, back gardens and an alley between them
+    for (const [zf, face] of [[zs[j] + 5.5 + 4, 0], [zs[j + 1] - 5.5 - 4, Math.PI]] as [number, number][]) {
+      if (zs[j + 1] - zs[j] < 30 && face) continue;
+      let x = x0;
+      while (x < x1 - 4) {
+        const w = Math.min(x1 - x, 4.6 + rnd() * 1.0);
+        const cx = x + w / 2;
+        if (clear(cx, zf)) spots.push([cx, zf, w, face]);
+        x += w;
+      }
+    }
+  }
+  const houses = inst(unit, townMat, spots.length);
+  const c = new THREE.Color();
+  const bricks = [0x8e5a44, 0x9a6a50, 0x7d4c3a, 0xa27458, 0xb89878, 0xd8d0c0];
+  spots.forEach(([x, z, w, face], i) => {
+    place(houses, i, x, hillHeight(x, z) + 0.35, z, face, w, 0.96 + 0.08 * rnd(), 1);
+    houses.setColorAt(i, c.setHex(bricks[Math.floor(rnd() * bricks.length)]).multiplyScalar(0.9 + 0.2 * rnd()));
+  });
+  houses.name = 'townscape';
+  // carriageways (7 m) with footways either side, from the site fence out through the town
+  const road: THREE.BufferGeometry[] = [];
+  const strip = (axis: 'x' | 'z', at: number, a: number, b: number) => {
+    const L = b - a, m = (a + b) / 2;
+    for (const [w, off, col, y] of [[7, 0, 0x3b3c3e, -0.3], [2.2, 4.6, 0x8c887f, -0.26], [2.2, -4.6, 0x8c887f, -0.26]] as [number, number, number, number][]) {
+      const g = new THREE.PlaneGeometry(axis === 'x' ? L : w, axis === 'x' ? w : L).rotateX(-Math.PI / 2);
+      g.translate(axis === 'x' ? m : at + off, y, axis === 'x' ? at + off : m);
+      road.push(colorGeo(g, col));
+    }
+  };
+  for (const x of xs) {
+    const ends = x === -22 ? [[-R, -FENCE], [FENCE, R]] : x === 26 ? [[-R, -FENCE]] : Math.abs(x) > E ? [[-R, R]] : [[-R, -E], [E, R]];
+    for (const [a, b] of ends) strip('z', x, a, b);
+  }
+  for (const z of zs) {
+    const ends = z === 6 ? [[FENCE, R]] : z === 38 ? [[-R, -FENCE], [FENCE, R]] : Math.abs(z) > E ? [[-R, R]] : [[-R, -E], [E, R]];
+    for (const [a, b] of ends) strip('x', z, a, b);
+  }
+  const streets = new THREE.Mesh(merge(road), townMat);
+  streets.name = 'town-streets';
+  streets.receiveShadow = true;
+  return [houses, streets];
+}
+
 function skyline(mats: Mats): THREE.InstancedMesh {
   const rnd = makeRng(515), N = 170;
   const m = inst(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), mats.skyline, N);
@@ -519,8 +605,9 @@ export function applySceneryEnv(env: EnvPreset): void {
 }
 
 /** `half`: the map's terrain half-size, m (default: the original 62 m site) */
-export function buildScenery(scene: THREE.Scene, env: EnvPreset, half = BASE_HALF): void {
+export function buildScenery(scene: THREE.Scene, env: EnvPreset, half = BASE_HALF, backdrop?: 'town'): void {
   outset = Math.max(0, half - BASE_HALF);
+  TOWN = backdrop === 'town';
   FENCE = 66 + outset;
   TOWERS = [[1, 1], [-1, 1], [1, -1], [-1, -1]].map(([a, b]) => [a * (70 + outset), b * (70 + outset)] as [number, number]);
   if (root) {
@@ -536,7 +623,7 @@ export function buildScenery(scene: THREE.Scene, env: EnvPreset, half = BASE_HAL
   m.link.map?.repeat.set((2 * FENCE) / 0.4, 2.35 / 0.4);
   root = new THREE.Group();
   root.name = 'scenery';
-  root.add(ground(), hills(m), ...trees(m), ...fence(m), ...towers(m), ...props(m), ...crane(m), skyline(m));
+  root.add(ground(), hills(m), ...trees(m), ...fence(m), ...towers(m), ...props(m), ...crane(m), skyline(m), ...(TOWN ? townscape() : []));
   scene.add(root);
   applySceneryEnv(env);
 }
