@@ -41,7 +41,7 @@ import {
   type MachineTool,
 } from './tools/machining';
 import {
-  SLEDGE, sledgeBlow, sledgeEnergy, percHooks, breakerHold, breakerStep, breakerStatus, clearPercussive, BREAKER,
+  SLEDGE, sledgeBlow, sledgeEnergy, sledgeStep, percHooks, breakerHold, breakerStep, breakerStatus, clearPercussive, BREAKER,
 } from './tools/percussive';
 import { hoseHold, hoseStep, hoseStatus, hoseHooks, toggleFog, hoseFog, traceJet, clearHose, hoseOn, hosePath, type JetPath } from './tools/hose';
 import { splitterFire, splitterStep, splitterStatus, splitHooks, clearSplitter, SPLITTER } from './tools/splitter';
@@ -1321,6 +1321,7 @@ export function weaponsPreStep(): void {
 export function weaponsAfterStep(dt: number): void {
   now += dt;
   for (let i = swings.length - 1; i >= 0; i--) if (now >= swings[i].t) { const s = swings.splice(i, 1)[0]; swingHammer(s.k); }
+  sledgeStep();
 
   for (let i = detonations.length - 1; i >= 0; i--) {
     const d = detonations[i];
@@ -1439,6 +1440,7 @@ function predict(type: ProjType, pos: Vec3, vel: Vec3, s: AimState): Vec3 | null
   const drag = ae ? (0.5 * 1.225 * ae[1] * Math.PI * r * r) / mass : 0;
   const p: Vec3 = [...pos], v: Vec3 = [...vel];
   const h = 1 / 30;
+  predictedOn = null;
   arcPts.length = 0;
   arcPts.push(p[0], p[1], p[2]);
   let hitAt: Vec3 | null = null, n: Vec3 = [0, 1, 0];
@@ -1450,7 +1452,11 @@ function predict(type: ProjType, pos: Vec3, vel: Vec3, s: AimState): Vec3 | null
     const q: Vec3 = [...p];
     fly(p, v, drag, h);
     const hit = raycast(q, [p[0] - q[0], p[1] - q[1], p[2] - q[2]], NO_HIT);
-    if (hit) { hitAt = [hit.point[0], hit.point[1], hit.point[2]]; n = [hit.normal[0], hit.normal[1], hit.normal[2]]; arcPts.push(...hitAt); break; }
+    if (hit) {
+      hitAt = [hit.point[0], hit.point[1], hit.point[2]]; n = [hit.normal[0], hit.normal[1], hit.normal[2]]; arcPts.push(...hitAt);
+      predictedOn = pieceOf(hit.entity)?.mat ?? null;
+      break;
+    }
     arcPts.push(p[0], p[1], p[2]);
   }
   marks.arc(arcPts, arcPts.length / 3, s);
@@ -1731,12 +1737,12 @@ export function toolReadout(): ToolReadout | null {
       const last = lastBlow ? ` · last ${Math.round(lastBlow.energy)} J into ${lastBlow.mat ?? 'ground'}${lastBlow.chipped ? ' — chipped' : lastBlow.mat ? ` (${Math.round(lastBlow.progress * 100)}% to a chip)` : ''}` : '';
       return { title: `Sledgehammer · ${Math.round(sledgeEnergy(windAt < 0 ? 1 : k))} J`, progress: windAt < 0 ? null : k, detail: `hold to wind up, release to strike${last}`, warn: false };
     }
-    case 'cannon': return reloading('cannon', { title: 'Hand cannon', progress: null, detail: '30 kg iron ball · 62 m/s · 57 kJ · drag and drop shown by the arc', warn: false });
+    case 'cannon': return reloading('cannon', { title: 'Hand cannon', progress: null, detail: `30 kg iron ball · 62 m/s · 57 kJ · ${landsOn()}`, warn: false });
     case 'rocket': return reloading('rocket', {
       title: `Rocket · ${warhead === 'tandem' ? 'tandem HEAT-FT' : 'HE-FRAG'}`, progress: null,
-      detail: warhead === 'tandem'
+      detail: `${landsOn()} · ` + (warhead === 'tandem'
         ? `perforates ~${mm(TANDEM.jet * Math.sqrt(TANDEM.rhoJet / 7850))} steel / ${mm(TANDEM.jet * Math.sqrt(TANDEM.rhoJet / 2400))} concrete, then ${TANDEM.follow} kg inside · RMB warhead · keep ${BACKBLAST.wall} m clear behind`
-        : '1.25 kg HE at the surface · RMB warhead · mind the backblast',
+        : '1.25 kg HE at the surface · RMB warhead · mind the backblast'),
       warn: false,
     });
     case 'charge': return { title: `Remote charge · ${chargeKg} kg`, progress: null, detail: `lethal radius ${blastOf(chargeKg).radius.toFixed(1)} m · wheel size · RMB/G detonate${chargesPlaced() ? ` (${chargesPlaced()} armed)` : ''} · delays on the Detonator Panel`, warn: false };
@@ -1774,6 +1780,13 @@ export function toolReadout(): ToolReadout | null {
 }
 
 /* A launcher between shots: the bar fills while the next round goes in. */
+/* where the arc comes down, so a hit on a 30 cm leg can be told from a near miss before the trigger is pulled */
+function landsOn(): string {
+  if (!predicted) return 'arc: no landing in range';
+  const d = Math.round(vec3.distance(predicted, _eye));
+  return predictedOn ? `on target: ${predictedOn} at ${d} m` : `lands on the ground at ${d} m`;
+}
+
 function reloading(id: WeaponId, r: ToolReadout): ToolReadout {
   const k = clamp((now - lastFire[id]) / DEF[id].cooldown, 0, 1);
   if (k < 1 && r.progress === null) { r.progress = k; r.title += id === 'airstrike' ? ' · radio busy' : ' · reloading'; }
@@ -1830,6 +1843,8 @@ export function clearWeapons(): void {
 }
 
 let predicted: Vec3 | null = null;
+/** what the aimed shot's arc comes down on (a piece's material, or null for the ground / nothing) */
+let predictedOn: MaterialId | null = null;
 /** Test view: where the aim arc says the shot lands, and what is in flight. */
 export function weaponsDebug(): { predicted: Vec3 | null; strikes: Vec3[]; flying: { type: ProjType; pos: Vec3; vel: Vec3 }[] } {
   return {
