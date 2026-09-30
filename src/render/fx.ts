@@ -867,6 +867,8 @@ export const dustLedger = { fed: 0, smoke: 0, box: null as null | [number, numbe
 /* Callers feed by the size of the event that raised it; the cloud that hangs over a collapse is the fine fraction of
    that, and a two-storey terrace coming down should raise one some 20–30 m across its base, not a whole-map fog. */
 const CLOUD_SHARE = 0.15;
+/** overall dust amount (owner's taste: 40 % less than the physically scaled figure read as too much on screen) */
+const DUST_AMOUNT = 0.6;
 function feedCloud(x: number, y: number, z: number, vol: number, hex: number): void {
   vol *= CLOUD_SHARE;
   if (!ready || !(vol > 0)) return;
@@ -898,7 +900,7 @@ function feedCloud(x: number, y: number, z: number, vol: number, hex: number): v
   const q = DUSTQ[view.quality];
   // enough final-size billows to cover the cloud's silhouette `layers` deep, fewer for small clouds
   const cover = baseRadius(m) / (billowSize(m) * 0.95), layers = q.layers * clamp(cbrt(m) / 6, 0.3, 1);
-  c.owed = m < 2.5 ? 0 : Math.min(Math.floor(q.cap * 0.5), Math.floor(layers * 1.3 * cover * cover));
+  c.owed = m < 2.5 ? 0 : Math.min(Math.floor(q.cap * 0.5), Math.floor(layers * 1.3 * cover * cover * DUST_AMOUNT));
 }
 
 function spawnBillow(c: Cloud, R: number, life: number): void {
@@ -984,7 +986,7 @@ function updateClouds(dt: number): void {
       c.paid++; c.acc--; dustRate--;
     }
     const fade = (1 - THREE.MathUtils.smoothstep(idle / life, 0.45, 1)) * THREE.MathUtils.smoothstep(age, 0, 1.5);
-    const ext = clamp(0.015 + cbrt(c.mass) * 0.006, 0.015, 0.08) * fade;
+    const ext = clamp(0.015 + cbrt(c.mass) * 0.006, 0.015, 0.08) * fade * DUST_AMOUNT;
     const cy = Math.max(R * 0.3, c.y * 0.7);
     cl[i].set(c.x, cy, c.z, R);
     cp[i].set(ext, SQUASH, 0, 0);
@@ -993,7 +995,7 @@ function updateClouds(dt: number): void {
     if (c.dep > 0.5 && c.mass > 2) {
       c.dep = 0;
       // a film, not a white-out: most of what settles comes down in the first half minute
-      splatCover(c.x, c.z, R * 1.15, clamp(0.003 * cbrt(c.mass), 0.002, 0.012) * fade * (age < 30 ? 1 : 0.3), c.r, c.g, c.b);
+      splatCover(c.x, c.z, R * 1.15, clamp(0.003 * cbrt(c.mass), 0.002, 0.012) * fade * (age < 30 ? 1 : 0.3) * DUST_AMOUNT, c.r, c.g, c.b);
     }
     // camera inside this cloud: ellipsoid-normalised distance
     const ex = (cam3.x - c.x) / R, ey = ((cam3.y - cy) * SQUASH) / R, ez = (cam3.z - c.z) / R;
@@ -1198,7 +1200,7 @@ export const fx = {
   dust(pos: Vec3, size: number, color = 0xb8b0a0): void {
     if (!ready) return;
     const sz = clamp(size, 0.3, 10), b = budget(), grow = 1 / Math.sqrt(b);
-    const n = Math.min(40, Math.round((3 + sz * 3.5) * b));
+    const n = Math.min(40, Math.round((3 + sz * 3.5) * b * DUST_AMOUNT));
     for (let i = 0; i < n; i++) {
       dirAround(0, 0.3, 0, 1);
       const r = rf(0, sz * 0.5);
@@ -1251,7 +1253,7 @@ export const fx = {
       _cc.copy(base).multiplyScalar(rf(0.78, 1.1));
       fineChips.spawn(pos[0] + Math.cos(a) * r, pos[1] + rf(0.05, 0.3), pos[2] + Math.sin(a) * r, rf(-0.4, 0.4), rf(0, 0.8), rf(-0.4, 0.4), sc, rf(150, 240), _cc, floor);
     }
-    splatCover(pos[0], pos[2], radius * 1.6 + Math.cbrt(vol), clamp(0.05 + vol * 0.4, 0.05, 0.3), base.r, base.g, base.b);
+    splatCover(pos[0], pos[2], radius * 1.6 + Math.cbrt(vol), clamp(0.05 + vol * 0.4, 0.05, 0.3) * DUST_AMOUNT, base.r, base.g, base.b);
   },
 
   sparks(pos: Vec3, normal: Vec3, count: number): void {
@@ -1325,7 +1327,7 @@ export const fx = {
   /** crumbling drywall / adobe / sandstone: fine dust that sinks and settles, plus sand-grain chips */
   powder(pos: Vec3, size: number, color = 0xe6e2d8): void {
     if (!ready) return;
-    const sz = clamp(size, 0.2, 6), b = budget(), n = Math.min(30, Math.round((4 + sz * 4) * b));
+    const sz = clamp(size, 0.2, 6), b = budget(), n = Math.min(30, Math.round((4 + sz * 4) * b * DUST_AMOUNT));
     for (let i = 0; i < n; i++) {
       dirAround(0, 0.2, 0, 1);
       const r = rf(0, sz * 0.4), sp = rf(0.5, 2) * Math.sqrt(sz);
