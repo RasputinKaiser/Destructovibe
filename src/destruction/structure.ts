@@ -13,6 +13,7 @@ import {
   analysisPartition, analysisStep, analysisTouch, analysisReset, analysed, analysisStale, analysisUrgent, solveOfPiece, memberAxial, type AnalysisOut, type Solve, type ExtraLoads, type Tie,
 } from './analysis';
 import { specParts, type PartSpec } from './compound';
+import { hull2, clip2, area2, type P2 } from './hinge';
 export { sectionParts, sectionProps, specParts, specDensity } from './compound';
 import {
   initBatches, addPieceGfx, pieceFinish, setPieceTransform, setPieceColor, setPieceHeat, removePieceGfx, clearBatches, setBatchesXray, type PieceGfx,
@@ -269,7 +270,7 @@ let xrayCursor = 0;
 
 export const counters = {
   explosions: 0, fractures: 0, snaps: 0, props: 0, eventSnaps: 0, yields: 0, rebars: 0, spalls: 0, cracks: 0, buckles: 0,
-  slips: 0, fatigue: 0, creepFails: 0, melts: 0, delams: 0, crushes: 0, frozen: 0, hangs: 0, relieved: 0,
+  slips: 0, fatigue: 0, creepFails: 0, melts: 0, delams: 0, crushes: 0, frozen: 0, hangs: 0, relieved: 0, hinges: 0,
 };
 
 export let onExplosion: (pos: Vec3, radius: number) => void = () => {};
@@ -792,7 +793,7 @@ function checkHanging(): void {
     if (due > stepCount) continue;
     if (++n > HANG_PER_STEP) break;
     hangQueue.delete(p);
-    if (p.dead || !HANG_MATS.has(p.mat) || p.root.prop || p.mechs || p.ropes.length || p.hinged) continue;
+    if (p.dead || !HANG_MATS.has(p.mat) || p.root.prop || p.mechs || p.ropes.length || p.hinged || hingeOf.get(p)?.live) continue;
     // what it stood on may still be falling away when its joints go: look again a few times
     const looks = (hangLooks.get(p) ?? 0) + 1;
     hangLooks.set(p, looks);
@@ -873,6 +874,443 @@ function spansGap(p: Piece): boolean {
     _abut.push(x, z);
   }
   return false;
+}
+
+/* ---------------- felling hinge ---------------- */
+
+/* A free-standing masonry stack (a chimney, a boiler stack) with part of its section cut or blown out of one side
+   stands or goes over as a whole section, not joint by joint: a bed round a ring of brickwork is one continuous
+   bonded section, and a unit overloaded next to a notch hands its load round the ring. Whether it goes is the
+   section's limit: the stack's weight must be carried by a compression zone at the crushing capacity of the bed
+   (the capacity its joints were built with), and the furthest the weight can move off centre is the centroid of the
+   smallest such zone at the edge of what it still bears on. While its weight lies inside that, the stack stands;
+   once a notch has moved the bearing far enough from under the weight, the stack turns about that compression zone,
+   which is the hinge: the brickwork over the notch crushes and the stack sits down into it, the uncut side opens in
+   tension, and the hinge holds the stack in shear and against turning sideways, by its width, until the notch closes
+   on it or it is well over; then it tears free and the stack falls on along that line. The shaft over the hinge is a
+   tube and turns as one until then. (collapse/chimney-felling: the stack rotates about the hinge at the notch as a
+   stiff rod, sits down first, and lands along the fall line.) */
+const HINGE = { tall: 4, slender: 1.5, release: 0.8, closed: 0.1, turning: 0.001, back: -0.03, limit: 1.1, tol: 0.12, island: 800, masonry: 0.7, watch: 150, look: 2, dirs: 36, reserve: 1.5, zone: 0.6, early: 0.1, still: 0.03, veer: 0.05, relook: 10, jam: 3 };
+interface FellHinge {
+  joints: { j: b3JointId; q: Piece }[]; pieces: Piece[]; welds: Weld[]; axis: Vec3; qa: Quat; P0: Vec3; R: number; t0: number; live: boolean;
+  /** the way it is going, a member of it to look from, the step it was last looked at */
+  peak: number; d: P2; seed: Piece; look: number;
+  /** its heaviest member and how that stood when the hinge formed: the stack's turn is read off it */
+  ref: Piece; ref0: Quat;
+  /** its turn at the last step, the most it has turned in one, and for how many steps it has been checked */
+  prev: number; wmax: number; stall: number;
+}
+const hinges: FellHinge[] = [];
+const hingeOf = new WeakMap<Piece, FellHinge>();
+const hingeJoints = new Map<number, FellHinge>();
+/** pieces whose support was blown out from under them: the step to look at them again, until when */
+const hingeWatch = new Map<Piece, { at: number; until: number }>();
+const _hy: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
+
+/** Plan outlines of a piece's (or each of a compound's parts') faces lying on the level y0. */
+function planeFaces(p: Piece, y0: number, tol: number): P2[][] {
+  const out: P2[][] = [];
+  for (const poly of p.parts ? p.parts.map(q => q.poly) : [p.poly]) {
+    const pts: P2[] = [];
+    for (const f of worldPoly(p, poly).faces) {
+      for (let i = 0; i < f.pts.length; i += 3) if (Math.abs(f.pts[i + 1] - y0) < tol) pts.push([f.pts[i], f.pts[i + 2]]);
+    }
+    const h = hull2(pts);
+    if (h.length >= 3 && area2(h).a > 1e-4) out.push(h);
+  }
+  return out;
+}
+
+/** Still standing where it was built: not shifted, tilted or moving (a stack that is already falling is past hinging). */
+function standing(p: Piece): boolean {
+  if (vec3.squaredDistance(p.curPos, p.spawnPos) > 0.5 * 0.5 || Math.abs(quat.dot(p.curRot, p.spawnRot)) < STAND_TILT) return false;
+  b3.b3Body_GetLinearVelocity(_sv, p.body);
+  return vec3.squaredLength(_sv) < 1;
+}
+const STAND_TILT = Math.cos(0.1 / 2), _sv: Vec3 = [0, 0, 0];
+
+/** Part of the base, bearing: a member (or a broken piece of one) still where it was made and not moving (one a blast
+    has knocked loose is on its way out, not bearing), and not about to break. */
+function founded(p: Piece): boolean {
+  if (p.dead || p.queued || vec3.squaredDistance(p.curPos, p.spawnPos) > 0.1 * 0.1) return false;
+  b3.b3Body_GetLinearVelocity(_sv, p.body);
+  return vec3.squaredLength(_sv) < 0.5 * 0.5;
+}
+
+/** The welded island of members over the level y0 that `seed` belongs to, and its welds to what is under the level;
+    null when it is held any other way (welded to the ground, part of a stack already felled, or too big to be one). */
+const heldAt = new WeakMap<Piece, number>();
+function islandOver(seed: Piece, y0: number, own?: FellHinge): { pieces: Piece[]; set: Set<Piece>; cross: Weld[] } | null {
+  if (!own && heldAt.get(seed) === stepCount) return null;
+  const set = new Set<Piece>([seed]), pieces = [seed], cross: Weld[] = [];
+  const held = (): null => { for (const q of pieces) heldAt.set(q, stepCount); return null; };
+  for (let i = 0; i < pieces.length; i++) {
+    const q = pieces[i];
+    if ((hingeOf.has(q) && hingeOf.get(q) !== own) || (!own && heldAt.get(q) === stepCount)) return held();
+    for (const v of q.welds) {
+      if (!v.alive) continue;
+      const o = v.a === q ? v.b : v.a;
+      if (!o) return held();
+      if (set.has(o)) continue;
+      if (o.curPos[1] <= y0) { cross.push(v); continue; }
+      if (pieces.length >= HINGE.island) return held();
+      set.add(o);
+      pieces.push(o);
+    }
+  }
+  return { pieces, set, cross };
+}
+
+interface Section {
+  pieces: Piece[]; set: Set<Piece>; cross: Weld[]; M: number; C: P2; y0: number;
+  /** where it still bears (plan polygons) and their area; its own full bearing footprint; the bed's crushing stress */
+  regions: P2[][]; A: number; A0: number; sigma: number; R: number;
+  /** the member under each region */
+  under: Piece[];
+}
+
+/** The stack over the level y0 under `seed` and what it bears on there; null if it is not a free-standing stack. */
+function stackSection(seed: Piece, y0: number, lower: Set<Piece>, own?: FellHinge): Section | null {
+  if (!own && !standing(seed)) return null;
+  const isl = islandOver(seed, y0, own);
+  if (!isl) return null;
+  const { pieces, set, cross } = isl;
+  let M = 0, mm = 0, cx = 0, cz = 0, top = -Infinity;
+  for (const q of pieces) {
+    M += q.mass;
+    if (ARCH_MATS.has(q.mat)) mm += q.mass;
+    cx += q.mass * q.curPos[0]; cz += q.mass * q.curPos[2];
+    b3.b3Body_ComputeAABB(_hy, q.body);
+    top = Math.max(top, _hy[4]);
+  }
+  if (M <= 0 || mm < HINGE.masonry * M || top - y0 < HINGE.tall) return null;
+  // only a free-standing stack as built (a pier or a wall standing loose in a wreck is left to its contacts)
+  let sm = 0;
+  for (const q of pieces) if (inStack(q)) sm += q.mass;
+  if (sm < 0.5 * M) return null;
+  // its own bed: the faces of its lowest members lying on the level
+  const base = pieces.filter(q => { b3.b3Body_ComputeAABB(_hy, q.body); return _hy[1] < y0 + HINGE.tol; });
+  const ups = base.flatMap(q => planeFaces(q, y0, HINGE.tol));
+  if (!ups.length) return null;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, A0 = 0;
+  for (const u of ups) {
+    A0 += area2(u).a;
+    for (const [x, z] of u) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+  }
+  if (top - y0 < HINGE.slender * Math.max(x1 - x0, z1 - z0)) return null;
+  // what it bears on: founded members whose tops lie on the level under its bed (its welds across the level, and any
+  // it only rests on)
+  for (const v of cross) { const o = set.has(v.a) ? v.b : v.a; if (o) lower.add(o); }
+  overlapAABB([x0, y0 - 0.15, z0], [x1, y0 + 0.05, z1], CAT.structure, shape => {
+    const e = entityOfShape(shape);
+    if (!e || e.kind !== 'piece' || set.has(e as Piece)) return;
+    b3.b3Shape_GetAABB(_bb, shape);
+    if (Math.abs(_bb[4] - y0) < HINGE.tol) lower.add(e as Piece);
+  });
+  /* where it bears, in plan: under its bed on the level, and at each of its joints to the founded members under it,
+     wherever they are (a notch cut part way up a course leaves the bed stepped) */
+  const regions: P2[][] = [], under: Piece[] = [];
+  let A = 0;
+  const add = (us: P2[][], ds: P2[][], o: Piece) => {
+    for (const u of us) for (const d of ds) {
+      const c = clip2(u, d);
+      if (c.length < 3) continue;
+      const a = area2(c).a;
+      if (a < 1e-4) continue;
+      regions.push(c);
+      under.push(o);
+      A += a;
+    }
+  };
+  const ok = new Map<Piece, boolean>(), isFounded = (q: Piece) => { let f = ok.get(q); if (f === undefined) ok.set(q, f = !set.has(q) && founded(q)); return f; };
+  for (const q of lower) if (isFounded(q)) add(ups, planeFaces(q, y0, HINGE.tol), q);
+  const pairs = new Set<string>();
+  for (const v of cross) {
+    const u = set.has(v.a) ? v.a : v.b!, o = u === v.a ? v.b! : v.a;
+    const y = weldPos(v, _v)[1];
+    if (Math.abs(y - y0) < HINGE.tol || !isFounded(o)) continue;
+    const key = `${u.id}:${o.id}:${Math.round(y * 10)}`;
+    if (pairs.has(key)) continue;
+    pairs.add(key);
+    add(planeFaces(u, y, HINGE.tol), planeFaces(o, y, HINGE.tol), o);
+  }
+  /* the bed's crushing stress, at the game's scale of masonry strength: the reserve an old stack's beds keep over
+     its own weight on its full bed (the calibration's ~2x, over a crushing stress block ~0.7-0.9 of the peak) */
+  const sigma = (HINGE.reserve * M * 9.81) / A0;
+  const C: P2 = [cx / M, cz / M];
+  const R = Math.max(x1 - x0, z1 - z0) / 2;
+  return { pieces, set, cross, M, C, y0, regions, A, A0, sigma, R, under };
+}
+
+/** Area and centroid of the part of the regions beyond the line x·d = t. */
+function beyond(regions: P2[][], d: P2, t: number): { a: number; c: P2 } {
+  // clip each polygon to the half-plane x·d ≥ t: a huge square on that side of the line
+  const n: P2 = [-d[1], d[0]], big = 1e4;
+  const o: P2 = [d[0] * t, d[1] * t];
+  const half: P2[] = [
+    [o[0] - n[0] * big, o[1] - n[1] * big], [o[0] - n[0] * big + d[0] * big, o[1] - n[1] * big + d[1] * big],
+    [o[0] + n[0] * big + d[0] * big, o[1] + n[1] * big + d[1] * big], [o[0] + n[0] * big, o[1] + n[1] * big],
+  ];
+  let a = 0, cx = 0, cz = 0;
+  for (const r of regions) {
+    const c = clip2(r, half);
+    if (c.length < 3) continue;
+    const s = area2(c);
+    a += s.a; cx += s.a * s.c[0]; cz += s.a * s.c[1];
+  }
+  return a > 0 ? { a, c: [cx / a, cz / a] } : { a: 0, c: [o[0], o[1]] };
+}
+
+/** The smallest compression zone at the edge of the bearing along d that carries the weight (area Ac), its centroid,
+    and how far the weight lies past it. */
+function zoneAlong(s: Section, d: P2, Ac: number): { d: P2; zone: P2; margin: number } {
+  let lo = Infinity, hi = -Infinity;
+  for (const r of s.regions) for (const p of r) { const t = p[0] * d[0] + p[1] * d[1]; lo = Math.min(lo, t); hi = Math.max(hi, t); }
+  let a0 = lo, a1 = hi;
+  for (let it = 0; it < 22; it++) {
+    const m = (a0 + a1) / 2;
+    if (beyond(s.regions, d, m).a > Ac) a0 = m; else a1 = m;
+  }
+  const z = beyond(s.regions, d, a0);
+  return { d, zone: z.c, margin: s.C[0] * d[0] + s.C[1] * d[1] - (z.c[0] * d[0] + z.c[1] * d[1]) };
+}
+
+/** Is the stack's weight beyond what its bearing can carry, and which way: the direction in which the weight lies
+    furthest past the centroid of the smallest compression zone at the bearing's edge, and that zone. */
+function tipping(s: Section): { d: P2; zone: P2; margin: number } | 'stands' | 'crushes' {
+  const Ac = (s.M * 9.81) / Math.max(s.sigma, 1);
+  // overloaded over all it bears on: it crushes where it stands (its joints go), it does not turn over a notch
+  if (s.A <= 0 || !s.regions.length || Ac >= 0.9 * s.A) return 'crushes';
+  const at = (th: number) => zoneAlong(s, [Math.cos(th), Math.sin(th)], Ac);
+  let best = at(0), bth = 0;
+  for (let k = 1; k < HINGE.dirs; k++) {
+    const th = (2 * Math.PI * k) / HINGE.dirs, r = at(th);
+    if (r.margin > best.margin) { best = r; bth = th; }
+  }
+  if (best.margin <= 0) return 'stands';
+  // refine to a degree either side
+  for (let dth = -5; dth <= 5; dth++) {
+    if (!dth) continue;
+    const r = at(bth + (dth * Math.PI) / 180);
+    if (r.margin > best.margin) best = r;
+  }
+  return best;
+}
+
+/** The hinge: the stack's welds across the level go; its members over the compression zone are pinned to the founded
+    base on an axis through the zone, square to the way it is going. */
+function formHinge(s: Section, t: { d: P2; zone: P2 }): void {
+  const [dx, dz] = t.d;
+  const axis: Vec3 = [dz, 0, -dx];
+  const qa = quat.rotationTo([0, 0, 0, 1], [0, 0, 1], axis) as Quat;
+  const P0: Vec3 = [t.zone[0], s.y0, t.zone[1]];
+  for (const v of s.cross) killWeld(v, true);
+  crushAhead(s, t.d, t.zone);
+  // the shaft turns as one tube while it is on its hinge: its own joints are held until it tears free
+  const welds: Weld[] = [];
+  for (const q of s.pieces) for (const v of q.welds) if (v.alive && !v.calib && v.a === q && v.b && s.set.has(v.b)) {
+    v.calib = true;
+    b3.b3Joint_SetForceThreshold(v.joint, 3e38);
+    b3.b3Joint_SetTorqueThreshold(v.joint, 3e38);
+    welds.push(v);
+  }
+  const ref = s.pieces.reduce((a, b) => (b.mass > a.mass ? b : a));
+  const hg: FellHinge = {
+    joints: [], pieces: s.pieces, welds, axis, qa, P0, R: s.R, t0: clock, live: true, peak: 0, d: t.d, seed: s.pieces[0],
+    look: stepCount, ref, ref0: [...ref.curRot] as Quat, prev: 0, wmax: 0, stall: 0,
+  };
+  for (const q of s.pieces) hingeOf.set(q, hg);
+  hinges.push(hg);
+  counters.hinges++;
+  pinHinge(hg, 2);
+}
+
+/* The brickwork it bears on ahead of the hinge takes the whole weight at the edge of the notch and crushes: the stack
+   sits down into its notch as it starts to turn. */
+function crushAhead(s: Section, d: P2, zone: P2): void {
+  const tz = zone[0] * d[0] + zone[1] * d[1];
+  for (let i = 0; i < s.regions.length; i++) {
+    const low = s.under[i], c = area2(s.regions[i]).c;
+    if (c[0] * d[0] + c[1] * d[1] <= tz + 0.05 * s.R || low.dead || low.queued || low.pm.style === 'none') continue;
+    low.queued = true;
+    fractureQueue.push({ p: low, point: [c[0], s.y0, c[1]], intensity: 1.5, blast: false });
+  }
+}
+
+/* While a stack has barely begun to turn, what it bears on keeps changing under it (the toe crushing through, more of
+   the notch shot or blown out). Before it has moved the section is judged afresh, the way it goes too; once it is
+   turning, the compression zone and the hinge with it only move back from the notch, never forward. */
+function rezone(hg: FellHinge): void {
+  if (hg.seed.dead) {
+    const alive = hg.pieces.filter(q => !q.dead);
+    if (!alive.length) return;
+    hg.seed = alive.reduce((a, b) => (Math.abs(b.curPos[1] - hg.P0[1]) < Math.abs(a.curPos[1] - hg.P0[1]) ? b : a));
+  }
+  const s = stackSection(hg.seed, hg.P0[1], new Set(), hg);
+  if (!s) return;
+  let d = hg.d, z: P2 | null;
+  if (hg.peak < HINGE.still) {
+    const t = tipping(s);
+    if (t === 'stands' || t === 'crushes') return;
+    d = t.d;
+    z = t.zone;
+  } else {
+    const Ac = (s.M * 9.81) / Math.max(s.sigma, 1);
+    z = s.A > Ac ? zoneAlong(s, d, Ac).zone : s.regions.length ? area2(hull2(s.regions.flat())).c : null;
+  }
+  if (!z) return;
+  const turned = d[0] * hg.d[0] + d[1] * hg.d[1] < Math.cos(HINGE.veer);
+  const back = (hg.P0[0] - z[0]) * d[0] + (hg.P0[2] - z[1]) * d[1];
+  if (!turned && back < 0.1) return;
+  crushAhead(s, d, z);
+  // pinned afresh on the new line
+  for (const { j } of hg.joints) if (b3.b3Joint_IsValid(j)) { hingeJoints.delete(j.index1); b3.b3DestroyJoint(j, true); }
+  hg.joints.length = 0;
+  hg.d = d;
+  hg.axis = [d[1], 0, -d[0]];
+  hg.qa = quat.rotationTo([0, 0, 0, 1], [0, 0, 1], hg.axis) as Quat;
+  hg.P0 = [z[0], hg.P0[1], z[1]];
+  hg.ref0 = [...hg.ref.curRot] as Quat;
+  hg.prev = hg.peak = hg.wmax = 0;
+  hg.t0 = clock;
+  pinHinge(hg, 2);
+}
+
+/** Pin the members of the stack nearest the hinge axis to the base (at least `min`; more over the zone). */
+function pinHinge(hg: FellHinge, min: number): void {
+  const [ax, , az] = hg.axis, P0 = hg.P0;
+  const off = (q: Piece) => Math.abs((q.curPos[0] - P0[0]) * az - (q.curPos[2] - P0[2]) * ax) + Math.max(0, q.curPos[1] - P0[1] - 1.5);
+  const have = new Set(hg.joints.map(x => x.q));
+  // members of the tube itself (not a loose unit or a sliver caught in the island)
+  const cand = hg.pieces.filter(q => !q.dead && !have.has(q) && q.curPos[1] > P0[1] - 0.3 && q.volume >= 0.05 && q.welds.length >= 2).sort((a, b) => off(a) - off(b));
+  const want = cand.filter((q, k) => k < min || off(q) < HINGE.zone * hg.R).slice(0, 8);
+  for (const q of want) {
+    const t = (q.curPos[0] - P0[0]) * ax + (q.curPos[2] - P0[2]) * az;
+    const at: Vec3 = [P0[0] + ax * t, P0[1], P0[2] + az * t];
+    const jd = b3.b3DefaultRevoluteJointDef();
+    jd.base.bodyIdA = ground;
+    jd.base.bodyIdB = q.body;
+    jd.base.localFrameA = { position: [at[0] - GROUND_POS[0], at[1] - GROUND_POS[1], at[2] - GROUND_POS[2]], quaternion: hg.qa };
+    jd.base.localFrameB = { position: toLocal([0, 0, 0], q.curPos, q.curRot, at), quaternion: quat.multiply([0, 0, 0, 1], quat.conjugate([0, 0, 0, 1], q.curRot), hg.qa) as Quat };
+    jd.base.forceThreshold = 3e38;
+    jd.base.torqueThreshold = 3e38;
+    jd.base.collideConnected = true;
+    jd.enableLimit = true;
+    jd.lowerAngle = HINGE.back;
+    jd.upperAngle = HINGE.limit;
+    const j = b3.b3CreateRevoluteJoint(world, jd);
+    hg.joints.push({ j, q });
+    hingeJoints.set(j.index1, hg);
+    b3.b3Body_SetAwake(q.body, true);
+  }
+}
+
+/** Judge the stack over the level y0 under `seed`; if it goes, it goes over the bed of the course above the seed's when
+    that bed also fails the check (a notch inside the lowest course is spanned by the one over it, which turns over it). */
+function judgeStack(seed: Piece, y0: number, lower: Set<Piece>, seen?: Set<Piece>): 'formed' | 'stands' | 'crushes' | null {
+  const s = stackSection(seed, y0, lower);
+  if (!s) return null;
+  if (seen) for (const q of s.pieces) seen.add(q);
+  const t = tipping(s);
+  if (t === 'stands' || t === 'crushes') return t;
+  b3.b3Body_ComputeAABB(_hy, seed.body);
+  const top = _hy[4];
+  for (const w of seed.welds) {
+    const o = w.a === seed ? w.b : w.a;
+    if (!o || !s.set.has(o) || o.curPos[1] <= top) continue;
+    b3.b3Body_ComputeAABB(_hy, o.body);
+    if (Math.abs(_hy[1] - top) > HINGE.tol) continue;
+    const s2 = stackSection(o, top, new Set());
+    const t2 = s2 && tipping(s2);
+    if (s2 && t2 && t2 !== 'stands' && t2 !== 'crushes') { formHinge(s2, t2); return 'formed'; }
+    break;
+  }
+  formHinge(s, t);
+  return 'formed';
+}
+
+/** A masonry bed under a free-standing stack about to give way: if the section can no longer carry the stack, it goes
+    over on its hinge instead (true). */
+function hingeBed(w: Weld): boolean {
+  if (building || w.calib || !w.b || (!inStack(w.a) && !inStack(w.b)) || !masonryBed(w) || hingeOf.has(w.a) || hingeOf.has(w.b)) return false;
+  const up = w.a.curPos[1] > w.b.curPos[1] ? w.a : w.b;
+  return judgeStack(up, weldPos(w, _v)[1], new Set([up === w.a ? w.b : w.a])) === 'formed';
+}
+
+/* The units under a stack blown or broken out from under it: watch what stood on them for a couple of seconds. */
+function watchAbove(p: Piece): void {
+  if (building || !ARCH_MATS.has(p.mat) || !b3.b3Body_IsValid(p.body)) return;
+  b3.b3Body_ComputeAABB(_hy, p.body);
+  const top = _hy[4];
+  overlapAABB([_hy[0], top - 0.05, _hy[2]], [_hy[3], top + 0.15, _hy[5]], CAT.structure, shape => {
+    const e = entityOfShape(shape);
+    if (!e || e.kind !== 'piece' || e === p) return;
+    const q = e as Piece;
+    if (q.dead || !q.welds.length || !inStack(q) || hingeOf.has(q)) return;
+    const w = hingeWatch.get(q);
+    if (w) w.until = stepCount + HINGE.watch;
+    else hingeWatch.set(q, { at: stepCount + HINGE.look, until: stepCount + HINGE.watch });
+  });
+}
+
+function stepHinges(): void {
+  const seen = new Set<Piece>();
+  for (const [q, wt] of hingeWatch) {
+    if (wt.at > stepCount) continue;
+    if (q.dead || hingeOf.has(q) || stepCount > wt.until) { hingeWatch.delete(q); continue; }
+    wt.at = stepCount + HINGE.look;
+    if (seen.has(q)) continue;
+    b3.b3Body_ComputeAABB(_hy, q.body);
+    if (judgeStack(q, _hy[1], new Set(), seen) === 'formed') hingeWatch.delete(q);
+  }
+  for (let i = hinges.length - 1; i >= 0; i--) {
+    const hg = hinges[i];
+    hg.joints = hg.joints.filter(x => {
+      if (!b3.b3Joint_IsValid(x.j) || x.q.dead) { hingeJoints.delete(x.j.index1); return false; }
+      return true;
+    });
+    const ang = hg.ref.dead ? hg.peak : turnOf(hg);
+    if (hg.peak < HINGE.early && stepCount - hg.look >= HINGE.relook) { hg.look = stepCount; rezone(hg); }
+    /* it tears free once well over, or when the notch closes and the stack comes down on its front edge (its turn is
+       checked hard): from there it goes on over that edge, or settles back, on its own */
+    const w = ang - hg.prev;
+    hg.prev = ang;
+    hg.wmax = Math.max(hg.wmax, w);
+    hg.stall = ang > HINGE.closed && hg.wmax > HINGE.turning && w < 0.5 * hg.wmax ? hg.stall + 1 : 0;
+    const go = ang > HINGE.release || hg.stall >= 2;
+    /* jammed: pinned over the wrong bed (a notch inside the members it was pinned by), it cannot turn; it stands on what
+       it bears on until the section is judged again */
+    if (!go && hg.joints.length && hg.peak < HINGE.still / 3 && clock - hg.t0 > HINGE.jam) {
+      releaseHinge(hg);
+      for (const q of hg.pieces) if (hingeOf.get(q) === hg) hingeOf.delete(q);
+      continue;
+    }
+    hg.peak = Math.max(hg.peak, ang);
+    // a pinned member broken off the hinge: the rest of the bearing carries on
+    if (!go && hg.joints.length < 2) pinHinge(hg, 2 - hg.joints.length);
+    if (go || !hg.joints.length) releaseHinge(hg);
+  }
+}
+
+/** How far the stack has turned about its hinge axis since the hinge formed (its heaviest member's rotation). */
+function turnOf(hg: FellHinge): number {
+  quat.multiply(_tq, hg.ref.curRot as Quat, quat.conjugate(_tq0, hg.ref0));
+  const s = _tq[0] * hg.axis[0] + _tq[1] * hg.axis[1] + _tq[2] * hg.axis[2];
+  return 2 * Math.atan2(s, Math.abs(_tq[3])) * Math.sign(_tq[3] || 1);
+}
+const _tq: Quat = [0, 0, 0, 1], _tq0: Quat = [0, 0, 0, 1];
+
+function releaseHinge(hg: FellHinge): void {
+  const i = hinges.indexOf(hg);
+  if (i < 0) return;
+  hinges.splice(i, 1);
+  for (const { j } of hg.joints) {
+    hingeJoints.delete(j.index1);
+    if (b3.b3Joint_IsValid(j)) b3.b3DestroyJoint(j, true);
+  }
+  hg.joints.length = 0;
+  for (const v of hg.welds) if (v.alive) { v.calib = false; applyCaps(v); }
+  hg.live = false;
 }
 
 /* Masonry over a lost support does not bridge it as a rigid beam: the units over the gap, inside the relieving arch
@@ -1378,6 +1816,7 @@ function settleFailures(): void {
       if (used >= PER_SOLVE) continue;
       spent.set(id, used + 1);
     }
+    if (hingeBed(w)) continue;
     counters.eventSnaps++;
     crushBed(w);
     failWeld(w, 'overload');
@@ -1420,6 +1859,14 @@ function staticDemand(w: Weld): number {
   const c = w.cap;
   return Math.max(w.supportForce / c.comp, w.supportTorque / (c.torque + thrustMoment(w, w.sN)), -w.sN / c.ten, w.sV / (c.shear + w.mu * Math.max(0, w.sN)));
 }
+
+/** A mortar bed between masonry units (a horizontal joint through brickwork or stonework). */
+function masonryBed(w: Weld): boolean {
+  if (!w.b || w.metal || (w.j.kind !== 'mortar' && w.j.kind !== 'bearing') || !ARCH_MATS.has(w.a.mat) || !ARCH_MATS.has(w.b.mat)) return false;
+  weldNormal(w, _mbn);
+  return Math.abs(_mbn[1]) >= 0.5;
+}
+const _mbn: Vec3 = [0, 0, 0];
 
 /* A masonry bed under compression N does not open until the line of thrust leaves it: it resists a moment of about
    N·t/2 on top of its bond (rocking about the compressed edge), so a stack bearing on part of its section carries the
@@ -1563,11 +2010,52 @@ function watchSettling(): void {
   }
 }
 
+/* Free-standing masonry stacks (a chimney, a boiler stack, a brick stack): the shaft is a bonded tube, far stronger
+   than its coarse courses of a few big members joined at points suggest, and a notch at its foot does not unzip it
+   joint by joint (the section decides whether it goes: see the felling hinge). The joints within one keep brickwork's
+   real strength; its units still break as any do. A stack is the masonry island of one building group standing at
+   least STACK.tall high and STACK.slender times as high as it is wide. */
+const STACK = { tall: 6, slender: 2.5 };
+const stackRoots = new WeakSet<Root>();
+/** A member of a free-standing stack, or a piece broken from one. */
+function inStack(p: Piece): boolean {
+  for (let r: Root | undefined = p.root; r; r = r.parent) if (stackRoots.has(r)) return true;
+  return false;
+}
+function findStacks(list: Piece[]): Set<Piece> {
+  const out = new Set<Piece>(), seen = new Set<Piece>(), inGroup = new Map<string | undefined, number>();
+  for (const p of list) if (!p.dead) inGroup.set(p.root.spec.group, (inGroup.get(p.root.spec.group) ?? 0) + 1);
+  for (const p of list) {
+    if (seen.has(p) || p.dead || !ARCH_MATS.has(p.mat)) continue;
+    const g = p.root.spec.group, isl = [p];
+    seen.add(p);
+    for (let i = 0; i < isl.length; i++) for (const w of isl[i].welds) {
+      const o = w.a === isl[i] ? w.b : w.a;
+      if (o && !seen.has(o) && !o.dead && o.root.spec.group === g) { seen.add(o); isl.push(o); }
+    }
+    let M = 0, mm = 0, x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const q of isl) {
+      M += q.mass;
+      if (ARCH_MATS.has(q.mat)) mm += q.mass;
+      b3.b3Body_ComputeAABB(_hy, q.body);
+      x0 = Math.min(x0, _hy[0]); y0 = Math.min(y0, _hy[1]); z0 = Math.min(z0, _hy[2]);
+      x1 = Math.max(x1, _hy[3]); y1 = Math.max(y1, _hy[4]); z1 = Math.max(z1, _hy[5]);
+    }
+    // the whole of its building: a tower that is part of a church is not free-standing
+    const h = y1 - y0;
+    if (isl.length === inGroup.get(g) && mm >= HINGE.masonry * M && h >= STACK.tall && h >= STACK.slender * Math.max(x1 - x0, z1 - z0)) {
+      for (const q of isl) { out.add(q); stackRoots.add(q.root); }
+    }
+  }
+  return out;
+}
+
 function finishCalib(c: Calib, settle: boolean): void {
   designCheck = true;
   stepAnalysis(Infinity, new Set(c.pieces));
   designCheck = false;
   const { list, ten: mTen, shear: mShear, mag: mMag, tor: mTor } = c;
+  const stacks = findStacks(c.pieces);
   for (let i = 0; i < list.length; i++) {
     const w = list[i], b = w.base;
     if (!w.alive) continue;
@@ -1587,6 +2075,10 @@ function finishCalib(c: Calib, settle: boolean): void {
       b.ten = Math.max(b.ten * ak, Math.max(mTen[i], -w.sN) * AGED_SAFETY + 800);
       b.shear = Math.max(b.shear * ak, Math.max(mShear[i], w.sV - w.mu * Math.max(0, w.sN)) * AGED_SAFETY + 800);
       b.torque = Math.max(b.torque * ak, Math.max(mTor[i], w.supportTorque) * AGED_SAFETY + 1500);
+    }
+    if (stacks.has(w.a) && (!w.b || stacks.has(w.b)) && !w.metal && (w.j.kind === 'mortar' || w.j.kind === 'bearing')) {
+      b.comp = Math.max(b.comp, w.real.comp); b.ten = Math.max(b.ten, w.real.ten);
+      b.shear = Math.max(b.shear, w.real.shear); b.torque = Math.max(b.torque, w.real.torque);
     }
     w.cap = { ...b };
     applyCaps(w);
@@ -1670,6 +2162,9 @@ export function clearStructures(): void {
   fusing.length = 0;
   fading.length = 0;
   hangQueue.clear();
+  hinges.length = 0;
+  hingeJoints.clear();
+  hingeWatch.clear();
   frozenList.length = 0;
   roots = [];
   totalVol = 0; totalValueSum = 0; demolishedVol = 0; clock = 0;
@@ -1797,6 +2292,7 @@ type FailMode = 'overload' | 'blast' | 'kinetic' | 'rupture';
    rotation capacity is used up. Cracked reinforced concrete stays tied by its rebar. */
 function failWeld(w: Weld, mode: FailMode, crack = true): void {
   if (!w.alive) return;
+  if (mode === 'overload' && hingeBed(w)) return;
   weldPos(w, _fk);
   chance.at(_fk[0], _fk[1], _fk[2], stepCount, 1);
   if (cracking.has(w)) {
@@ -2509,6 +3005,7 @@ function syncRebar(alpha: number): void {
 
 function destroyPiece(p: Piece): void {
   if (p.dead) return;
+  watchAbove(p);
   p.dead = true;
   for (const w of p.welds.slice()) killWeld(w, false);
   for (const r of p.rebars.slice()) killRebar(r, false, false);
@@ -3631,6 +4128,9 @@ function effMass(p: Piece): number {
 }
 
 export function onJointBroken(id: b3JointId): void {
+  // a felling hinge twisted sideways past what its width holds tears free
+  const hg = hingeJoints.get(id.index1);
+  if (hg && hg.joints.some(({ j }) => j.index1 === id.index1 && j.generation === id.generation)) { releaseHinge(hg); return; }
   const rope = ropeJoints.get(id.index1);
   if (rope && rope.joint.generation === id.generation) { killRope(rope, true); return; }
   if (mechBroken(id, stepCount)) return;
@@ -3686,6 +4186,7 @@ export function afterStep(dt: number): void {
     if (ratio > 1.05) offerFailure(w, ratio, true);
   }
   settleFailures();
+  if (hinges.length || hingeWatch.size) stepHinges();
   processCracks();
   updateFire(dt);
   heatT += dt;
