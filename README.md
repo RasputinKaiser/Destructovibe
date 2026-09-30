@@ -93,10 +93,14 @@ every issued tool and the hotbar follows it to its bank):
 **Rigging.** Every line — the tow winch's, a rigging line, the hoist's chain, the grapple's — is a tension-only
 spring of its own stiffness (EA/L) that knows its breaking load: it hangs in a catenary when slack, straightens under
 load, frays near its break, and when it parts the stored energy U = T²L/2EA throws both halves back past their
-anchors (stand out of line with a loaded line; the HUD says when you are in its snap-back zone). While a rigging tool
-is in hand each line shows its tension and share of its breaking load, and the tool readout has a bar per line
-(amber past 60 %, red past 85 %). Any cutting tool held on a line cuts it — a loaded one parts before the cut is
-through.
+anchors (stand out of line with a loaded line; the HUD says when you are in its snap-back zone). A line is made fast
+round what it pulls, never to a bare face: a choker round a column or beam, a timber needle through a wall with a
+bearing plate on the far face (it spreads the pull over the bricks behind the plate), a sling round a block, a welded
+lug on steel; nothing goes round anything wider than 3 m. Ground anchors have a holding power — a 3-2-1 picket
+holdfast ~18 kN, the winch's buried log deadman ~120 kN — and plough out past it, throwing the line toward whatever
+pulled it. While a rigging tool is in hand each line shows a numbered tag with its tension and share of its working
+load, and the tool readout has a matching bar per line (full scale its break, a tick at its WLL; amber past the WLL,
+red past 60 % of the break). Any cutting tool held on a line cuts it — a loaded one parts before the cut is through.
 
 - **Grapple launcher** — `LMB` throws a four-tine grapnel on 60 m of 10 mm HMPE line (34 m/s). It bites round a
   post, beam or exposed rebar, over an edge the line runs back across (a parapet, sill, slab lip), or drags back
@@ -105,7 +109,9 @@ through.
   a swing, up to the ledge (`Space` at the top climbs on). `Wheel` pays line out or takes it in a metre (lower
   yourself). `RMB` makes the line fast to the vehicle you aim at or a ground anchor at your feet (hanging in the air:
   let go). The hook tears out of an edge past what the edge bears (one tine ~8.9 kN on steel, less on masonry) and
-  skids off if the pull swings away from the edge; a load falling away on the line tears the launcher from your hands.
+  skids off if the pull swings away from the edge; round a member it holds while the pull is within ~20° of square to
+  it, and slides along it to the next stop otherwise. The reel's 2.6 kN slip clutch pays line out rather than take
+  more: a load falling away, or you falling onto the line, is arrested at that.
 - **Rigging lines** — `LMB` one end, `LMB` the other: members, a vehicle's chassis, or a ground anchor. `Wheel`
   picks 16 mm wire rope (179 kN), 22 mm nylon kinetic rope (127 kN, stretches up to 30 % and gives a run-up back as a
   snatch) or 13 mm G80 chain (212 kN, no stretch, heavy). Several lines from the top of a wall to one truck and a drive
@@ -116,7 +122,9 @@ through.
   you can't move it. `Wheel` selects PULL / LOWER / FREE chain (free runs slack through by hand, no load only). `RMB`
   takes it down (not under load).
 - **Tow winch** — an 18,000 lb hydraulic winch on 13 mm wire rope (80 kN, 7 m/min, the speed held to the rated pull);
-  `Wheel` reeves 1–3 parts of line through snatch blocks; `LMB` on a vehicle makes the newest line fast to it.
+  `Wheel` reeves 1–3 parts of line through snatch blocks; `LMB` on a vehicle makes the newest line fast to it. The
+  winch is set down on a log deadman 8 m to your side, out of the line of pull; its pull falls off by drum layer
+  (100 / 83 / 71 / 62 %) and 5 % per sheave.
 
 Every blow and shot reads back: heavy hits land with a beat of hitstop and a jolt through the tool in hand, blows
 that break nothing leave a strike mark on the face (cracks on masonry and glass, a scuff on metal, a bruise on

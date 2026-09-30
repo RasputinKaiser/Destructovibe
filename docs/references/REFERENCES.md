@@ -903,6 +903,14 @@ Benchmarks
 - CMI five-tine steel grappling hook: 1.6 kg, 21.6 cm across, overall MBS 3,900 lb (17.3 kN), each tine 2,000 lb (8.9 kN). **[S]** https://helixoperations.com/products/cmi-grappling-hook
 - Atlas APA-4 powered ascender: up to 66 m/min (1.1 m/s), 160 kg standard / 250 kg heavy-duty. **[S]** https://helixoperations.com/Tactical/Products/Motorised-Ascenders/Atlas-Powered-Ascender-APA-4
 - Edge bearing of masonry/concrete under one tine: not sourced (judgement 3.5–6 kN). Gap.
+- Fall-arrest energy absorbers (EN 355) limit the arrest force to ~6 kN; the reel's 2.6 kN slip clutch stays under it. **[Q]** EN 355:2002 (standard not consulted directly)
+
+## rigging/anchors — ground anchors and hitches
+
+- US Army FM 5-125 *Rigging Techniques, Procedures and Applications*: single steel picket in loamy soil 300–700 lb; 1-1-1 picket line 1,000–2,000 lb; 3-2-1 picket holdfast ~4,000 lb (**17.8 kN [D]**), the line on the three-picket front group, each group lashed from its heads to the foot of the group behind, pickets ~5 ft driven ~3 ft leaning back from the pull; log deadman in firm soil ~1,550–3,550 lb per foot of log (**~120 kN for a 3 m log [D]**). **[Q]** (field-manual figures as summarised; the online copy was not re-fetched)
+- Pull ropes attached to each cut section of what is pulled; nobody where a rope could strike them if it failed. **[S]** NSW Code of Practice *Demolition work* (2019) s.4.13 p.43, https://www.safework.nsw.gov.au/__data/assets/pdf_file/0015/52161/Demolition-work-COP.pdf
+- Chain choked round the statue's neck at Firdos Square rather than a cable, for whiplash risk. **[S]** https://en.wikipedia.org/wiki/Firdos_Square_statue_destruction
+- Timber needle and bearing plate through a wall, and friction of a steel tine on steel (0.2–0.4, a hook sliding past ~20° off square): **[D]** judgement from standard needling practice and steel-on-steel friction coefficients; not sourced to a document.
 
 ---
 
@@ -915,4 +923,4 @@ Benchmarks
 - Hudson's and Ocean Tower collapse durations (one source each, conflicting for Hudson).
 - Fragment-size distributions for blast rubble (brick or concrete); concrete tension/compression ratio; Eurocode 3 reduction factors and rotation capacity; glass tensile strength; tempered/annealed comparison photographs.
 - Wrecking-ball swing counts and ball speeds; debris throw distances for wrecking balls and excavators.
-- Rigging: chain axial stiffness; operator stroke rate on a lever hoist; edge bearing under a grapnel tine; a lorry's stall pull on a rope (the vehicle model gives ~31 kN in reverse).
+- Rigging: chain axial stiffness; operator stroke rate on a lever hoist; edge bearing under a grapnel tine; a lorry's stall pull on a rope (the vehicle model gives ~31 kN in reverse); FM 5-125 holdfast and deadman holding powers not re-verified against the manual; needle bearing spread over units.
