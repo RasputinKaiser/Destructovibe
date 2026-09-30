@@ -23,6 +23,7 @@ import { initGuards, setGuards, guardAt, flagGuard, updateGuards, type Guarded }
 import { initCables, cables } from './render/cables';
 import { initLampLights, lampLights, updateLampLights } from './render/lights';
 import { initWater, updateWater, clearWaterMeshes } from './render/water';
+import { updateTails } from './render/utilityfx';
 import { initTerrainGfx, updateTerrainGfx } from './render/terrain';
 import { terrainStep } from './terrain/terrain';
 import { stand } from './levels/maps/ground';
@@ -1068,6 +1069,7 @@ function frame(dt: number): void {
   fx.update(state === 'playing' ? dt * fxScale : dt);
   updateLampLights(dt);
   updateWater();
+  updateTails();
   updateTerrainGfx(cam.position);
   const tf = performance.now();
   renderFrame(dt);

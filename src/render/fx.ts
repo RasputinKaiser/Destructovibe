@@ -2665,3 +2665,17 @@ function machFx(): MachFx | null {
   mach = { bits, kerfs, bores };
   return mach;
 }
+
+/* Emitter primitives for effect modules kept outside this file (render/utilityfx.ts): the same spawn templates,
+   rings and flash lights, so their particles share one budget and one draw with everything here. */
+export const fxKit = {
+  P, S, pAt, pColor, spark, dirAround, unitDir, budget, flash, bolt, arcGlow, rf,
+  emit: (): void => emit(),
+  /** scratch direction written by dirAround / unitDir */
+  v: _v, cd: _cd,
+  ready: (): boolean => ready,
+  /** the fx group in the scene, for effect meshes of their own */
+  root: (): THREE.Group | null => (ready ? root : null),
+  /** brightness of additive water droplets for the current light (they must not glow at night) */
+  drop: (): number => dropK,
+};
