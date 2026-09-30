@@ -443,8 +443,9 @@ export interface ToolReadout {
   progress: number | null;
   detail: string;
   warn: boolean;
-  /** rigging lines: each loaded line's tension as a share of its breaking load (the HUD's tension bars) */
-  lines?: { label: string; util: number }[];
+  /** rigging lines: each loaded line's tension as a share of its breaking load, and where its working load limit sits
+   *  on that scale (the HUD's tension bars) */
+  lines?: { label: string; util: number; wll?: number }[];
 }
 
 export interface TimelineView {

@@ -147,12 +147,28 @@ export const ropes = {
    spot, and a line that parts whips back toward its anchors. */
 export type LineLook = 'wire' | 'fibre' | 'chain';
 
-const LN = 48, LS = 28, WHISK = 12, LINKS = 2400, WHIP_T = 1.1;
+const LN = 48, LS = 28, WIRES = 32, WHISK = WIRES * 2, LINKS = 2400, WHIP_T = 1.4;
 let wireM: THREE.InstancedMesh | null = null, fibreM: THREE.InstancedMesh | null = null;
 let wireOff: THREE.InstancedBufferAttribute, fibreOff: THREE.InstancedBufferAttribute;
 let linkM: THREE.InstancedMesh | null = null, whiskM: THREE.InstancedMesh | null = null;
+let eyeM: THREE.InstancedMesh | null = null, shackleM: THREE.InstancedMesh | null = null;
 let linkUsed = 0;
 let clock = 0;
+/* the camera, for a floor on how thin a line is drawn: a 16 mm rope is under a pixel at 15 m, and a line the player has
+   rigged has to stay readable (never thinner than ~1.1 mrad, about 1.5 px at 1080p) */
+const eye = new THREE.Vector3(0, 1e6, 0);
+const MIN_ANGLE = 0.0011;
+const readable = (r: number, p: THREE.Vector3): number => Math.max(r, p.distanceTo(eye) * MIN_ANGLE);
+/* where the ground is: slack line lies on it rather than hanging through it */
+let floorAt: ((x: number, z: number) => number) | null = null;
+export function setLineFloor(f: (x: number, z: number) => number): void { floorAt = f; }
+function onFloor(pts: Float32Array, n: number, r: number): void {
+  if (!floorAt) return;
+  for (let i = 0; i <= n; i++) {
+    const g = floorAt(pts[i * 3], pts[i * 3 + 2]) + r;
+    if (pts[i * 3 + 1] < g) pts[i * 3 + 1] = g;
+  }
+}
 
 interface ToolLine {
   on: boolean;
@@ -168,6 +184,8 @@ interface ToolLine {
   /** snapped: animating the two halves back toward their anchors */
   whip: { t0: number; a: Vec3; b: Vec3; at: number; v: number; twin: number } | null;
   links: number;
+  /** chain: plastic stretch of the links past proof load */
+  plastic: number;
 }
 const tl: ToolLine[] = [];
 const tlFree: number[] = [];
@@ -204,9 +222,9 @@ const WIRE_FRAG = /* glsl */`
   float lay = vAlong / ( 13.0 * vR );
   float sf = fract( ( ang - lay ) * 6.0 );
   float crown = smoothstep( 0.0, 0.22, sf ) * smoothstep( 1.0, 0.78, sf );
-  float wires = 0.82 + 0.18 * sin( 6.28318 * ( ang + lay * 2.2 ) * 42.0 );
-  diffuseColor.rgb *= mix( 0.28, 1.0, crown ) * wires;
-  roughnessFactor = mix( 0.85, roughnessFactor, crown );`;
+  float wires = 0.78 + 0.22 * smoothstep( -0.2, 0.9, sin( 6.28318 * ( ang * 6.0 + lay * 0.35 ) * 9.0 ) );
+  diffuseColor.rgb *= mix( 0.3, 1.0, crown ) * mix( 1.0, wires, crown );
+  roughnessFactor = mix( 0.8, roughnessFactor, crown );`;
 /* Twelve-strand braid: yarns running both ways over and under each other. */
 const FIBRE_FRAG = /* glsl */`
   float ang = atan( vLoc.z, vLoc.x ) / 6.28318;
@@ -263,14 +281,37 @@ function linkGeometry(): THREE.BufferGeometry {
   return g;
 }
 
+/* A bow shackle for pin diameter 1: the bow (a 3/4 torus, inside width ~1.7), its two eyes and the pin across them. */
+function shackleGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  parts.push(new THREE.TorusGeometry(1.35, 0.42, 6, 14, Math.PI * 1.35).rotateZ(-Math.PI * 0.175).translate(0, 1.3, 0));
+  parts.push(new THREE.CylinderGeometry(0.5, 0.5, 3.4, 8).rotateZ(Math.PI / 2));
+  const pos: number[] = [], nor: number[] = [], idx: number[] = [];
+  let base = 0;
+  for (const g of parts) {
+    const gg = g.index ? g : g;
+    const pa2 = gg.getAttribute('position'), na = gg.getAttribute('normal');
+    for (let i = 0; i < pa2.count; i++) { pos.push(pa2.getX(i), pa2.getY(i), pa2.getZ(i)); nor.push(na.getX(i), na.getY(i), na.getZ(i)); }
+    const ix = gg.index!;
+    for (let i = 0; i < ix.count; i++) idx.push(ix.getX(i) + base);
+    base += pa2.count;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  out.setIndex(idx);
+  return out;
+}
+
 export function initLines(scene: THREE.Scene): void {
-  if (wireM && fibreM && linkM && whiskM) {
-    for (const m of [wireM, fibreM, linkM, whiskM]) if (m.parent !== scene) scene.add(m);
+  if (wireM && fibreM && linkM && whiskM && eyeM && shackleM) {
+    for (const m of [wireM, fibreM, linkM, whiskM, eyeM, shackleM]) if (m.parent !== scene) scene.add(m);
     return;
   }
-  [wireM, wireOff] = lineMesh(strandShader(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.34, metalness: 0.85 }), 'dv-wirerope', WIRE_FRAG), 'lineWire', LN * LS, 8);
-  [fibreM, fibreOff] = lineMesh(strandShader(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.82, metalness: 0 }), 'dv-fibrerope', FIBRE_FRAG), 'lineFibre', LN * LS, 8);
-  linkM = new THREE.InstancedMesh(linkGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.42, metalness: 0.8 }), LINKS);
+  // galvanised wire: a grey metal, not a mirror (at full metalness it reads the sky's blue)
+  [wireM, wireOff] = lineMesh(strandShader(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.55 }), 'dv-wirerope2', WIRE_FRAG), 'lineWire', LN * LS, 12);
+  [fibreM, fibreOff] = lineMesh(strandShader(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.82, metalness: 0 }), 'dv-fibrerope', FIBRE_FRAG), 'lineFibre', LN * LS, 12);
+  linkM = new THREE.InstancedMesh(linkGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0.65 }), LINKS);
   linkM.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   for (let i = 0; i < LINKS; i++) { linkM.setMatrixAt(i, ZERO); linkM.setColorAt(i, lc.setHex(0x3a3c3f)); }
   linkM.count = 0;
@@ -283,7 +324,20 @@ export function initLines(scene: THREE.Scene): void {
   whiskM.count = 0;
   whiskM.frustumCulled = false;
   whiskM.name = 'lineFray';
-  scene.add(wireM, fibreM, linkM, whiskM);
+  // terminations: a thimble eye in the rope's end and a bow shackle through it at each end (galvanised)
+  const fit = new THREE.MeshStandardMaterial({ color: 0xa4a8ac, roughness: 0.4, metalness: 0.7 });
+  eyeM = new THREE.InstancedMesh(new THREE.TorusGeometry(1, 0.28, 6, 14).scale(1, 1.35, 1), fit, LN * 2);
+  shackleM = new THREE.InstancedMesh(shackleGeometry(), fit, LN * 2);
+  for (const m of [eyeM, shackleM]) {
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (let i = 0; i < LN * 2; i++) m.setMatrixAt(i, ZERO);
+    m.count = 0;
+    m.frustumCulled = false;
+    m.castShadow = true;
+  }
+  eyeM.name = 'lineEyes';
+  shackleM.name = 'lineShackles';
+  scene.add(wireM, fibreM, linkM, whiskM, eyeM, shackleM);
 }
 
 /* ----- hanging shape ----- */
@@ -343,10 +397,12 @@ export function hangLine(out: Float32Array, a: Vec3, b: Vec3, len: number, tensi
 
 function hideLine(id: number): void {
   const L = tl[id];
-  if (!wireM || !fibreM || !whiskM) return;
+  if (!wireM || !fibreM || !whiskM || !eyeM || !shackleM) return;
   for (let i = 0; i < LS; i++) { wireM.setMatrixAt(id * LS + i, ZERO); fibreM.setMatrixAt(id * LS + i, ZERO); }
   for (let i = 0; i < WHISK; i++) whiskM.setMatrixAt(id * WHISK + i, ZERO);
+  for (let i = 0; i < 2; i++) { eyeM.setMatrixAt(id * 2 + i, ZERO); shackleM.setMatrixAt(id * 2 + i, ZERO); }
   wireM.instanceMatrix.needsUpdate = fibreM.instanceMatrix.needsUpdate = whiskM.instanceMatrix.needsUpdate = true;
+  eyeM.instanceMatrix.needsUpdate = shackleM.instanceMatrix.needsUpdate = true;
   if (L) L.links = 0;
 }
 
@@ -354,7 +410,6 @@ function hideLine(id: number): void {
 function drawStrand(id: number, L: ToolLine, pts: Float32Array, n: number): void {
   if (L.look === 'chain') return;
   const mesh = L.look === 'wire' ? wireM! : fibreM!, off = L.look === 'wire' ? wireOff : fibreOff;
-  const r = L.r;
   let along = 0;
   for (let i = 0; i < LS; i++) {
     const k = id * LS + i;
@@ -365,6 +420,9 @@ function drawStrand(id: number, L: ToolLine, pts: Float32Array, n: number): void
     const l = seg.length();
     if (l < 1e-5) { mesh.setMatrixAt(k, ZERO); continue; }
     seg.multiplyScalar(1 / l);
+    // a worn spot opens up: strands spring apart round broken wires (a birdcage), yarns bulge round cut ones
+    const z = (i + 0.5) / LS - L.frayAt;
+    const r = readable(L.r, pa) * (1 + 0.9 * L.fray * Math.exp(-(z * z) * 150));
     lq.setFromUnitVectors(UP, seg);
     lm.compose(pa.addScaledVector(seg, -r * 0.5), lq, ls.set(r, l + r, r));
     mesh.setMatrixAt(k, lm);
@@ -378,7 +436,8 @@ function drawStrand(id: number, L: ToolLine, pts: Float32Array, n: number): void
 /* links laid along the polyline at the pitch, alternate links turned a quarter round the chain's axis */
 function drawLinks(L: ToolLine, pts: Float32Array, n: number): void {
   if (!linkM) return;
-  const d = L.r * 2, pitch = 3 * d;
+  pa.set(pts[Math.floor(n / 2) * 3], pts[Math.floor(n / 2) * 3 + 1], pts[Math.floor(n / 2) * 3 + 2]);
+  const d = 2 * Math.min(readable(L.r, pa), L.r * 1.5), pitch = 3 * d * (1 + L.plastic);
   let s = pitch * 0.5, i = 0, acc = 0, k = 0;
   while (i < n && linkUsed < LINKS) {
     pa.set(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2]);
@@ -395,7 +454,7 @@ function drawLinks(L: ToolLine, pts: Float32Array, n: number): void {
     const z = new THREE.Vector3().crossVectors(side, tan);
     if (k & 1) lbasis.makeBasis(z.clone().negate(), tan, side); else lbasis.makeBasis(side, tan, z);
     lq.setFromRotationMatrix(lbasis);
-    lm.compose(pa, lq, ls.set(d, d, d));
+    lm.compose(pa, lq, ls.set(d * (1 - L.plastic * 0.5), d * (1 + L.plastic), d * (1 - L.plastic * 0.5)));
     linkM.setMatrixAt(linkUsed, lm);
     linkM.setColorAt(linkUsed, lc.setHex(L.color));
     linkUsed++; k++;
@@ -404,10 +463,12 @@ function drawLinks(L: ToolLine, pts: Float32Array, n: number): void {
   L.links = k;
 }
 
-/* broken wires or fuzzed yarns round the weak spot: more, and longer, the nearer the line came to parting */
+/* Broken wires round the weak spot, sprung out and curled back along the lay like fish-hooks (up to 32 at the break,
+   ISO 4309 would discard the rope at 9 in 6 d); on fibre rope, cut yarns standing off the braid. */
+const _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3(), _wo = new THREE.Vector3(), _wz = new THREE.Vector3();
 function drawFray(id: number, L: ToolLine, pts: Float32Array, n: number): void {
   if (!whiskM) return;
-  const show = L.look === 'chain' ? 0 : Math.round(WHISK * Math.min(1, L.fray));
+  const show = L.look === 'chain' ? 0 : Math.round(WIRES * Math.min(1, L.fray * 1.2));
   const j = Math.min(n - 1, Math.max(0, Math.floor(L.frayAt * n)));
   pa.set(pts[j * 3], pts[j * 3 + 1], pts[j * 3 + 2]);
   pb.set(pts[j * 3 + 3], pts[j * 3 + 4], pts[j * 3 + 5]);
@@ -415,27 +476,75 @@ function drawFray(id: number, L: ToolLine, pts: Float32Array, n: number): void {
   side.crossVectors(tan, UP);
   if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
   side.normalize();
-  const z = new THREE.Vector3().crossVectors(side, tan);
+  _wz.crossVectors(side, tan);
   const wire = L.look === 'wire';
-  for (let i = 0; i < WHISK; i++) {
-    const k = id * WHISK + i;
-    if (i >= show) { whiskM.setMatrixAt(k, ZERO); continue; }
+  const rv = readable(L.r, pa);
+  for (let i = 0; i < WIRES; i++) {
+    const k = id * WHISK + i * 2;
+    if (i >= show) { whiskM.setMatrixAt(k, ZERO); whiskM.setMatrixAt(k + 1, ZERO); continue; }
     // a fixed scatter per line (hash of its seed), so the frayed wires don't dance from frame to frame
     const h1 = fract(Math.sin((L.seed + i) * 12.9898) * 43758.5453), h2 = fract(Math.sin((L.seed + i) * 78.233) * 12345.678);
-    const a = h1 * Math.PI * 2, t = (h2 - 0.5) * L.r * 10;
-    const base = new THREE.Vector3().copy(pa).lerp(pb, 0.5).addScaledVector(tan, t);
-    const out = new THREE.Vector3().copy(side).multiplyScalar(Math.cos(a)).addScaledVector(z, Math.sin(a));
-    base.addScaledVector(out, L.r * 0.9);
-    // broken wires spring out and back along the lay; yarns stand off the braid
-    seg.copy(out).multiplyScalar(wire ? 0.7 : 1).addScaledVector(tan, wire ? (h2 > 0.5 ? 0.7 : -0.7) : 0.3).normalize();
+    const a = h1 * Math.PI * 2, t = (h2 - 0.5) * rv * 12;
+    _w1.copy(pa).lerp(pb, 0.5).addScaledVector(tan, t);
+    _wo.copy(side).multiplyScalar(Math.cos(a)).addScaledVector(_wz, Math.sin(a));
+    _w1.addScaledVector(_wo, rv * 1.3);
+    const len = (wire ? 2.6 : 2) * rv * (0.6 + 0.8 * h2) * (0.6 + 0.6 * L.fray);
+    const th = Math.max(wire ? L.r * 0.08 : L.r * 0.06, rv * 0.14);
+    const back = h2 > 0.5 ? 1 : -1;
+    const col = lc.setHex(wire ? 0xc4c8cc : L.color).offsetHSL(0, 0, wire ? 0 : 0.12);
+    if (!wire) {
+      // cut yarns: short fine fibres standing off the braid every which way, no second bend
+      seg.copy(_wo).addScaledVector(tan, (h1 - 0.5) * 1.6).addScaledVector(side, (h2 - 0.5) * 0.8).normalize();
+      lq.setFromUnitVectors(UP, seg);
+      lm.compose(_w1.addScaledVector(_wo, -rv * 0.4), lq, ls.set(th * 0.6, len * 0.55, th * 0.6));
+      whiskM.setMatrixAt(k, lm);
+      whiskM.setColorAt(k, col);
+      whiskM.setMatrixAt(k + 1, ZERO);
+      continue;
+    }
+    // out from the rope, then curling back along it
+    seg.copy(_wo).multiplyScalar(0.8).addScaledVector(tan, 0.6 * back).normalize();
     lq.setFromUnitVectors(UP, seg);
-    const len = (wire ? 2.2 : 1.6) * L.r * (0.6 + 0.8 * h1) * (0.5 + L.fray);
-    lm.compose(base, lq, ls.set(wire ? L.r * 0.07 : L.r * 0.05, len, wire ? L.r * 0.07 : L.r * 0.05));
+    lm.compose(_w1, lq, ls.set(th, len, th));
     whiskM.setMatrixAt(k, lm);
-    whiskM.setColorAt(k, lc.setHex(wire ? 0xb9bec3 : L.color).offsetHSL(0, 0, wire ? 0 : 0.12));
+    whiskM.setColorAt(k, col);
+    _w2.copy(_w1).addScaledVector(seg, len);
+    seg.copy(_wo).multiplyScalar(0.15).addScaledVector(tan, back).normalize();
+    lq.setFromUnitVectors(UP, seg);
+    lm.compose(_w2, lq, ls.set(th, len * 0.8, th));
+    whiskM.setMatrixAt(k + 1, lm);
+    whiskM.setColorAt(k + 1, col);
   }
   whiskM.instanceMatrix.needsUpdate = true;
   if (whiskM.instanceColor) whiskM.instanceColor.needsUpdate = true;
+}
+
+/* A thimble eye in the line's end and a bow shackle through it, sized to the rope (pin ~1.1 d), lying along the line. */
+function drawFittings(id: number, L: ToolLine, pts: Float32Array, n: number): void {
+  if (!eyeM || !shackleM) return;
+  const d = 2 * Math.min(readable(L.r, pa.set(pts[0], pts[1], pts[2])), L.r * 1.5);
+  for (let e = 0; e < 2; e++) {
+    const i0 = e === 0 ? 0 : n, i1 = e === 0 ? 1 : n - 1;
+    pa.set(pts[i0 * 3], pts[i0 * 3 + 1], pts[i0 * 3 + 2]);
+    pb.set(pts[i1 * 3], pts[i1 * 3 + 1], pts[i1 * 3 + 2]);
+    tan.subVectors(pb, pa).normalize();
+    side.crossVectors(tan, UP);
+    if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+    side.normalize();
+    _wz.crossVectors(side, tan);
+    // the eye: its long axis along the line, 2.2 d out from the anchor
+    lbasis.makeBasis(side, tan, _wz);
+    lq.setFromRotationMatrix(lbasis);
+    _w1.copy(pa).addScaledVector(tan, d * 3.2);
+    lm.compose(_w1, lq, ls.set(d * 1.5, d * 1.5, d * 1.5));
+    eyeM.setMatrixAt(id * 2 + e, lm);
+    // the shackle: bow through the eye, pin across at the anchor, turned a quarter to the eye
+    lbasis.makeBasis(_wz, tan, side);
+    lq.setFromRotationMatrix(lbasis);
+    lm.compose(pa, lq, ls.set(d * 1.1, d * 1.1, d * 1.1));
+    shackleM.setMatrixAt(id * 2 + e, lm);
+  }
+  eyeM.instanceMatrix.needsUpdate = shackleM.instanceMatrix.needsUpdate = true;
 }
 
 const fract = (x: number) => x - Math.floor(x);
@@ -457,7 +566,8 @@ function drawWhip(id: number, L: ToolLine): boolean {
     // the free end: out from the break toward (and past) the anchor, braking as the line piles up
     const brk: Vec3 = [w.a[0] + (w.b[0] - w.a[0]) * w.at, w.a[1] + (w.b[1] - w.a[1]) * w.at, w.a[2] + (w.b[2] - w.a[2]) * w.at];
     const tau = Math.max(0.05, (len / Math.max(w.v, 1)) * 1.4);
-    const travel = len * 1.25 * (1 - Math.exp(-t / tau));
+    // it runs back almost its whole length past its anchor before the energy is spent
+    const travel = len * 1.9 * (1 - Math.exp(-t / tau));
     vec3sub(_wv, anchor, brk);
     const d = Math.hypot(_wv[0], _wv[1], _wv[2]) || 1;
     _we[0] = brk[0] + (_wv[0] / d) * travel;
@@ -493,7 +603,7 @@ export const lines = {
     if (!wireM) return -1;
     const id = tlFree.pop() ?? (tlHigh < LN ? tlHigh++ : -1);
     if (id < 0) return -1;
-    tl[id] = { on: true, look, r, color, pts: new Float32Array((LS + 1) * 3), fray: 0, frayAt: 0.85, seed: id * 7 + 1, whip: null, links: 0 };
+    tl[id] = { on: true, look, r, color, pts: new Float32Array((LS + 1) * 3), fray: 0, frayAt: 0.85, seed: id * 7 + 1, whip: null, links: 0, plastic: 0 };
     if (look !== 'chain') {
       const m = look === 'wire' ? wireM! : fibreM!;
       for (let i = 0; i < LS; i++) m.setColorAt(id * LS + i, lc.setHex(color));
@@ -502,17 +612,22 @@ export const lines = {
     hideLine(id);
     wireM!.count = fibreM!.count = tlHigh * LS;
     whiskM!.count = tlHigh * WHISK;
+    eyeM!.count = shackleM!.count = tlHigh * 2;
     return id;
   },
-  /** Draws the line between a and b (see hangLine); fray 0..1 is how near it came to parting, at `frayAt` along it. */
-  set(id: number, a: Vec3, b: Vec3, len: number, tension: number, w: number, fray = 0, frayAt = 0.85): void {
+  /** Draws the line between a and b (see hangLine); fray 0..1 is how near it came to parting, at `frayAt` along it;
+   *  `plastic` is a chain's yield stretch. `fittings` off for a line whose ends are drawn by its owner. */
+  set(id: number, a: Vec3, b: Vec3, len: number, tension: number, w: number, fray = 0, frayAt = 0.85, plastic = 0, fittings = true): void {
     const L = tl[id];
     if (!L || !L.on || L.whip) return;
     hangLine(L.pts, a, b, len, tension, w, LS);
+    onFloor(L.pts, LS, L.r);
     L.fray = fray;
     L.frayAt = frayAt;
+    L.plastic = plastic;
     if (L.look === 'chain') drawLinks(L, L.pts, LS);
     else { drawStrand(id, L, L.pts, LS); drawFray(id, L, L.pts, LS); }
+    if (fittings) drawFittings(id, L, L.pts, LS);
   },
   /** The line parted `at` (0..1 from a): it whips back at v m/s and is freed when the recoil has run out. */
   snap(id: number, a: Vec3, b: Vec3, at: number, v: number): void {
@@ -522,6 +637,7 @@ export const lines = {
     L.whip = { t0: clock, a: [...a], b: [...b], at, v, twin };
     L.fray = 0;
     for (let i = 0; i < WHISK; i++) whiskM?.setMatrixAt(id * WHISK + i, ZERO);
+    for (let i = 0; i < 2; i++) { eyeM?.setMatrixAt(id * 2 + i, ZERO); shackleM?.setMatrixAt(id * 2 + i, ZERO); }
     if (twin >= 0) tl[twin].whip = { t0: clock, a: [...a], b: [...b], at, v, twin: -2 };
   },
   remove(id: number): void {
@@ -530,8 +646,11 @@ export const lines = {
     freeLine(id);
   },
   /** Once a frame, before the owners' `set` calls: advances the recoils; after them the chain links are flushed. */
-  begin(dt: number): void {
-    clock += dt;
+  /** dev: slow the recoils down to look at them (1 = real time) */
+  whipRate: 1,
+  begin(dt: number, cam?: Vec3): void {
+    clock += dt * lines.whipRate;
+    if (cam) eye.set(cam[0], cam[1], cam[2]);
     linkUsed = 0;
     for (let id = 0; id < tlHigh; id++) {
       const L = tl[id];
@@ -553,6 +672,8 @@ export const lines = {
     if (wireM) wireM.count = 0;
     if (fibreM) fibreM.count = 0;
     if (whiskM) whiskM.count = 0;
+    if (eyeM) eyeM.count = 0;
+    if (shackleM) shackleM.count = 0;
     lines.flush();
   },
 };

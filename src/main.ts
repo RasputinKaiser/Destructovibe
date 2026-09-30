@@ -37,7 +37,8 @@ import {
   setWeaponHooks, weaponName, BANK_COUNT, releaseFire, toolWheel, toolSecondary, toolReadout, timelineView, weaponsDebug,
   devices, setDelay, fired,
 } from './game/weapons';
-import { rigDebug } from './game/tools/lines';
+import * as rigLines from './game/tools/lines';
+import * as vehicleMod from './vehicles/vehicle';
 import { grappleDebug } from './game/tools/grapple';
 import * as scoring from './game/scoring';
 import { driving, vehicleNear, enterVehicle, exitVehicle, driveControls, driveLook, driveCamera, driveHud } from './vehicles/drive';
@@ -1257,7 +1258,22 @@ if (import.meta.env.DEV) window.__dv = {
   secondary: () => toolSecondary(),
   wheel: (d: number) => toolWheel(d),
   weaponsDebug: () => weaponsDebug(),
-  rig: () => ({ lines: rigDebug(), grapple: grappleDebug(), harness: { ...harness } }),
+  rig: () => ({ lines: rigLines.rigDebug(), grapple: grappleDebug(), harness: { ...harness } }),
+  rigLines,
+  /** rigging playtests: vehicles to drive a pull, pieces under a ray */
+  /** playtests in a hidden tab (no animation frames): run n fixed steps exactly as the frame loop does */
+  advance: (n: number) => {
+    for (let i = 0; i < n; i++) {
+      if (!driving.vehicle && !operating.machine) { playerPreStep(FIXED_DT); weaponsPreStep(); }
+      physicsStep(handlers);
+      afterStep(FIXED_DT);
+      terrainStep(live);
+      weaponsAfterStep(FIXED_DT);
+      playerPostStep();
+    }
+    return stepCount;
+  },
+  rigEnv: { vehicles: vehicleMod, raycast, pieceOf, NO_HIT: CAT.structure | CAT.debris | CAT.prop | CAT.ground },
   replay: {
     start: () => { startReplay(); return replay.playing; },
     stop: () => endReplay(),

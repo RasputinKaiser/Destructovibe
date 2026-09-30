@@ -1514,15 +1514,16 @@ function updateTool(t: ToolReadout | null): void {
       R.tool.classList.toggle('has-bar', t.progress !== null);
     }
   }
-  /* rigging: one bar per loaded line, its tension against its breaking load, amber past 60 %, red past 85 % */
+  /* rigging: one bar per loaded line, full scale its breaking load, a tick at its working load limit; green within the
+     WLL, amber over it, red past 60 % of the break. The number is the share of the WLL, as a rigger reads it. */
   const ls = t?.lines ?? [];
-  const lk = ls.map(l => `${l.label}:${Math.round(clamp(l.util, 0, 1.2) * 50)}`).join('|');
+  const lk = ls.map(l => `${l.label}:${Math.round(clamp(l.util, 0, 1.2) * 50)}:${l.wll ?? 0}`).join('|');
   if (lk !== hc.toolL) {
     hc.toolL = lk;
     R.toolL.innerHTML = ls.map(l => {
-      const u = clamp(l.util, 0, 1);
-      const lvl = u > 0.85 ? ' is-red' : u > 0.6 ? ' is-amber' : '';
-      return `<div class="tl${lvl}"><span class="tl__n">${esc(l.label)}</span><span class="tl__b"><i style="transform:scaleX(${u.toFixed(3)})"></i><em></em></span><span class="tl__p">${Math.round(l.util * 100)}%</span></div>`;
+      const u = clamp(l.util, 0, 1), w = l.wll ?? 0.2;
+      const lvl = u > 0.6 ? ' is-red' : u > w ? ' is-amber' : '';
+      return `<div class="tl${lvl}"><span class="tl__n">${esc(l.label)}</span><span class="tl__b"><i style="transform:scaleX(${u.toFixed(3)})"></i><em style="left:${(w * 100).toFixed(1)}%"></em></span><span class="tl__p">${Math.round((l.util / w) * 100)}% WLL</span></div>`;
     }).join('');
   }
   const b = t && t.progress !== null ? Math.round(clamp(t.progress, 0, 1) * 200) / 200 : -1;

@@ -2476,7 +2476,7 @@ svg {
 /* rigging lines: tension against each line's breaking load */
 .hud-tool__lines:empty { display: none; }
 .hud-tool__lines { margin-top: 0.3rem; display: grid; gap: 0.18rem; }
-.tl { display: grid; grid-template-columns: 5.2rem 1fr 2.6rem; align-items: center; gap: 0.4rem; font-family: var(--f-mono); font-size: 0.62rem; color: var(--c-300); }
+.tl { display: grid; grid-template-columns: 5.2rem 1fr 4.2rem; align-items: center; gap: 0.4rem; font-family: var(--f-mono); font-size: 0.62rem; color: var(--c-300); }
 .tl__n { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tl__b { position: relative; height: 5px; background: rgba(236, 234, 227, 0.14); }
 .tl__b i { position: absolute; inset: 0; background: #8fd18f; transform-origin: left; }
