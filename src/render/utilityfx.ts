@@ -262,3 +262,44 @@ export function updateTails(): void {
   if (tailMesh.parent !== root) root.add(tailMesh);
   drawTails();
 }
+
+/* ---------------- device state lamps ---------------- */
+
+/* A small lit tag on each breaker, fuse, valve, meter and supply near the player, readable at a glance: green live and
+   closed, red off or shut, red flashing tripped on a fault, amber a standby set running, nothing when it is dead. */
+export interface Indicator { pos: Vec3; color: number; blink: boolean }
+const IND_CAP = 48;
+let indMesh: THREE.InstancedMesh | null = null;
+let indList: Indicator[] = [];
+const _ic = new THREE.Color(), _dark = new THREE.Color(0x0b0b0b);
+
+export function setIndicators(list: Indicator[]): void { indList = list.slice(0, IND_CAP); }
+
+function drawIndicators(root: THREE.Group): void {
+  if (!indMesh) {
+    indMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.035, 10, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), IND_CAP);
+    indMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    indMesh.frustumCulled = false;
+    indMesh.count = 0;
+    for (let i = 0; i < IND_CAP; i++) indMesh.setColorAt(i, _dark);
+  }
+  if (indMesh.parent !== root) root.add(indMesh);
+  const on = (performance.now() / 1000) % 0.8 < 0.4;
+  for (let i = 0; i < indList.length; i++) {
+    const d = indList[i];
+    _tm.makeTranslation(d.pos[0], d.pos[1], d.pos[2]);
+    indMesh.setMatrixAt(i, _tm);
+    /* lit well over white so the tag stays readable in daylight and blooms a little at night */
+    indMesh.setColorAt(i, d.blink && !on ? _dark : _ic.setHex(d.color).multiplyScalar(2.2));
+  }
+  indMesh.count = indList.length;
+  indMesh.instanceMatrix.needsUpdate = true;
+  if (indMesh.instanceColor) indMesh.instanceColor.needsUpdate = true;
+}
+
+/** per frame: the fallen conductors and the device lamps */
+export function updateUtilityFx(): void {
+  updateTails();
+  const root = fxKit.root();
+  if (root && (indList.length || indMesh)) drawIndicators(root);
+}

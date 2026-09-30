@@ -6,7 +6,7 @@ import { coverAt, groundAt, dig, mound } from '../terrain/terrain';
 import { fx } from '../render/fx';
 import { audio } from '../audio/audio';
 import { lampLights } from '../render/lights';
-import { waterColumn, setWaterJets, clearWaterJets, setTailSource, type JetSpec } from '../render/utilityfx';
+import { waterColumn, setWaterJets, clearWaterJets, setTailSource, setIndicators, type JetSpec, type Indicator } from '../render/utilityfx';
 import { makeTail, stepTail, kickTail, tailEnd, type Tail } from './conductors';
 import { setPieceHeat, setPiecePower } from './batches';
 import { flammable } from './materials';
@@ -301,7 +301,7 @@ let lampsLit = 0;
 let running = 0;
 let activeCount = { power: 0, gas: 0, water: 0, steam: 0 };
 const tally = { leaks: 0, ruptures: 0, trips: 0, shut: 0, deflagrations: 0, sprinklers: 0, flashovers: 0, insulation: 0, contactFires: 0, surges: 0,
-  dug: 0, strokes: 0, burnouts: 0, tipped: 0, hoses: 0, atsStarts: 0, hammers: 0, alarms: 0, scoured: 0 };
+  dug: 0, strokes: 0, burnouts: 0, tipped: 0, hoses: 0, atsStarts: 0, hammers: 0, alarms: 0, scoured: 0, isolated: 0 };
 
 const _v: Vec3 = [0, 0, 0], _d: Vec3 = [0, 0, 0], _w: Vec3 = [0, 0, 0], _c: Vec3 = [0, 0, 0];
 
@@ -520,6 +520,7 @@ export function svcLinkLost(a: Piece, b: Piece, pos: Vec3, n: Vec3, record: bool
   if (posB) { snapWire(a, b, pos, posB); return; }
   for (const [p, s] of [[a, 1], [b, -1]] as const) {
     if (p.dead || breaks.length > 400) continue;
+    strike(p);
     vec3.set(_d, n[0] * s, n[1] * s, n[2] * s);
     const m = p.svc!, o = (p === a ? b : a).svc;
     const bore = o ? Math.min(m.bore, o.bore) : m.bore;
@@ -547,6 +548,7 @@ function snapWire(a: Piece, b: Piece, pa: Vec3, pb: Vec3): void {
     const t = makeTail(at, _c, len);
     tailEnd(t, _w, _d);
     /* an insulator blown off with it drops its half whole, and dead */
+    if (!p.dead) strike(p);
     const br = breaks.length > 400 || p.dead ? null : addBreak(p, _w, _d, 0, true);
     if (br) { br.tail = t; tally.ruptures++; }
     fallen.push({ t, p });
@@ -561,6 +563,27 @@ setTailSource(() => fallen);
 /** Fallen conductor halves for tools and tests: insulator, free end, lying on the ground, still moving, live. */
 export function serviceFallen(): { piece: Piece; end: Vec3; grounded: boolean; awake: boolean; live: boolean }[] {
   return fallen.map((f) => { tailEnd(f.t, _w, _d); return { piece: f.p, end: [_w[0], _w[1], _w[2]] as Vec3, grounded: f.t.grounded, awake: f.t.awake, live: !f.p.dead && !!f.p.svc?.on }; });
+}
+
+/* ---------------- making safe ---------------- */
+
+/* A member torn open while its line is live is a service strike (a live gas main, a live cable); one torn open after its
+   supply was isolated is a safe cut. Counted per building group, so a contract can ask for its target to be made safe
+   (its gas, power and water isolated at the meter, stopcock or breaker) before it comes down. */
+const ZERO_K = (): Record<UtilityKind, number> => ({ power: 0, gas: 0, water: 0, steam: 0 });
+const strikes = new Map<string, Record<UtilityKind, number>>();
+function strike(p: Piece): void {
+  const m = p.svc!;
+  if (!m.on || m.frag) return;
+  const g = p.root.spec.group ?? '', k = strikes.get(g) ?? ZERO_K();
+  k[m.kind]++;
+  strikes.set(g, k);
+}
+/** Live service strikes, by kind, on members of these groups (every group when absent). */
+export function serviceStrikes(groups?: Iterable<string>): Record<UtilityKind, number> {
+  const out = ZERO_K(), only = groups ? new Set(groups) : null;
+  for (const [g, k] of strikes) if (!only || only.has(g)) for (const q of Object.keys(out) as UtilityKind[]) out[q] += k[q];
+  return out;
 }
 
 let breakIds = 0;
@@ -977,6 +1000,7 @@ function tick(): void {
   gasRooms();
   alarmsTick();
   pushLights();
+  deviceLamps();
   updateMechs();
   updatePools();
   hum();
@@ -1210,6 +1234,7 @@ export function svcOperate(p: Piece): string | null {
     surge = Math.min(1000 * c * v, (2 * 1000 * L * v) / CLOSE_T);
   }
   svcIsolate(p, closing);
+  if (closing) tally.isolated++;
   audio.utility(m.kind === 'power' ? 'breaker' : 'valve', p.curPos);
   if (surge > 0) waterHammer(p, surge);
   const what = m.kind === 'power' ? (closing ? 'switched off' : 'switched on') : closing ? 'shut' : 'opened';
@@ -1458,6 +1483,7 @@ function updateBreaks(): void {
   for (const n of nets) {
     const r = n.area / Math.max(n.cap, 1e-6);
     n.P = n.kind === 'gas' ? (r <= 1 ? 1 : 1 / (r * r)) : 1 / (1 + r * r);
+    if (n.kind === 'water') n.P *= boost(n);
   }
   const byKind: Record<UtilityKind, Break[]> = { power: [], gas: [], water: [], steam: [] };
   for (const b of breaks) {
@@ -1498,6 +1524,18 @@ function updateBreaks(): void {
     }
     for (const b of list) b.shown = true;
   }
+}
+
+/* A supply boosted by pumps (a pump hall's sets) holds its pressure only while they run: with its motors stopped (their
+   power cut, tripped, wrecked) the network falls back to the ~30 % its reservoir's static head gives, and every jet on
+   it drops. A supply with no pumps of its own is a gravity main. */
+const STATIC_HEAD = 0.3;
+function boost(n: Net): number {
+  const g = n.src.root.spec.group;
+  if (!g) return 1;
+  let pumps = 0, on = 0;
+  for (const m of mechs.values()) if (m.alive && m.drive?.kind === 'electric' && m.part.root.spec.group === g) { pumps++; if (m.running) on++; }
+  return pumps ? STATIC_HEAD + (1 - STATIC_HEAD) * (on / pumps) : 1;
 }
 
 /* A fragment re-welded where its parent broke closes the gap again. */
@@ -2018,6 +2056,37 @@ function igniteAround(pos: Vec3, r: number, chance: number): void {
     heat(q, 250);
     if (flammable(q.pm) && rnd() < chance) ignite(q);
   });
+}
+
+/* ---------------- device state lamps ---------------- */
+
+/* The gear within reach of the player shows its state on a small lamp (render/utilityfx.ts): drawn only, nearest first,
+   so who watches changes what is lit and nothing else. A buried valve shows on its surface box. */
+const IND_RANGE = 40, IND_MAX = 48;
+const indicators: Indicator[] = [];
+const indNear: { p: Piece; d: number }[] = [];
+function deviceLamps(): void {
+  indNear.length = 0;
+  for (const g of gates) {
+    if (g.dead || g.svc!.blown) continue;
+    const d = vec3.squaredDistance(g.curPos, viewer);
+    if (d < IND_RANGE * IND_RANGE) indNear.push({ p: g, d });
+  }
+  indNear.sort((a, b) => a.d - b.d);
+  indicators.length = 0;
+  for (const { p } of indNear) {
+    if (indicators.length >= IND_MAX) break;
+    const m = p.svc!;
+    let color = 0, blink = false;
+    if (m.standby) { if (m.run) color = 0xffa020; else if (m.on || m.live) color = 0x30ff60; else continue; }
+    else if (m.closed) { color = 0xff2a1a; blink = m.kind === 'power' && (m.fault > 0 || !!m.dev?.H); }
+    else if (m.on || (m.source && m.live)) color = 0x30ff60;
+    else continue;
+    const x = p.curPos[0], z = p.curPos[2], g = groundAt(x, z);
+    const top = p.curPos[1] + p.root.spec.size[1] / 2 + 0.03;
+    indicators.push({ pos: [x, coverAt(x, top, z) > 0.05 ? g + 0.03 : top, z], color, blink });
+  }
+  setIndicators(indicators);
 }
 
 /* ---------------- lamps & hum ---------------- */
@@ -3093,8 +3162,10 @@ export function clearServices(): void {
   svcCost.ms = 0; svcCost.steps = 0;
   lampLights.clear();
   clearWaterJets();
+  setIndicators([]);
   fallen.length = 0;
   panes.clear(); paneNet.clear(); paneShown.clear(); paneFlick.clear(); panesAt = -1e9;
+  strikes.clear();
 }
 
 export function serviceStats(): { services: number; lampsLit: number; arcs: number; jets: number; mechs: number; mechsRunning: number }

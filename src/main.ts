@@ -23,7 +23,7 @@ import { initGuards, setGuards, guardAt, flagGuard, updateGuards, type Guarded }
 import { initCables, cables } from './render/cables';
 import { initLampLights, lampLights, updateLampLights } from './render/lights';
 import { initWater, updateWater, clearWaterMeshes } from './render/water';
-import { updateTails } from './render/utilityfx';
+import { updateUtilityFx } from './render/utilityfx';
 import { initTerrainGfx, updateTerrainGfx } from './render/terrain';
 import { terrainStep } from './terrain/terrain';
 import { stand } from './levels/maps/ground';
@@ -41,7 +41,7 @@ import {
 import * as scoring from './game/scoring';
 import { driving, vehicleNear, enterVehicle, exitVehicle, driveControls, driveLook, driveCamera, driveHud } from './vehicles/drive';
 import { operating, machineNear, enterMachine, exitMachine, operateControls, operateLook, operateCamera, operateHud, vehicleGear, releaseVehicleGear } from './vehicles/operate';
-import { svcInfo, svcNearestGate, svcOperate } from './destruction/services';
+import { svcInfo, svcNearestGate, svcOperate, serviceStrikes } from './destruction/services';
 import { input, initInput, requestLock, releaseLock, endFrame } from './core/input';
 import { loadSave, writeSave, WORLD_DEFAULTS, type SaveData } from './core/save';
 import {
@@ -475,6 +475,7 @@ function finish(won: boolean): void {
 function failReason(c: Contract): string {
   const g = goalOf(c);
   if (scoring.goalExpired(c.target)) return 'out of time';
+  if (g?.makeSafe && scoring.struckLive()) return `live ${g.makeSafe.what} struck`;
   if (g?.salvage && scoring.salvageLost()) return 'salvage lost';
   if (scoring.objective.frac >= c.target && scoring.salvageOwed() > 0) return 'salvage not carried out';
   if (g?.fell && scoring.stillStanding()) return `${g.fell.what} still standing`;
@@ -859,6 +860,8 @@ function sagMeter(dt: number): void {
 function checkContract(dt: number): void {
   if (mode !== 'campaign') return;
   scoring.trackGoal(live, demolitionFraction());
+  const safe = goalOf(active)?.makeSafe;
+  if (safe) scoring.trackStrikes(serviceStrikes(goalOf(active)?.groups));
   sagMeter(dt);
   const pct = scoring.objective.frac;
   /* only once something has come down: a site settling onto its welds at the start moves too */
@@ -867,6 +870,11 @@ function checkContract(dt: number): void {
   const goal = goalOf(active);
   if (scoring.goalExpired(active.target)) {
     ui.toast('OUT OF TIME — THE SITE IS HANDED BACK', 'bad', 3500);
+    finish(false);
+    return;
+  }
+  if (goal?.makeSafe && scoring.struckLive()) {
+    ui.toast(`LIVE SERVICE STRUCK — ${goal.makeSafe.what.toUpperCase()} WERE NOT ISOLATED`, 'bad', 3500);
     finish(false);
     return;
   }
@@ -1069,7 +1077,7 @@ function frame(dt: number): void {
   fx.update(state === 'playing' ? dt * fxScale : dt);
   updateLampLights(dt);
   updateWater();
-  updateTails();
+  updateUtilityFx();
   updateTerrainGfx(cam.position);
   const tf = performance.now();
   renderFrame(dt);
