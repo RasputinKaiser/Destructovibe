@@ -11,7 +11,7 @@ import { viewmodel } from '../../render/viewmodel';
 import { player } from '../player';
 import { NO_HIT, interpPoint, toolHooks } from './common';
 import {
-  LINES, makeLine, makeStake, anchorOn, anchorWorld, releaseLine, setRest, currentLength, breakLoad, inSnapZone,
+  LINES, makeLine, makeStake, faceStake, anchorOn, anchorWorld, releaseLine, setRest, currentLength, lineBar, inSnapZone,
   type Anchor, type Line,
 } from './lines';
 
@@ -34,7 +34,8 @@ export const HOIST = {
   maxHand: 1.4,
   /** pawl clicks per stroke (teeth on the ratchet wheel passed) */
   clicks: 5,
-  reach: 3.5,
+  /** the operator stands at the hoist, hand on the lever (horizontal distance, m) */
+  reach: 1.3,
   rigReach: 6,
   maxLen: 12,
   freeSpeed: 0.8,
@@ -54,32 +55,45 @@ export function initHoist(s: THREE.Scene): void { scene = s; }
 export const hoistRigged = (): boolean => !!h;
 export const hoistPhase = (): number => (h ? h.phase : 0);
 
-/* the hoist's frame, with the load sheave's ratchet wheel and pawl on the side and the lever over it */
+let hoistRed: THREE.MeshStandardMaterial | null = null;
+/* The hoist as it looks: a flat red housing with the big round gear cover on one side and the load-brake cover on the
+   other, the flat stamped lever over the ratchet with its rubber grip, the top hook with its safety latch, and the load
+   chain down to the bottom hook. */
 function makeBody(): { body: THREE.Group; lever: THREE.Object3D; wheel: THREE.Object3D } {
   const body = new THREE.Group();
-  const red = getProjectileMaterial('rocket'), iron = getProjectileMaterial('iron');
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.12), red);
+  const red = hoistRed ??= new THREE.MeshStandardMaterial({ color: 0xb3261a, roughness: 0.45, metalness: 0.3 }), iron = getProjectileMaterial('iron');
+  const black = new THREE.MeshStandardMaterial({ color: 0x1b1b1d, roughness: 0.8 });
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.2, 0.15), red);
+  const cover = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.03, 24).rotateZ(Math.PI / 2), red);
+  cover.position.x = -0.05;
+  const brake = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.025, 20).rotateZ(Math.PI / 2), red);
+  brake.position.x = 0.05;
   const wheel = new THREE.Group();
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.02, 20).rotateX(Math.PI / 2), iron);
-  wheel.add(disc);
+  wheel.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.012, 20).rotateZ(Math.PI / 2), iron));
   for (let i = 0; i < 12; i++) {
-    const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.012, 0.02), iron);
+    const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.012, 0.009), iron);
     const a = (i / 12) * Math.PI * 2;
-    tooth.position.set(Math.cos(a) * 0.075, Math.sin(a) * 0.075, 0);
-    tooth.rotation.z = a;
+    tooth.position.set(0, Math.cos(a) * 0.053, Math.sin(a) * 0.053);
+    tooth.rotation.x = a;
     wheel.add(tooth);
   }
-  wheel.position.set(0, 0, 0.075);
+  wheel.position.set(0.075, 0, 0);
   const lever = new THREE.Group();
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.42, 0.02), iron);
-  bar.position.y = 0.21;
-  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.12, 10).rotateZ(Math.PI / 2), getProjectileMaterial('yellow'));
-  grip.position.y = 0.4;
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.415, 0.035), red);
+  bar.position.y = 0.2;
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.11, 0.045), black);
+  grip.position.y = 0.36;
   lever.add(bar, grip);
-  lever.position.set(0, 0, 0.1);
-  const hook = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.012, 6, 14, Math.PI * 1.4), iron);
+  lever.position.set(0.09, 0, 0);
+  const hook = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.011, 6, 14, Math.PI * 1.45), iron);
   hook.position.y = 0.15;
-  body.add(frame, wheel, lever, hook);
+  const latch = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.045, 0.012), iron);
+  latch.position.set(0, 0.16, 0.03);
+  latch.rotation.x = 0.5;
+  const bottom = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.01, 6, 14, Math.PI * 1.45), iron);
+  bottom.position.y = -0.2;
+  bottom.rotation.z = Math.PI;
+  body.add(housing, cover, brake, wheel, lever, hook, latch, bottom);
   body.traverse(o => { o.castShadow = true; });
   scene.add(body);
   return { body, lever, wheel };
@@ -112,6 +126,7 @@ export function hoistRig(eye: Vec3, fwd: Vec3): string | null {
   if (len > HOIST.maxLen) return `${Math.round(len)} m apart — the hoist has ${HOIST.maxLen} m of chain`;
   if (len < 0.5) return 'Too close to work the lever';
   const stake = !e.anchor.piece ? makeStake(e.anchor.local) : null;
+  if (stake) faceStake(stake, load.at);
   const line = makeLine('chain10', 'hoist', e.anchor, load.anchor, len + 0.05, {
     stake,
     onGone: () => { if (h && h.line === line) drop(); },
@@ -154,14 +169,14 @@ export function hoistSecondary(): boolean {
 const _hp: Vec3 = [0, 0, 0];
 /** where the operator works the lever: the hoist hangs at the anchor end */
 function hoistAt(out: Vec3): Vec3 { return anchorWorld(out, h!.line.a); }
+const atHoist = (): boolean => !!player.e && !!h && Math.hypot(player.e.curPos[0] - hoistAt(_hp)[0], player.e.curPos[2] - _hp[2]) < HOIST.reach && Math.abs(player.e.curPos[1] + 1 - _hp[1]) < 1.6;
 
 /** Per step, before the solver. `held`: LMB is down with the hoist in hand. */
 export function hoistPreStep(held: boolean, dt: number): void {
   t += dt;
   if (!h) { working = false; return; }
   const L = h.line;
-  const near = !!player.e && vec3.distance(player.e.curPos, hoistAt(_hp)) < HOIST.reach + 1.2;
-  working = held && near;
+  working = held && atHoist();
   if (!working) { h.stall = false; return; }
   const T = L.tension;
   if (mode === 'free') {
@@ -181,17 +196,15 @@ export function hoistPreStep(held: boolean, dt: number): void {
   const rate = HOIST.rateLight + (HOIST.rateRated - HOIST.rateLight) * k;
   const before = h.phase;
   h.phase += dt * rate;
-  // the pawl drops into a tooth a few times each stroke
+  // the chain comes in through the stroke (the load rises with it and the lever stops dead where the arm can't
+  // pull any more), and the pawl drops into a tooth a few times a stroke
+  const d = HOIST.travel * rate * dt;
+  setRest(L, clamp(mode === 'up' ? L.rest - d : L.rest + d, 0.3, HOIST.maxLen));
   if (Math.floor(before * HOIST.clicks) !== Math.floor(h.phase * HOIST.clicks) && t - h.clickAt > 0.05) {
     h.clickAt = t;
     audio.ratchet(hoistAt(_hp), k);
   }
-  if (h.phase >= 1) {
-    h.phase -= 1;
-    h.strokes++;
-    const next = mode === 'up' ? L.rest - HOIST.travel : L.rest + HOIST.travel;
-    setRest(L, clamp(next, 0.3, HOIST.maxLen));
-  }
+  if (h.phase >= 1) { h.phase -= 1; h.strokes++; }
 }
 
 const _q = new THREE.Quaternion();
@@ -201,10 +214,16 @@ export function syncHoist(alpha: number): void {
   if (!h) return;
   const a = h.line.a;
   if (a.piece) interpPoint(_hp, a.piece, a.local, alpha); else vec3.copy(_hp, a.local);
-  h.body.position.set(_hp[0], _hp[1] - 0.12, _hp[2]);
-  // hang in line with the chain, lever facing the operator
   const dx = h.line.pb[0] - _hp[0], dz = h.line.pb[2] - _hp[2];
-  h.body.rotation.set(0, Math.atan2(dx, dz), 0);
+  if (a.piece) {
+    // hung from its anchor, in line with the chain
+    h.body.position.set(_hp[0], _hp[1] - 0.17, _hp[2]);
+    h.body.rotation.set(0, Math.atan2(dx, dz), 0);
+  } else {
+    // hooked to the picket's eye it lies on the ground on its side, the chain leading off toward the load
+    h.body.position.set(_hp[0] + (dx / Math.hypot(dx, dz)) * 0.2, _hp[1] - 0.02, _hp[2] + (dz / Math.hypot(dx, dz)) * 0.2);
+    h.body.rotation.set(Math.PI / 2, Math.atan2(dx, dz), 0, 'YXZ');
+  }
   h.lever.rotation.x = -0.4 + 0.9 * Math.sin(Math.PI * h.phase);
   h.wheel.rotation.z = -((h.strokes + h.phase) * Math.PI * 2) / 12 * HOIST.clicks / 5;
   void _q;
@@ -218,11 +237,11 @@ export function hoistStatus(): ToolReadout {
   const T = L.tension;
   const hand = Math.round(HOIST.hand * (T / HOIST.wll));
   const zone = inSnapZone();
-  const near = !!player.e && vec3.distance(player.e.curPos, hoistAt(_hp)) < HOIST.reach + 1.2;
-  const lines = [{ label: 'chain', util: T / breakLoad(L) }];
-  const detail = !near ? `walk up to the hoist to work the lever · ${(T / 1000).toFixed(1)} kN on the chain`
+  const near = atHoist();
+  const lines = [lineBar(L, 'chain')];
+  const detail = !near ? `stand at the hoist, hand on the lever, to work it · ${(T / 1000).toFixed(1)} kN on the chain`
     : h.stall ? (mode === 'free' ? 'free chain only runs with no load on it — select PULL or LOWER' : `the lever won't move: ${hand} N on the handle, ${(T / 1000).toFixed(1)} kN on the chain — over what you can pull`)
-    : `${m} · ${(T / 1000).toFixed(1)} kN (${Math.round((T / HOIST.wll) * 100)} % of rated) · ${hand} N on the lever · ${h.strokes} strokes, ${(h.strokes * HOIST.travel * 100).toFixed(1)} cm${zone ? ' · in the snap-back zone!' : ''}`;
+    : `${m} · ${(T / 1000).toFixed(1)} kN (${Math.round((T / HOIST.wll) * 100)} % of rated${T > HOIST.wll ? ' — OVERLOAD' : ''}) · ${hand} N on the lever · ${h.strokes} strokes, ${(h.strokes * HOIST.travel * 100).toFixed(1)} cm${zone ? ' · in the chain\'s line: step aside' : ''}`;
   return { title: `3.2 t lever hoist · ${m}`, progress: clamp(T / HOIST.wll, 0, 1.5) / 1.5, detail, warn: h.stall || T > HOIST.wll || !!zone, lines };
 }
 

@@ -708,7 +708,7 @@ export function playerPreStep(dt: number): void {
   player.grounded = false;
   player.ground = undefined;
   groundBody = null;
-  if (!jumped && relVy <= 0.5) {
+  if (!jumped && relVy <= 0.5 && !harness.lift) {
     const dist = walking ? SNAP : 0.04;
     const fr = cast(pos, 0, -dist, 0);
     if (fr < 1) {
@@ -764,7 +764,7 @@ const SKID: K.FootParams = { accel: 0, accelHigh: 0, brake: 5, brakeK: 0.6 };
  *  closer, but he can't get further than `len` from it, so under it he hangs and off to one side he swings. `pull` N of
  *  reel tension hauls him along it, up to `speed` m/s of line. The tool sets it before each step; `tension` reports
  *  what the line took from him that step (his weight hanging, the swing, the haul). */
-export const harness = { on: false, at: [0, 0, 0] as Vec3, len: 0, pull: 0, speed: 0, tension: 0 };
+export const harness = { on: false, at: [0, 0, 0] as Vec3, len: 0, pull: 0, speed: 0, tension: 0, lift: false };
 /** where the line meets him, above his feet */
 export const HARNESS_H = 1.25;
 
@@ -780,8 +780,6 @@ function hangOn(dt: number, g: number): void {
     const a = Math.min(harness.pull / MASS, (harness.speed - closing) / dt);
     vel[0] += ux * a * dt; vel[1] += uy * a * dt; vel[2] += uz * a * dt;
     harness.tension += MASS * a;
-    // hauled up off his feet: clear of the ground snap, or the next step would stand him back down
-    if (player.grounded && uy * harness.pull > MASS * g * 0.9) { player.grounded = false; vel[1] = Math.max(vel[1], 0.6); }
   }
   // the rope's length: whatever velocity would take him beyond it goes
   const need = (d - harness.len) / dt;
@@ -791,6 +789,10 @@ function hangOn(dt: number, g: number): void {
     vel[0] += ux * dv; vel[1] += uy * dv; vel[2] += uz * dv;
     harness.tension += (MASS * dv) / dt;
   }
+  // hauled up off his feet (the line's lift beats his weight): clear of the ground snap, or the next step would stand
+  // him back down
+  harness.lift = uy * Math.max(harness.tension, harness.pull) > MASS * g * 0.9;
+  if (player.grounded && harness.lift) { player.grounded = false; vel[1] = Math.max(vel[1], 0.6); }
   // hanging on it, a jump reaches for the ledge the hook is on (or kicks off the wall)
   if (!player.grounded && harness.tension > MASS * g * 0.5) player.coyote = Math.max(player.coyote, 0.05);
 }

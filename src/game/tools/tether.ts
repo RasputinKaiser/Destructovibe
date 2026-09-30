@@ -9,15 +9,16 @@ import { hitmarker } from '../../ui/ui';
 import { viewmodel } from '../../render/viewmodel';
 import { NO_HIT, toolHooks } from './common';
 import {
-  LINES, makeLine, makeStake, anchorOn, releaseLine, pickLine, linesOf, breakLoad, inSnapZone, type Anchor, type LineKind,
+  LINES, makeLine, makeStake, faceStake, anchorOn, releaseLine, pickLine, linesOf, lineBar, inSnapZone, GROUND, type Anchor, type LineKind,
 } from './lines';
 
 /* Rigging lines: tie any two things together — a member to a member, to a vehicle's towing eye, or to a ground anchor
-   (a driven steel picket). Click one end, then the other; the line is made fast hand-tight, 20 cm slack. Several lines
-   from the top of a wall to one truck is the classic pull-down: drive off and they all come tight together. A line tied
-   off to the ground on the far side of a member stops it swinging into what stands next to it. The wheel picks the
-   line: 16 mm wire rope (stiff, 179 kN), 24 mm nylon kinetic rope (stretches ~25 %, stores a run-up and gives it back
-   as a snatch, 150 kN), 13 mm G80 chain (no stretch, 212 kN, heavy: it hangs in a deep curve). */
+   (a 3-2-1 picket holdfast, good for ~18 kN before it ploughs out). Click one end, then the other; the line is made
+   fast hand-tight, 20 cm slack. Several lines from the top of a wall to one truck is the classic pull-down: drive off
+   and they all come tight together (keep the truck at least twice the wall's height away). A line tied off to the
+   ground on the far side of a member stops it swinging into what stands next to it. The wheel picks the line: 16 mm
+   wire rope (stiff, 178.6 kN), 22 mm nylon kinetic rope (stretches up to 30 %, stores a run-up and gives it back as a
+   snatch, 127 kN), 13 mm G80 chain (no stretch below its proof load, 212 kN, heavy: it hangs in a deep curve). */
 export const TETHER_REACH = 6;
 export const MAX_TETHERS = 8;
 const MAX_LEN = 40;
@@ -31,7 +32,7 @@ export const tetherKind = (): LineKind => KINDS[pick];
 export function tetherWheel(dir: number): string {
   pick = (pick + (dir > 0 ? 1 : KINDS.length - 1)) % KINDS.length;
   const s = LINES[KINDS[pick]];
-  viewmodel.rig({ coil: s.color, chain: s.look === 'chain' });
+  viewmodel.rig({ coil: s.color, chain: s.look === 'chain', fibre: s.look === 'fibre' });
   return `${s.name}: breaks at ${Math.round(s.mbl / 1000)} kN, ${s.spring ? `stretches ~${Math.round(s.stretch * 100)} %` : 'no stretch to speak of'}, ${s.kg} kg/m`;
 }
 
@@ -70,6 +71,7 @@ export function tetherFire(eye: Vec3, fwd: Vec3): string | null {
   // the ground anchor is always end a (a static body end)
   const [a, b] = !b0.piece ? [b0, a0] : [a0, b0];
   const stake = !a.piece ? makeStake(a.local) : null;
+  if (stake) faceStake(stake, b0 === a ? first.at : e.at);
   const L = makeLine(KINDS[pick], 'tether', a, b, len + SLACK, { stake });
   audio.chargeStick(e.at);
   fx.sparks(e.at, [0, 1, 0], L.spec.look === 'fibre' ? 0 : 5);
@@ -102,14 +104,16 @@ export function tetherStatus(): ToolReadout {
   const s = LINES[KINDS[pick]];
   const mine = [...linesOf('tether'), ...linesOf('grapple')];
   const zone = inSnapZone();
-  const lines = mine.map(L => ({ label: L.spec.name.replace(/ (wire rope|kinetic rope|chain|line)$/, ''), util: (L.tension * L.parts) / breakLoad(L) }));
+  const lines = mine.map(L => lineBar(L, L.spec.name.replace(/ (wire rope|kinetic rope|chain|line)$/, '')));
   if (first) return { title: `Rigging line · ${s.name}`, progress: null, detail: 'one end made fast — LMB the other end (a member, a vehicle, the ground) · RMB lets go', warn: false, lines };
+  const worst = lines.reduce((m, l) => Math.max(m, l.util), 0);
   return {
     title: `Rigging line · ${s.name} · ${mine.length}/${MAX_TETHERS}`,
-    progress: null,
+    // while any line carries load the readout stays up (tags: kN and % of the line's WLL)
+    progress: lines.length && worst > 0.01 ? Math.min(1, worst) : null,
     detail: zone
-      ? `you are in the snap-back zone of the ${zone.L.spec.name} (${Math.round(zone.util * 100)} % of its break) — step out of line with it`
-      : `LMB one end, LMB the other · wheel: wire / nylon / chain · RMB casts off the line you aim at · break ${Math.round(s.mbl / 1000)} kN`,
+      ? `you are in the snap-back path of the ${zone.L.spec.name} (${Math.round(zone.util * 100)} % of its WLL) — a parted line flies back past its anchor: get out of line with it`
+      : `LMB one end, LMB the other · wheel: wire / nylon / chain · RMB casts off · WLL ${Math.round(s.wll / 1000)} kN, break ${Math.round(s.mbl / 1000)} kN · ground anchor ~${Math.round(GROUND.picket / 1000)} kN`,
     warn: !!zone,
     lines,
   };

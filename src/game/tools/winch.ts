@@ -10,8 +10,8 @@ import { hitmarker } from '../../ui/ui';
 import { player } from '../player';
 import { NO_HIT, toolHooks } from './common';
 import {
-  LINES, makeLine, makeStake, dropStake, anchorOn, releaseLine, reanchor, setRest, setParts, lineJointDef, currentLength,
-  breakLoad, inSnapZone, strainEnergy, type Line,
+  LINES, makeLine, makeStake, faceStake, dropStake, anchorOn, releaseLine, reanchor, setRest, setParts, lineJointDef, currentLength,
+  breakLoad, inSnapZone, strainEnergy, lineBar, GROUND, type Line,
 } from './lines';
 
 /* Tow lines from a ground stake (8 t hydraulic planetary winch, 13 mm wire rope) or made fast to a vehicle. Reeving the rope
@@ -21,10 +21,19 @@ import {
    snap-back, being cut) is the shared rigging line. */
 export const WINCH_RANGE = 35;
 export const MAX_TOWS = 3;
-/* An 18,000 lb hydraulic recovery winch on ½" rope: 80 kN rated pull, 23 ft/min at full oil flow. Oil flow sets the
-   speed and the relief valve the pull, so it holds its speed up to the rated pull (an electric winch's falls away). */
+/* An 18,000 lb hydraulic recovery winch on ½" rope: 80 kN rated pull, 23 ft/min at full oil flow, 165 ft (50 m) of
+   rope on the drum; on the ground it sits on a buried log deadman (~120 kN before it ploughs out) with the petrol power
+   pack that drives it (~9.4 kW of hydraulics at full pull and speed). Oil flow sets the speed and the relief valve the
+   pull, so it holds its speed up to the rated pull (an electric winch's falls away). The pull is rated on the first
+   layer: with more rope on the drum each layer has more leverage against the motor (100 / 83 / 71 / 62 % by the
+   fourth), and runs that much faster. Each snatch block loses ~5 % to sheave friction. */
 const PULL = 80.1e3;      // N, rated line pull, first layer
-const REEL = 0.117;       // m/s, single line
+const REEL = 0.117;       // m/s, single line, first layer
+const DRUM = 50;          // m of rope on the drum
+const WRAPS = 3;          // m kept on the drum (five wraps)
+/* rope on the drum at the end of each layer (Smittybilt 17.5K proportions: 19.7 / 45.9 / 75.4 / 93.5 of 94 ft) */
+const LAYERS = [0.21, 0.49, 0.81, 1].map(k => k * DRUM), LAYER_PULL = [1, 0.83, 0.71, 0.62];
+const SHEAVE = 0.95;
 const MIN_LEN = 1.2;
 const BEHIND = 3;
 const KIND = 'wire13' as const;
@@ -48,11 +57,21 @@ export function winchParts(): number { return parts; }
 
 /* The stake winch's joint: the line's own def with the motor rated for the reeving. Soft (zero-hertz spring) below
    the limit so the cable can go slack; the max-length limit is the ratchet that holds whatever the motor has won. */
+/* how much rope is on the drum with this line out, and what the drum then pulls (N at the hook) and at what speed */
+function drumLoad(L: Line): { pull: number; speed: number; layer: number } {
+  const onDrum = DRUM - L.rest * L.parts;
+  let layer = 0;
+  while (layer < 3 && onDrum > LAYERS[layer]) layer++;
+  const k = LAYER_PULL[layer];
+  return { pull: PULL * k * L.parts * SHEAVE ** (L.parts - 1), speed: REEL / k / L.parts, layer: layer + 1 };
+}
+
 function motorJoint(L: Line): b3JointId {
   const jd = lineJointDef(L);
+  const d = drumLoad(L);
   jd.minLength = 0.2;
-  jd.maxMotorForce = PULL * L.parts;
-  jd.motorSpeed = -REEL / L.parts;
+  jd.maxMotorForce = d.pull;
+  jd.motorSpeed = -d.speed;
   jd.enableMotor = false;
   return b3.b3CreateDistanceJoint(world, jd);
 }
@@ -62,8 +81,9 @@ export function setWinchParts(n: number): number {
   parts = clamp(Math.round(n), 1, 3);
   for (const w of tows) if (!w.truck) {
     setParts(w.line, parts);
-    b3.b3DistanceJoint_SetMaxMotorForce(w.line.joint, PULL * parts);
-    b3.b3DistanceJoint_SetMotorSpeed(w.line.joint, -REEL / parts);
+    const d = drumLoad(w.line);
+    b3.b3DistanceJoint_SetMaxMotorForce(w.line.joint, d.pull);
+    b3.b3DistanceJoint_SetMotorSpeed(w.line.joint, -d.speed);
   }
   return parts;
 }
@@ -86,9 +106,14 @@ export function rigWinch(piece: Piece, point: Vec3, fwd: Vec3): string | null {
   const down = raycast([bx, feet[1] + 1.5, bz], [0, -(feet[1] + 4), 0], NO_HIT);
   const anchor: Vec3 = [bx, (down ? down.point[1] : 0) + 0.3, bz];
   const len = Math.max(MIN_LEN + 0.1, vec3.distance(anchor, point));
+  // the drum holds 50 m: reeved through blocks, each part takes its share of it
+  const reach = (DRUM - WRAPS) / parts;
+  if (len > reach) return `${Math.round(len)} m away: ${parts} part${parts > 1 ? 's' : ''} of line on a ${DRUM} m drum reach ${reach.toFixed(0)} m`;
   const w: Tow = { line: null!, truck: false, reeling: false, audioT: -9 };
-  w.line = makeLine(KIND, 'winch', anchorOn(null, anchor), anchorOn(piece, point), len, {
-    parts, make: motorJoint, stake: makeStake(anchor, true), onGone: () => gone(w),
+  const stake = makeStake(anchor, true);
+  faceStake(stake, point);
+  w.line = makeLine(KIND, 'winch', anchorOn(null, anchor, GROUND.deadman), anchorOn(piece, point), len, {
+    parts, make: motorJoint, stake, onGone: () => gone(w),
   });
   tows.push(w);
   fx.sparks(point, [0, 1, 0], 6);
@@ -142,7 +167,13 @@ export function winchPreStep(reeling: boolean): void {
     }
     if (!run) continue;
     const next = Math.max(MIN_LEN, Math.min(L.rest, cur + 0.01 / L.parts));
-    if (next < L.rest - 1e-3) setRest(L, next);
+    if (next < L.rest - 1e-3) {
+      setRest(L, next);
+      // the drum fills: the next layer pulls less and runs faster
+      const d = drumLoad(L);
+      b3.b3DistanceJoint_SetMaxMotorForce(j, d.pull);
+      b3.b3DistanceJoint_SetMotorSpeed(j, -d.speed);
+    }
     b3.b3Joint_WakeBodies(j);
   }
 }
@@ -152,7 +183,7 @@ export function winchAfterStep(dt: number): void {
   for (const w of tows) {
     if (!w.reeling || t - w.audioT < 0.1) continue;
     w.audioT = t;
-    audio.winch(true, clamp((w.line.tension * w.line.parts) / (PULL * w.line.parts), 0, 1));
+    audio.winch(true, clamp((w.line.tension * w.line.parts) / drumLoad(w.line).pull, 0, 1));
   }
 }
 
@@ -160,17 +191,26 @@ export function syncWinch(_alpha?: number): void {}
 
 export function winchStatus(): ToolReadout {
   const zone = inSnapZone();
-  if (!tows.length) return { title: `Tow winch · ${parts} part${parts > 1 ? 's' : ''} of line`, progress: null, detail: `LMB hook a structure · wheel snatch blocks (pull ${Math.round((PULL * parts) / 1000)} kN at ${((REEL / parts) * 60).toFixed(1)} m/min) · then LMB a vehicle to tow with it`, warn: false };
+  if (!tows.length) {
+    const reach = (DRUM - WRAPS) / parts;
+    return { title: `Tow winch · ${parts} part${parts > 1 ? 's' : ''} of line`, progress: null, detail: `LMB hook a structure (within ${reach.toFixed(0)} m) · wheel snatch blocks: ${Math.round((PULL * parts * SHEAVE ** (parts - 1)) / 1000)} kN at the hook, ${((REEL / parts) * 60).toFixed(1)} m/min · then LMB a vehicle to tow with it`, warn: false };
+  }
   const worst = tows.reduce((a, b) => (b.line.tension / breakLoad(b.line) > a.line.tension / breakLoad(a.line) ? b : a));
   const u = worst.line.tension / breakLoad(worst.line);
+  const one = (w: Tow): string => {
+    const L = w.line, T = L.tension;
+    if (w.truck) return `truck: line ${(T / 1000).toFixed(0)} kN`;
+    const d = drumLoad(L);
+    return `line pull ${(T / 1000).toFixed(0)}/${Math.round(d.pull / L.parts / 1000)} kN (layer ${d.layer}) · hook ${((T * L.parts) / 1000).toFixed(0)} kN · anchor ${((T * L.parts) / 1000).toFixed(0)}/${Math.round(GROUND.deadman / 1000)} kN`;
+  };
   return {
     title: `Tow winch · ${tows.length} line${tows.length > 1 ? 's' : ''}`,
     progress: clamp(u, 0, 1),
     detail: zone
-      ? `in the snap-back zone: ${Math.round(strainEnergy(zone.L, breakLoad(zone.L)) / 1000)} kJ comes back down that line if it parts — step out of line with it`
-      : tows.map(w => `${w.truck ? 'truck' : `${w.line.parts}×`} ${Math.round(w.line.tension / 1000)} kN`).join(' · ') + ` of ${Math.round(LINES[KIND].mbl / 1000)} kN break · RMB cast off`,
-    warn: u > 0.8 || !!zone,
-    lines: tows.map(w => ({ label: w.truck ? 'truck' : `${w.line.parts}×`, util: w.line.tension / breakLoad(w.line) })),
+      ? `in the snap-back path: ${Math.round((strainEnergy(zone.L, breakLoad(zone.L)) * zone.L.spec.recoil) / 1000)} kJ comes back down that line if it parts — get out of line with it`
+      : tows.map(one).join(' · ') + ` · rope WLL ${Math.round(LINES[KIND].wll / 1000)} kN, break ${Math.round(LINES[KIND].mbl / 1000)} kN · RMB cast off`,
+    warn: u > 0.6 || !!zone,
+    lines: tows.map(w => lineBar(w.line, w.truck ? 'truck' : `${w.line.parts}× line`)),
   };
 }
 

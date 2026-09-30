@@ -15,10 +15,12 @@ import { player, harness, HARNESS_H, eyePosition } from '../player';
 import { NO_HIT, GROUND_Y, interpPoint, localBounds, fillOf, toolHooks } from './common';
 import { LINES, makeLine, makeStake, anchorOn, anchorWorld, type Anchor, type Bite } from './lines';
 
-/* Pneumatic grapple launcher: a compressed-air tube throws a four-tine grapnel trailing 6 mm HMPE line, and a powered
-   reel on the launcher (an ascender's drive) takes it back in. What the hook does depends on what it lands on:
-   - a slender member (beam, column, post, pipe, rail) or exposed rebar: the tines close round it and hold up to the
-     hook's rating whichever way the line runs;
+/* Pneumatic grapple launcher: a compressed-air tube throws a four-tine grapnel (22 cm across) trailing 10 mm HMPE line
+   from a line canister, and a powered reel (an ascender's drive) takes it back in; the launcher is clipped to the
+   operator's harness, so the line hauls his harness, not his grip. What the hook does depends on what it lands on:
+   - a thin member (tube, pipe, rail, rebar: under ~15 cm) the tines close round, or the flange of an open section
+     (I, H, channel, lattice) a tine hooks: it holds while the line pulls across the member; pulled along it, it slides
+     to the next stop (a joint, a cross member) and holds there, or runs off the end;
    - near an edge (a parapet, a sill, a window jamb, a slab's lip): it holds only while the line runs back over that
      edge; pulled any other way it skids off;
    - a flat top (a roof, a slab): it lies there, and the line drags it back across until it catches the near edge;
@@ -34,8 +36,8 @@ export const GRAPPLE = {
   pull: 2.45e3, reel: 1.1,
   /** grapnel: all tines round a member ~17 kN (a five-tine steel hook's break); one tine over an edge ~8.9 kN */
   cap: 17.3e3, tine: 8.9e3,
-  /** what the operator's grip holds before the launcher is torn from his hands, N */
-  grip: 2.6e3,
+  /** the reel's slip clutch: above this the drum pays out rather than tear the harness (a load falling away), N */
+  clutch: 2.6e3,
   /** loose pieces heavier than this won't come, however hard the reel pulls (kg) */
   heavy: 2500,
 };
@@ -62,6 +64,7 @@ let hook: { piece: Piece; local: Vec3; bite: Bite | null; slide: boolean; n: Vec
 let joint: b3JointId | null = null;
 let reeling = false, heldNow = false;
 let tugOver = 0;
+let limitOn = true;
 let tension = 0;
 let vis = -1;
 let mesh: THREE.Group | null = null;
@@ -125,7 +128,12 @@ function purchase(p: Piece, point: Vec3, n: Vec3): { bite: Bite | null; slide: b
   const s = [...dims].sort((x, y) => x - y);
   // a post, tube or rail the tines close round, or an open section (I, H, channel, lattice) whose flanges they hook
   const open = fillOf(p) < 0.6;
-  if (s[2] >= 2.5 * s[1] && (s[1] <= 0.45 || (open && s[1] <= 0.8))) return { bite: { cap: Math.min(GRAPPLE.cap, edgeCap(p.mat) * 2), n: null, e: null, slip: 0 }, slide: false, what: 'round the member' };
+  if (s[2] >= 2.5 * s[1] && (s[1] <= 0.15 || (open && s[1] <= 0.8))) {
+    // the member's long axis, in its own frame: the hook seats against a pull across it
+    const ax: Vec3 = [0, 0, 0];
+    ax[dims.indexOf(s[2])] = 1;
+    return { bite: { cap: Math.min(GRAPPLE.cap, edgeCap(p.mat) * 2), n: null, e: null, slip: 0, axis: ax }, slide: false, what: s[1] <= 0.15 ? 'round the member' : 'on the flange' };
+  }
   if (p.rebars.length) return { bite: { cap: GRAPPLE.cap, n: null, e: null, slip: 0 }, slide: false, what: 'on the exposed rebar' };
   // the face it struck, and how near the hit is to that face's nearest edge
   let k = 0;
@@ -142,6 +150,40 @@ function purchase(p: Piece, point: Vec3, n: Vec3): { bite: Bite | null; slide: b
   if (best <= 0.3 && e) return { bite: { cap: edgeCap(p.mat), n: face, e, slip: 0 }, slide: false, what: 'over the edge' };
   if (n[1] > 0.6) return { bite: null, slide: true, what: 'on top' };
   return { bite: null, slide: false, what: '' };
+}
+
+/* A hook on a member seats while the line pulls across it (within ~60 degrees of square to it). */
+function seated(b: Bite, p: Piece, from: Vec3, to: Vec3): boolean {
+  if (!b.axis) return true;
+  vec3.sub(_w, to, from);
+  vec3.normalize(_w, _w);
+  b3.b3Body_GetWorldVector(_ln, p.body, b.axis);
+  return Math.abs(vec3.dot(_w, _ln)) <= 0.87;
+}
+
+/* Pulled along the member, the hook runs along it toward the pull until something stops it: past the member's end,
+   another piece within reach (a joint, a cross member, a floor) holds it; nothing there and it comes off the end. */
+function slideAlong(hk: NonNullable<typeof hook>, dt: number): 'held' | 'sliding' | 'off' {
+  const ax = hk.bite!.axis!;
+  let k = 0;
+  for (let i = 1; i < 3; i++) if (Math.abs(ax[i]) > Math.abs(ax[k])) k = i;
+  localBounds(hk.piece, _mn, _mx);
+  vec3.sub(_w, _h, _hk);
+  b3.b3Body_GetLocalVector(_w, hk.piece.body, _w);
+  const dir = Math.sign(_w[k]) || -1;
+  hk.local[k] += dir * Math.min(3 * dt, 0.2);
+  const end = dir > 0 ? _mx[k] : _mn[k];
+  if (dir > 0 ? hk.local[k] < end : hk.local[k] > end) {
+    b3.b3Joint_SetLocalFrameB(joint!, { position: hk.local, quaternion: [0, 0, 0, 1] });
+    return 'sliding';
+  }
+  hk.local[k] = end;
+  b3.b3Joint_SetLocalFrameB(joint!, { position: hk.local, quaternion: [0, 0, 0, 1] });
+  // what is beyond the end: a stop, or thin air
+  const at = anchorWorld([0, 0, 0], { piece: hk.piece, local: hk.local });
+  b3.b3Body_GetWorldVector(_ln, hk.piece.body, [k === 0 ? dir : 0, k === 1 ? dir : 0, k === 2 ? dir : 0]);
+  const hit = raycast(at, [_ln[0] * 0.35, _ln[1] * 0.35, _ln[2] * 0.35], NO_HIT);
+  return hit ? 'held' : 'off';
 }
 
 function holds(b: Bite, p: Piece, from: Vec3, to: Vec3): boolean {
@@ -218,6 +260,7 @@ function strike(point: Vec3, n: Vec3, entity: Parameters<typeof pieceOf>[0]): vo
   hook = { piece: p, local, bite: pr.bite, slide: pr.slide, n: [...n] };
   len = Math.min(GRAPPLE.line, vec3.distance(hand(_h), point) + 0.3);
   joint = makeJoint(p, local, _h);
+  limitOn = true;
   state = 'hooked';
   lastBite = pr.what;
   hitmarker(0.35);
@@ -266,6 +309,11 @@ export function grapplePreStep(held: boolean, dt: number): void {
   const d = vec3.distance(_h, anchorWorld(_hk, { piece: hk.piece, local: hk.local }));
   // lying on top: the line drags it across toward the near edge, where it catches
   if (hk.slide && (held || tension > 200)) slideHook(hk, dt);
+  /* The line's limit only holds what can move: on a member still built in, the operator's end of the line is his
+     harness alone (its anchor here trails him by a step, and a rigid stop against a welded member would read his
+     every sway as kilonewtons). */
+  const free = !hk.piece.welds.length && !hk.piece.hinged;
+  if (free !== limitOn) { limitOn = free; b3.b3DistanceJoint_EnableLimit(joint, free); }
   const run = held && d > 1.1;
   if (run !== reeling) {
     reeling = run;
@@ -273,7 +321,12 @@ export function grapplePreStep(held: boolean, dt: number): void {
     audio.reel(run, 0);
   }
   if (run) {
-    len = Math.max(1.0, Math.min(len, d + 0.02));
+    /* On something that holds, the reel winds the line in at its speed while the pull it takes stays within the
+       reel's rating: the line hauls the operator (off his feet once it lifts more than he weighs). On something
+       loose the motor pulls it in instead and the line only follows it. */
+    const stalled = harness.tension > GRAPPLE.pull * 1.05;
+    const wind = free || stalled ? 0 : harness.speed * dt;
+    len = Math.max(1.0, Math.min(len, d + 0.02) - wind);
     b3.b3DistanceJoint_SetLengthRange(joint, 0.05, len);
     b3.b3Joint_WakeBodies(joint);
   }
@@ -326,18 +379,33 @@ export function grappleAfterStep(dt: number): void {
   harness.on = true;
   vec3.copy(harness.at, _hk);
   harness.len = len;
-  harness.pull = reeling ? F : Math.max(0, F - 50);
-  harness.speed = GRAPPLE.reel;
+  // the reel's pull on him: while it runs, or while something loose hangs on the line; hanging still, only his weight
+  const free = !hook.piece.welds.length && !hook.piece.hinged;
+  harness.pull = free && F > 50 ? Math.min(F, GRAPPLE.clutch) : 0;
+  // the drum slows under load (a powered ascender's full speed is with a light load)
+  harness.speed = GRAPPLE.reel * (1 - 0.5 * clamp(F / GRAPPLE.pull, 0, 1));
   // his weight on the line pulls on what it is hooked to
   if (harness.tension > 60) {
     vec3.sub(_w, _h, _hk);
     vec3.normalize(_w, _w);
     b3.b3Body_ApplyForce(hook.piece.body, [_w[0] * harness.tension, _w[1] * harness.tension, _w[2] * harness.tension], _hk, harness.tension > 400);
   }
-  // torn from his hands: a load falling away on the line, more than grip and launcher hold
-  tugOver = F > GRAPPLE.grip ? tugOver + 1 : 0;
-  if (tugOver >= 3) { lose(`The line was torn out of your hands at ${(F / 1000).toFixed(1)} kN`); return; }
+  // a load falling away on the line: the slip clutch pays line out rather than drag the operator off his feet
+  tugOver = F > GRAPPLE.clutch ? tugOver + 1 : 0;
+  if (tugOver >= 3) {
+    len = Math.min(GRAPPLE.line, len + 2.5 * dt);
+    b3.b3DistanceJoint_SetLengthRange(joint, 0.05, len);
+    if (len >= GRAPPLE.line) { lose('The line ran off the drum'); return; }
+  }
   const b = hook.bite;
+  if (b?.axis) {
+    const ok = seated(b, hook.piece, _hk, _h);
+    if (!ok && tension > 150) {
+      const r = slideAlong(hook, dt);
+      if (r === 'off') { lose('The hook ran off the end of the member — it needs a pull across it, or a stop to catch on'); return; }
+      if (r === 'held') b.axis = undefined;
+    }
+  }
   if (b) {
     if (tension > b.cap) {
       fx.impact(_hk, hook.n, hook.piece.mat, 0.4);
@@ -433,7 +501,10 @@ export function syncGrapple(alpha: number): void {
   viewmodel.rig({ hook: state === 'ready', reel: reeling ? 40 : state === 'flying' ? 90 : state === 'loose' && heldNow ? 40 : 0 });
   if (state === 'ready' || !mesh || !player.e) return;
   eyePosition(_e, alpha);
-  const muzzle: Vec3 = [_e[0], _e[1] - 0.25, _e[2]];
+  // the launcher's muzzle, where the viewmodel carries it: right of and below the eye, a half-metre out
+  const cy = Math.cos(player.yaw), sy = Math.sin(player.yaw), cp = Math.cos(player.pitch), sp = Math.sin(player.pitch);
+  const fx0 = -sy * cp, fy0 = sp, fz0 = -cy * cp, rx = cy, rz = -sy;
+  const muzzle: Vec3 = [_e[0] + fx0 * 0.55 + rx * 0.2, _e[1] + fy0 * 0.55 - 0.16, _e[2] + fz0 * 0.55 + rz * 0.2];
   if (hook) interpPoint(_p, hook.piece, hook.local, alpha); else vec3.lerp(_p, prev, pos, state === 'flying' ? alpha : 1);
   mesh.position.set(_p[0], _p[1], _p[2]);
   // shank along the line, tines toward the target
@@ -441,7 +512,7 @@ export function syncGrapple(alpha: number): void {
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), _m);
   const d = vec3.distance(muzzle, _p);
   const rest = state === 'hooked' ? Math.max(len, d) : state === 'flying' ? d + 0.3 : d + 2;
-  if (vis >= 0) gfx.set(vis, muzzle, _p, rest, state === 'hooked' ? tension : 0, LINES.dyneema.kg * 9.81);
+  if (vis >= 0) gfx.set(vis, muzzle, _p, rest, state === 'hooked' ? tension : 0, LINES.dyneema.kg * 9.81, 0, 0.85, 0, false);
 }
 
 export function grappleStatus(): ToolReadout {
@@ -458,7 +529,7 @@ export function grappleStatus(): ToolReadout {
         progress: clamp(tension / cap, 0, 1),
         detail: `${(tension / 1000).toFixed(1)} kN of ${(cap / 1000).toFixed(1)} kN purchase · ${len.toFixed(1)} m out · hold LMB reel (${GRAPPLE.pull / 1000} kN, ${GRAPPLE.reel} m/s) · wheel pay out/in · RMB make fast${player.grounded ? '' : ' / let go'}`,
         warn: tension > cap * 0.75,
-        lines: [{ label: 'HMPE', util: tension / L.mbl }, { label: 'hook', util: tension / cap }],
+        lines: [{ label: 'HMPE', util: tension / L.mbl, wll: L.wll / L.mbl }, { label: 'hook', util: tension / cap, wll: 0.5 }],
       };
     }
   }
