@@ -561,12 +561,13 @@ function nearestGuard(pos: Vec3): number {
 
 function protectedHit(pos: Vec3): void {
   const i = nearestGuard(pos);
-  if (i >= 0) flagGuard(guards[i]);
   scoring.chargePenalty(i >= 0 ? guards[i].label : null);
 }
 
 function onFine(f: scoring.Incident): void {
   const now = performance.now();
+  // the outline turns red once the structure is past a ding (broken windows leave it amber)
+  if (f.level >= 1) for (const g of guards) if (g.label === f.label) flagGuard(g);
   let e = dmg.get(f.key);
   if (f.fine <= 0 && (!e || f.opened)) return;   // more of a structure already at full liability: nothing new to say
   if (!e || f.opened) {
