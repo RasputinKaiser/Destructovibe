@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { MaterialId, PieceSpec } from '../types';
-import { getFinishMaterial, getPieceMaterials, setBatchHeat, type SurfaceFinish } from '../render/materials';
+import { getFinishMaterial, getPieceMaterials, setBatchHeat, setBatchPower, type SurfaceFinish } from '../render/materials';
 import { buildMesh, meshDetail, type MeshData } from './polytope';
 export type { SurfaceFinish };
 
@@ -138,6 +138,11 @@ export function setPieceTransform(g: PieceGfx, pos: ArrayLike<number>, rot: Arra
   _m.compose(_p, _q, _s);
   if (g.ext) g.ext.b.mesh.setMatrixAt(g.ext.inst, _m);
   if (g.int) g.int.b.mesh.setMatrixAt(g.int.inst, _m);
+}
+
+/** a window's building supply (materials.setBatchPower): its room lights go with it */
+export function setPiecePower(g: PieceGfx, k: number): void {
+  if (g.ext) setBatchPower(g.ext.b.mesh, g.ext.inst, k);
 }
 
 export function setPieceHeat(g: PieceGfx, heat: number): void {
