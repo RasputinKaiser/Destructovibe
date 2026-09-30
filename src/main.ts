@@ -628,8 +628,8 @@ function blueprintValue(bp: Blueprint, groups?: string[]): number {
 /* A model of a first-time player, in the score's own terms (demolition ≈ the site's worth × the share down; the
    multiplier adds at most COMBO_SHARE of it; under par pays 0.5 × worth × the share of par left; spare ordnance 0.35 ×
    worth × the share left). Par is what a first-timer with a sensible plan takes. ★ is the job done. ★★ is doing it
-   efficiently: a little past the target, a quarter inside par, a little ordnance spare. ★★★ is expert: well past the
-   target, done in about half of par. The first jobs of a chapter ask least past ★; the last ask most. */
+   efficiently: a little past the target, a quarter inside par, a little ordnance spare. ★★★ is expert: a tenth (first
+   job) to three fifths (last) of what the target leaves standing also down, in about half of par, with a good chain. */
 const COMBO_SHARE = 0.1;
 /* The fee as it stands: the share of the job down at the site's worth (what the meter shows, not how the fragments
    were credited), the capped chain bonus, less the fines. The HUD counts it live and the report starts from it. */
@@ -646,7 +646,7 @@ function starThresholds(c: Contract, v: number): [number, number] {
     Math.round((v * (Math.min(1, share) + 0.5 * parLeft + 0.35 * spare + COMBO_SHARE * chain)) / 50) * 50;
   return [
     pay(c.target + 0.03 + 0.04 * d, 0.25, 0.1, 0.3),
-    pay(c.target + 0.06 + 0.1 * d, 0.45 + 0.15 * d, 0.2, 0.5),
+    pay(c.target + (1 - c.target) * (0.1 + 0.5 * d), 0.45 + 0.15 * d, 0.2, 0.5 + 0.3 * d),
   ];
 }
 

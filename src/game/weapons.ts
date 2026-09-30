@@ -1342,15 +1342,23 @@ export function weaponsAfterStep(dt: number): void {
     if (p.dead) { projectiles.splice(i, 1); continue; }
     const age = now - p.born;
     if (p.stuck && p.joint && !b3.b3Joint_IsValid(p.joint)) {
+      const n = faceNormal(p, [0, 0, 0]);
       p.stuck = false; p.joint = null; p.host = null;
-      /* a planted charge whose member broke under it (a ball, another blast) is off the column: left lying armed it
-         would be a dud the detonate key flings about and live ordnance that holds up sign-off, so it goes back in the bag */
+      /* a planted charge whose member broke under it (a ball, another blast) stays on what is left of the member; one
+         with nothing left to hold it has fallen away, and rather than lie armed as a dud that holds up sign-off it goes
+         back in the bag */
       if ((p.type === 'charge' || p.type === 'cutter') && !detonations.some(d => d.p === p)) {
-        const a = loadout.ammo[p.type];
-        if (a !== undefined && a >= 0) loadout.ammo[p.type] = a + 1;
-        removeProjectile(p);
-        onDeny(`${p.type === 'cutter' ? 'Cutting charge' : 'Charge'} knocked off its member — back in the bag`);
-        continue;
+        const q = nearestPiece(p.curPos, 0.5);
+        if (q) {
+          const off = STICK_OFFSET[p.type] ?? 0.05;
+          stick(p, [p.curPos[0] - n[0] * off, p.curPos[1] - n[1] * off, p.curPos[2] - n[2] * off], n, q, [...p.curRot] as Quat);
+        } else {
+          const a = loadout.ammo[p.type];
+          if (a !== undefined && a >= 0) loadout.ammo[p.type] = a + 1;
+          removeProjectile(p);
+          onDeny(`${p.type === 'cutter' ? 'Cutting charge' : 'Charge'} fell off its member — back in the bag`);
+          continue;
+        }
       }
     }
     switch (p.type) {
