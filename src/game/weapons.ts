@@ -228,6 +228,8 @@ export function initWeapons(s: THREE.Scene): void {
 
 export function setLoadout(ammo: Partial<Record<WeaponId, number>>, primary?: WeaponId): void {
   loadout.ammo = { ...ammo };
+  // free play issues every tool without limit: there a site with no excavator gets one delivered
+  excHooks.delivery = WEAPONS.every(w => ammo[w.id] === -1);
   for (const w of WEAPONS) lastFire[w.id] = -99;
   now = 0;
   const first = (primary && ammo[primary] !== undefined ? WEAPONS.find(w => w.id === primary) : undefined)
@@ -1681,6 +1683,12 @@ function preview(): void {
       if (a) {
         marks.marker(a.target, [0, 1, 0], 0.6, a.ok ? 'ok' : 'far');
         marks.line(a.tip, a.target, a.ok ? 'ok' : 'far');
+      }
+      // the linked machine, wherever it is: a label over its cab with the way to it
+      const h = excavatorLinked();
+      if (h) {
+        const d = Math.hypot(h.curPos[0] - _eye[0], h.curPos[2] - _eye[2]);
+        if (d > 6) tags.add([h.curPos[0], h.curPos[1] + 2.6, h.curPos[2]], 'EXCAVATOR', `${Math.round(d)} m`, '#ffc21a');
       }
       break;
     }

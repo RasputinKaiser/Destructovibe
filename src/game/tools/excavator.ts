@@ -6,8 +6,11 @@
    in the bucket for all to see) and tips it as a falling stream that lands and runs to its angle of repose. */
 import { vec3, quat, clamp } from 'math';
 import type { Vec3, Quat, ToolReadout } from '../../types';
-import { b3, raycast } from '../../physics/physics';
-import { live, pieceOf, type Piece } from '../../destruction/structure';
+import { b3, raycast, overlapAABB, CAT } from '../../physics/physics';
+import { live, pieceOf, spawnPieces, type Piece } from '../../destruction/structure';
+import { excavator as excavatorSpecs } from '../../levels/machines';
+import { stand } from '../../levels/maps/ground';
+import { pieceAabb } from '../../levels/validate';
 import { mechCommand, mechPose } from '../../destruction/services';
 import { digGround, spill, groundAt, surfaceAt } from '../../terrain/terrain';
 import { SURFACE } from '../../terrain/surface';
@@ -18,12 +21,15 @@ import { NO_HIT } from './common';
 
 /* 20 t class: 1.0 m³ heaped bucket, ~110 kW engine of which ~35 % reaches the teeth; loose-to-firm soil takes
    ~0.35 MJ per m³ to cut and lift, so a pass fills the bucket in 8-10 s of digging. */
-export const DIGGER = { link: 45, bucket: 1.0, power: 110e3, eff: 0.35, soil: 0.35e6, reach: 10.5, gain: 3.5, dead: 0.12 };
+export const DIGGER = { bucket: 1.0, power: 110e3, eff: 0.35, soil: 0.35e6, reach: 10.5, gain: 3.5, dead: 0.12 };
+/* A radio remote reaches the machine anywhere on the site (demolition remotes work to a few hundred metres); in free
+   play a machine is low-loaded in when the site has none, set down on clear, level ground within `far` metres. */
+const DELIVER = { near: 10, far: 40, step: 5, level: 0.4, map: 360, offer: 5 };
 
 /* height over grade of the bucket's lowest point at which it is biting */
 const BITE = 0.12;
 
-export const excHooks = { notify: (_m: string): void => {} };
+export const excHooks = { notify: (_m: string): void => {}, /** free play: a machine can be sent for */ delivery: false };
 
 interface Rig {
   low: number; sign: number[]; house: Piece; boom: Piece; stick: Piece; bucket: Piece; teeth: Piece | null;
@@ -37,13 +43,14 @@ interface Rig {
 }
 let rig: Rig | null = null;
 let skidT = -9, now = 0, heldAt = -9, dumpT = 0, curl = 0, fxT = 0, lastErr: string | null = null, digging = false, reachOk = true;
+let offerAt = -99;
 const target: Vec3 = [0, 0, 0];
 let targetGround = false;
 
 const alive = (r: Rig): boolean => ![r.house, r.boom, r.stick, r.bucket].some(p => p.dead);
 
 /* An arm is a chain of four driven hinges (bucket → stick → boom → slewing house) above a fixed undercarriage. */
-function findRig(at: Vec3, range: number): Rig | null {
+function findRig(at: Vec3, range = Infinity): Rig | null {
   let best: Rig | null = null, bd = range;
   for (const p of live) {
     if (p.dead || !p.hinged) continue;
@@ -112,11 +119,12 @@ function isRig(p: Piece | null): boolean {
   return false;
 }
 
+const AIM_RANGE = 400;
 /** Aim point for the teeth: the crosshair's hit, looking past the machine's own arm. */
 function aimPoint(eye: Vec3, fwd: Vec3): { point: Vec3; ground: boolean } | null {
   const o: Vec3 = [...eye];
   for (let i = 0; i < 4; i++) {
-    const hit = raycast(o, [fwd[0] * 60, fwd[1] * 60, fwd[2] * 60], NO_HIT);
+    const hit = raycast(o, [fwd[0] * AIM_RANGE, fwd[1] * AIM_RANGE, fwd[2] * AIM_RANGE], NO_HIT);
     if (!hit) return null;
     const p = pieceOf(hit.entity);
     if (!isRig(p)) return { point: [hit.point[0], hit.point[1], hit.point[2]], ground: hit.entity?.kind === 'ground' || !p };
@@ -125,24 +133,38 @@ function aimPoint(eye: Vec3, fwd: Vec3): { point: Vec3; ground: boolean } | null
   return null;
 }
 
-/** Fire held: link on the first press, then drive the teeth toward the crosshair. */
+/** Compass bearing and distance from `eye` to `at` ("85 m NE"). */
+function bearing(eye: Vec3, at: Vec3): string {
+  const dx = at[0] - eye[0], dz = at[2] - eye[2];
+  const dir = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360 / 45) % 8];
+  return `${Math.round(Math.hypot(dx, dz))} m ${dir}`;
+}
+
+/** Fire held: link on the first press (the nearest machine on the site, however far), then drive the teeth toward
+    the crosshair. A fresh press while linked swaps to a machine much nearer than the linked one. */
 export function excavatorHold(eye: Vec3, fwd: Vec3, fresh: boolean): string | null {
   if (rig && !alive(rig)) release();
-  if (!rig || (fresh && vec3.distance(rig.house.curPos, eye) > DIGGER.link + 20)) {
+  if (rig && fresh) {
+    const d = vec3.distance(rig.house.curPos, eye);
+    const near = d > 30 ? findRig(eye, d - 15) : null;
+    if (near && near.house !== rig.house) { release(); rig = near; linked(eye); return null; }
+  }
+  if (!rig) {
     if (!fresh) return lastErr;
-    release();
-    rig = findRig(eye, DIGGER.link);
+    rig = findRig(eye);
     if (!rig) {
-      // say where the nearest one is, so the remote is never a dead end
-      const far = findRig(eye, 2000);
-      if (!far) return (lastErr = 'No excavator on this site — spawn one (B, industrial) to drive by remote');
-      const dx = far.house.curPos[0] - eye[0], dz = far.house.curPos[2] - eye[2];
-      const dir = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360 / 45) % 8];
-      return (lastErr = `Nearest excavator ${Math.round(Math.hypot(dx, dz))} m ${dir} — get within ${DIGGER.link} m to take over`);
+      if (!excHooks.delivery) return (lastErr = 'No excavator on this site');
+      if (now - offerAt > DELIVER.offer) {
+        offerAt = now;
+        return (lastErr = 'No excavator on this site — fire again to have one delivered');
+      }
+      offerAt = -99;
+      const at = deliver(eye, fwd);
+      if (!at) return (lastErr = `Nowhere clear and level to set one down within ${DELIVER.far} m — clear some ground`);
+      excHooks.notify(`Excavator delivered, ${bearing(eye, at)} — fire to take it over`);
+      return (lastErr = null);
     }
-    excHooks.notify(`Excavator linked, ${vec3.distance(rig.house.curPos, eye).toFixed(0)} m away — hold fire to dig where you aim`);
-    lastErr = null;
-    heldAt = now;
+    linked(eye);
     return null;
   }
   const a = aimPoint(eye, fwd);
@@ -153,6 +175,43 @@ export function excavatorHold(eye: Vec3, fwd: Vec3, fresh: boolean): string | nu
   if (a.ground) target[1] -= 0.45;
   heldAt = now;
   lastErr = null;
+  return null;
+}
+
+function linked(eye: Vec3): void {
+  if (!rig) return;
+  const d = vec3.distance(rig.house.curPos, eye);
+  excHooks.notify(`Excavator linked, ${bearing(eye, rig.house.curPos)}${d > DIGGER.reach * 2 ? ` — its arm reaches ${DIGGER.reach} m round it, so walk over or aim near it` : ''} · hold fire to dig where you aim`);
+  lastErr = null;
+  heldAt = now;
+}
+
+/* Low-loader delivery: the nearest clear, level patch ahead of the player (then to the sides, then behind), the
+   machine's whole footprint and height free of structures, props and the player. */
+function deliver(eye: Vec3, fwd: Vec3): Vec3 | null {
+  const yaw = Math.atan2(fwd[0], fwd[2]);
+  const specs0 = excavatorSpecs({ x: 0, z: 0 });
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, h = 0;
+  for (const sp of specs0) {
+    const b = pieceAabb(sp);
+    x0 = Math.min(x0, b.min[0]); x1 = Math.max(x1, b.max[0]); z0 = Math.min(z0, b.min[2]); z1 = Math.max(z1, b.max[2]); h = Math.max(h, b.max[1]);
+  }
+  const m = 0.3;
+  for (let d = DELIVER.near; d <= DELIVER.far; d += DELIVER.step) {
+    for (const da of [0, 0.45, -0.45, 0.9, -0.9, 1.4, -1.4, 2.1, -2.1, Math.PI]) {
+      const x = Math.round((eye[0] + Math.sin(yaw + da) * d) * 2) / 2, z = Math.round((eye[2] + Math.cos(yaw + da) * d) * 2) / 2;
+      if (Math.abs(x) + Math.max(x1, -x0) > DELIVER.map || Math.abs(z) + Math.max(z1, -z0) > DELIVER.map) continue;
+      const gs = [groundAt(x, z), groundAt(x + x0, z + z0), groundAt(x + x1, z + z0), groundAt(x + x0, z + z1), groundAt(x + x1, z + z1)];
+      if (Math.max(...gs) - Math.min(...gs) > DELIVER.level) continue;
+      const gy = Math.max(...gs);
+      let blocked = false;
+      overlapAABB([x + x0 - m, gy + 0.1, z + z0 - m], [x + x1 + m, gy + h + 0.5, z + z1 + m], CAT.structure | CAT.prop | CAT.debris | CAT.player, () => { blocked = true; });
+      if (blocked) continue;
+      spawnPieces(stand(excavatorSpecs({ x, z }), gy));
+      audio.toolEvent('dump', [x, gy, z]);
+      return [x, gy, z];
+    }
+  }
   return null;
 }
 
@@ -306,12 +365,12 @@ export function excavatorAim(): { target: Vec3; tip: Vec3; ok: boolean; held: bo
 
 export function excavatorStatus(eye: Vec3): ToolReadout {
   const r = rig;
-  if (!r) return { title: 'Excavator remote', progress: null, detail: lastErr ?? `LMB: take over the nearest excavator (within ${DIGGER.link} m)`, warn: !!lastErr };
+  if (!r) return { title: 'Excavator remote', progress: null, detail: lastErr ?? `LMB: take over the nearest excavator on the site${excHooks.delivery ? ' (none here: one is delivered)' : ''}`, warn: !!lastErr };
   const deg = (p: Piece) => Math.round(((mechPose(p)?.at ?? 0) * 180) / Math.PI);
   tip(r, _t);
   const below = groundAt(_t[0], _t[2]) - _t[1];
   return {
-    title: `Excavator · ${vec3.distance(r.house.curPos, eye).toFixed(0)} m${digging ? ' · digging' : ''}`,
+    title: `Excavator · ${bearing(eye, r.house.curPos)}${digging ? ' · digging' : ''}`,
     progress: r.load / DIGGER.bucket,
     detail: `bucket ${r.load.toFixed(2)}/${DIGGER.bucket.toFixed(1)} m³${r.mass > 1 ? ` ${r.soil} ${(r.mass / 1000).toFixed(2)} t` : ''} · slew ${deg(r.house)}° boom ${deg(r.boom)}° stick ${deg(r.stick)}° · teeth ${below > 0 ? `${below.toFixed(2)} m below` : `${(-below).toFixed(1)} m above`} grade${reachOk ? '' : ' · OUT OF REACH'} · RMB dump · wheel curl`,
     warn: !reachOk,
@@ -328,6 +387,7 @@ function release(): void {
 
 export function clearExcavator(): void {
   rig = null;
+  offerAt = -99;
   heldAt = -9;
   dumpT = 0;
   curl = 0;
