@@ -1,0 +1,13 @@
+A/B base export (<scratch>/perf4/pregas) vs head efe6d57; load 26.05 -> 170.54; concurrent=True
+
+terrace_S60: 2 pairs
+  shift +0.00 base-head  buildMs 15876/16408 (x1.03)  fp SAME  weldsLost 1033/1033  awakeOther 25/25
+  shift +0.15 head-base  buildMs 17056/16667 (x0.98)  fp CHANGED  weldsLost 1413/1429  awakeOther 1684/26
+  metric                     base med   head med    d med med ratio  base range / head range
+  late_phys_cpu                 8.373      9.562     +14%     x1.10  3.243-13.503 / 3.308-15.816
+  late_after_cpu                5.895      6.577     +12%     x1.10  4.669-7.121 / 4.671-8.483
+  late_total_ms                20.502     22.667     +11%     x1.10  17.507-23.496 / 18.184-27.15
+  awake_at_45s                 1854.0     1933.5      +4%     x1.05  1724-1984 / 1883-1984
+  awake_min_late                 79.5      105.0     +32%     x1.40  64-95 / 95-115
+  awake_end                     923.5      114.5     -88%     x0.53  114-1733 / 114-115
+  demo_pct                      4.079       4.16      +2%     x1.02  3.813-4.344 / 3.813-4.508

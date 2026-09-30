@@ -1,0 +1,730 @@
+{
+ "mode": "ab",
+ "base_root": "<scratch>/perf4/base",
+ "head_root": "~/Desktop/dv-perf-4",
+ "shifts": [
+  0.0,
+  0.15,
+  -0.15
+ ],
+ "reps": 3,
+ "concurrent": true,
+ "loadavg_start": [
+  305.92,
+  370.59,
+  386.1
+ ],
+ "scenarios": {
+  "chapel_S45": {
+   "kind": "late",
+   "pairs": [
+    {
+     "shift": 0.0,
+     "order": "base-head",
+     "loadavg": 449.5,
+     "base": {
+      "ok": true,
+      "wall_s": 615.1,
+      "args": [
+       "S",
+       "2700",
+       "-60.5,1.2,-8,5"
+      ],
+      "buildMs": 38709,
+      "result": {
+       "weldsLost": 1002,
+       "runaways": 1,
+       "awakeAtEnd": 402,
+       "awakeMachine": 28,
+       "awakeOther": 374,
+       "fingerprint": "2b1742b1c9ef5e4b"
+      },
+      "demo_pct": 8.939,
+      "machines": {
+       "bulldozer": {
+        "awake": 3,
+        "axes": 3,
+        "running": 1
+       },
+       "compressor": {
+        "awake": 1,
+        "axes": 3,
+        "running": 1
+       },
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "dumptruck": {
+        "awake": 0,
+        "axes": 2,
+        "running": 1
+       },
+       "excavator": {
+        "awake": 10,
+        "axes": 10,
+        "running": 4
+       },
+       "forklift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       },
+       "generator": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "mobilecrane": {
+        "awake": 7,
+        "axes": 11,
+        "running": 2
+       },
+       "scissorlift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       }
+      },
+      "stderr": "WebSocket server error: Port 24678 is already in use\nTHREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "late_phys_cpu": 8.967,
+      "late_after_cpu": 8.775,
+      "late_total_ms": 150.323,
+      "awake_at_45s": 1645,
+      "awake_min_late": 32,
+      "awake_mean_late": 569.4,
+      "awake_end": 402
+     },
+     "head": {
+      "ok": true,
+      "wall_s": 646.7,
+      "args": [
+       "S",
+       "2700",
+       "-60.5,1.2,-8,5"
+      ],
+      "buildMs": 38813,
+      "result": {
+       "weldsLost": 1000,
+       "runaways": 1,
+       "awakeAtEnd": 1583,
+       "awakeMachine": 28,
+       "awakeOther": 1555,
+       "fingerprint": "d0ea6dc2bb773a46"
+      },
+      "demo_pct": 8.79,
+      "machines": {
+       "bulldozer": {
+        "awake": 3,
+        "axes": 3,
+        "running": 1
+       },
+       "compressor": {
+        "awake": 1,
+        "axes": 3,
+        "running": 1
+       },
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "dumptruck": {
+        "awake": 0,
+        "axes": 2,
+        "running": 1
+       },
+       "excavator": {
+        "awake": 10,
+        "axes": 10,
+        "running": 4
+       },
+       "forklift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       },
+       "generator": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "mobilecrane": {
+        "awake": 7,
+        "axes": 11,
+        "running": 2
+       },
+       "scissorlift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       }
+      },
+      "stderr": "WebSocket server error: Port 24678 is already in use\nTHREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "late_phys_cpu": 17.596,
+      "late_after_cpu": 10.349,
+      "late_total_ms": 179.359,
+      "awake_at_45s": 1613,
+      "awake_min_late": 1209,
+      "awake_mean_late": 1371.32,
+      "awake_end": 1583
+     }
+    },
+    {
+     "shift": 0.15,
+     "order": "head-base",
+     "loadavg": 419.7,
+     "head": {
+      "ok": true,
+      "wall_s": 345.0,
+      "args": [
+       "S",
+       "2700",
+       "-60.35,1.2,-8.0,5.0"
+      ],
+      "buildMs": 52087,
+      "result": {
+       "weldsLost": 349,
+       "runaways": 0,
+       "awakeAtEnd": 1026,
+       "awakeMachine": 68,
+       "awakeOther": 958,
+       "fingerprint": "53609af90972d3bc"
+      },
+      "demo_pct": 3.669,
+      "machines": {
+       "bulldozer": {
+        "awake": 3,
+        "axes": 3,
+        "running": 1
+       },
+       "cnc": {
+        "awake": 4,
+        "axes": 4,
+        "running": 2
+       },
+       "compressor": {
+        "awake": 1,
+        "axes": 3,
+        "running": 1
+       },
+       "conveyor": {
+        "awake": 19,
+        "axes": 16,
+        "running": 1
+       },
+       "coolingfans": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "dumptruck": {
+        "awake": 0,
+        "axes": 2,
+        "running": 1
+       },
+       "elevator": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "excavator": {
+        "awake": 10,
+        "axes": 10,
+        "running": 4
+       },
+       "fanbank": {
+        "awake": 3,
+        "axes": 3,
+        "running": 3
+       },
+       "forklift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       },
+       "generator": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "kiln": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "magnetcrane": {
+        "awake": 3,
+        "axes": 3,
+        "running": 2
+       },
+       "mobilecrane": {
+        "awake": 7,
+        "axes": 11,
+        "running": 2
+       },
+       "pressline": {
+        "awake": 0,
+        "axes": 3,
+        "running": 3
+       },
+       "pumping": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "robot": {
+        "awake": 3,
+        "axes": 3,
+        "running": 3
+       },
+       "scissorlift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       },
+       "sewage": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "ventstack": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       }
+      },
+      "stderr": "WebSocket server error: Port 24678 is already in use\nTHREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "late_phys_cpu": 13.844,
+      "late_after_cpu": 8.212,
+      "late_total_ms": 69.061,
+      "awake_at_45s": 1253,
+      "awake_min_late": 72,
+      "awake_mean_late": 898.48,
+      "awake_end": 1026
+     },
+     "base": {
+      "ok": true,
+      "wall_s": 353.3,
+      "args": [
+       "S",
+       "2700",
+       "-60.35,1.2,-8.0,5.0"
+      ],
+      "buildMs": 51052,
+      "result": {
+       "weldsLost": 333,
+       "runaways": 0,
+       "awakeAtEnd": 73,
+       "awakeMachine": 68,
+       "awakeOther": 5,
+       "fingerprint": "efd03e4f9e7b0045"
+      },
+      "demo_pct": 3.683,
+      "machines": {
+       "bulldozer": {
+        "awake": 3,
+        "axes": 3,
+        "running": 1
+       },
+       "cnc": {
+        "awake": 4,
+        "axes": 4,
+        "running": 2
+       },
+       "compressor": {
+        "awake": 1,
+        "axes": 3,
+        "running": 1
+       },
+       "conveyor": {
+        "awake": 19,
+        "axes": 16,
+        "running": 1
+       },
+       "coolingfans": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "dumptruck": {
+        "awake": 0,
+        "axes": 2,
+        "running": 1
+       },
+       "elevator": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "excavator": {
+        "awake": 10,
+        "axes": 10,
+        "running": 4
+       },
+       "fanbank": {
+        "awake": 3,
+        "axes": 3,
+        "running": 3
+       },
+       "forklift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       },
+       "generator": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "kiln": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "magnetcrane": {
+        "awake": 3,
+        "axes": 3,
+        "running": 2
+       },
+       "mobilecrane": {
+        "awake": 7,
+        "axes": 11,
+        "running": 2
+       },
+       "pressline": {
+        "awake": 0,
+        "axes": 3,
+        "running": 3
+       },
+       "pumping": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "robot": {
+        "awake": 3,
+        "axes": 3,
+        "running": 3
+       },
+       "scissorlift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       },
+       "sewage": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "ventstack": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       }
+      },
+      "stderr": "THREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "late_phys_cpu": 14.517,
+      "late_after_cpu": 8.223,
+      "late_total_ms": 74.018,
+      "awake_at_45s": 1253,
+      "awake_min_late": 72,
+      "awake_mean_late": 969.56,
+      "awake_end": 73
+     }
+    },
+    {
+     "shift": -0.15,
+     "order": "base-head",
+     "loadavg": 363.7,
+     "base": {
+      "ok": true,
+      "wall_s": 120.2,
+      "args": [
+       "S",
+       "2700",
+       "-60.65,1.2,-8.0,5.0"
+      ],
+      "buildMs": 13375,
+      "result": {
+       "weldsLost": 357,
+       "runaways": 0,
+       "awakeAtEnd": 68,
+       "awakeMachine": 68,
+       "awakeOther": 0,
+       "fingerprint": "3b19f985547a5dac"
+      },
+      "demo_pct": 3.784,
+      "machines": {
+       "bulldozer": {
+        "awake": 3,
+        "axes": 3,
+        "running": 1
+       },
+       "cnc": {
+        "awake": 4,
+        "axes": 4,
+        "running": 2
+       },
+       "compressor": {
+        "awake": 1,
+        "axes": 3,
+        "running": 1
+       },
+       "conveyor": {
+        "awake": 19,
+        "axes": 16,
+        "running": 1
+       },
+       "coolingfans": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "dumptruck": {
+        "awake": 0,
+        "axes": 2,
+        "running": 1
+       },
+       "elevator": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "excavator": {
+        "awake": 10,
+        "axes": 10,
+        "running": 4
+       },
+       "fanbank": {
+        "awake": 3,
+        "axes": 3,
+        "running": 3
+       },
+       "forklift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       },
+       "generator": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "kiln": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "magnetcrane": {
+        "awake": 3,
+        "axes": 3,
+        "running": 2
+       },
+       "mobilecrane": {
+        "awake": 7,
+        "axes": 11,
+        "running": 2
+       },
+       "pressline": {
+        "awake": 0,
+        "axes": 3,
+        "running": 3
+       },
+       "pumping": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "robot": {
+        "awake": 3,
+        "axes": 3,
+        "running": 3
+       },
+       "scissorlift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       },
+       "sewage": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "ventstack": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       }
+      },
+      "stderr": "WebSocket server error: Port 24678 is already in use\nTHREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "late_phys_cpu": 6.327,
+      "late_after_cpu": 5.623,
+      "late_total_ms": 17.274,
+      "awake_at_45s": 93,
+      "awake_min_late": 68,
+      "awake_mean_late": 553.72,
+      "awake_end": 68
+     },
+     "head": {
+      "ok": true,
+      "wall_s": 118.4,
+      "args": [
+       "S",
+       "2700",
+       "-60.65,1.2,-8.0,5.0"
+      ],
+      "buildMs": 12772,
+      "result": {
+       "weldsLost": 357,
+       "runaways": 0,
+       "awakeAtEnd": 855,
+       "awakeMachine": 68,
+       "awakeOther": 787,
+       "fingerprint": "0cac537e6baea4a5"
+      },
+      "demo_pct": 3.781,
+      "machines": {
+       "bulldozer": {
+        "awake": 3,
+        "axes": 3,
+        "running": 1
+       },
+       "cnc": {
+        "awake": 4,
+        "axes": 4,
+        "running": 2
+       },
+       "compressor": {
+        "awake": 1,
+        "axes": 3,
+        "running": 1
+       },
+       "conveyor": {
+        "awake": 19,
+        "axes": 16,
+        "running": 1
+       },
+       "coolingfans": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "dumptruck": {
+        "awake": 0,
+        "axes": 2,
+        "running": 1
+       },
+       "elevator": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "excavator": {
+        "awake": 10,
+        "axes": 10,
+        "running": 4
+       },
+       "fanbank": {
+        "awake": 3,
+        "axes": 3,
+        "running": 3
+       },
+       "forklift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       },
+       "generator": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "kiln": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "magnetcrane": {
+        "awake": 3,
+        "axes": 3,
+        "running": 2
+       },
+       "mobilecrane": {
+        "awake": 7,
+        "axes": 11,
+        "running": 2
+       },
+       "pressline": {
+        "awake": 0,
+        "axes": 3,
+        "running": 3
+       },
+       "pumping": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "robot": {
+        "awake": 3,
+        "axes": 3,
+        "running": 3
+       },
+       "scissorlift": {
+        "awake": 0,
+        "axes": 4,
+        "running": 2
+       },
+       "sewage": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "ventstack": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       }
+      },
+      "stderr": "THREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "late_phys_cpu": 5.503,
+      "late_after_cpu": 5.493,
+      "late_total_ms": 16.106,
+      "awake_at_45s": 93,
+      "awake_min_late": 69,
+      "awake_mean_late": 546.56,
+      "awake_end": 855
+     }
+    }
+   ]
+  }
+ },
+ "base_rev": "export",
+ "head_rev": "c5daec1",
+ "loadavg_end": [
+  363.67,
+  414.11,
+  409.5
+ ]
+}

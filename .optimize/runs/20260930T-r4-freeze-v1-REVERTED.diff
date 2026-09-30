@@ -1,0 +1,254 @@
+diff --git a/src/destruction/electrical.ts b/src/destruction/electrical.ts
+index 01d361c..a153129 100644
+--- a/src/destruction/electrical.ts
++++ b/src/destruction/electrical.ts
+@@ -4,7 +4,7 @@ import { b3, CAT, overlapAABB, entityOfShape, randomStream } from '../physics/ph
+ import { fx } from '../render/fx';
+ import { audio } from '../audio/audio';
+ import { lighting } from '../render/shared';
+-import { live, heat, ignite, damagePiece, explode, type Piece } from './structure';
++import { live, heat, ignite, damagePiece, explode, thawPiece, type Piece } from './structure';
+ import { flammable } from './materials';
+ import * as fields from '../sim/fields/index';
+ import { svcSurge } from './services';
+@@ -460,6 +460,7 @@ function survey(mg: Piece, h: Held): void {
+     b3.b3Shape_GetClosestPoint(_cp, shape, face);
+     const d = Math.hypot(face[0] - _cp[0], face[1] - _cp[1], face[2] - _cp[2]);
+     if (d > REACH) return;
++    thawPiece(q);
+     /* the flux a piece takes is what seats it, a few times its weight; more would only fight the contact solver */
+     const f = Math.min(Fh * (G0 / (d + G0)) ** 2, 3 * q.mass * 9.81);
+     const dl = Math.hypot(face[0] - q.curPos[0], face[1] - q.curPos[1], face[2] - q.curPos[2]) || 1;
+diff --git a/src/destruction/structure.ts b/src/destruction/structure.ts
+index 5fac831..7d86c83 100644
+--- a/src/destruction/structure.ts
++++ b/src/destruction/structure.ts
+@@ -1,6 +1,6 @@
+ import * as THREE from 'three';
+ import { vec3, quat, clamp, lerp } from 'math';
+-import type { b3ShapeId, b3JointId } from 'box3d.js';
++import type { b3ShapeId, b3JointId, Contact as B3Contact, ContactsBuffer, Manifold } from 'box3d.js';
+ import type { Blueprint, MaterialId, PieceSpec, Vec3, Quat } from '../types';
+ import {
+   b3, world, ground, CAT, ALL, filter, register, unregister, stepCount, overlapAABB, explodeImpulse,
+@@ -1671,6 +1671,9 @@ export function clearStructures(): void {
+   fading.length = 0;
+   hangQueue.clear();
+   frozenList.length = 0;
++  frozenOn.clear();
++  actors.length = 0;
++  thawed = 0;
+   roots = [];
+   totalVol = 0; totalValueSum = 0; demolishedVol = 0; clock = 0;
+ }
+@@ -3198,6 +3201,7 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
+     if ((d < radius || fields.inRoom(bl, cp)) && (!prev || d < prev.d)) near.set(p, { p, d, cp });
+   });
+   const hits = [...near.values()].sort((a, b) => a.d - b.d || pieceKey(a.p) - pieceKey(b.p));
++  for (const h of hits) { if (frozenSet.has(h.p)) dbg('thawBlast'); thaw(h.p); }
+   let broke = 0;
+   for (let i = 0; i < hits.length && i < Math.max(48, maxFractures * 3); i++) {
+     const h = hits[i];
+@@ -3512,6 +3516,8 @@ export function onHit(a: PhysEntity | undefined, b: PhysEntity | undefined, poin
+   const ea = pa ? effMass(pa) : ma, eb = pb ? effMass(pb) : mb;
+   const me = Number.isFinite(ea) && Number.isFinite(eb) ? (ea * eb) / (ea + eb) : Math.min(ea, eb);
+   const e = 0.5 * (Number.isFinite(me) ? me : mu) * speed * speed;
++  if (pa && frozenSet.has(pa) && (projB || e > pa.mass * 9.81 * THAW_H)) { dbg('thawHit'); thaw(pa); }
++  if (pb && frozenSet.has(pb) && (projA || e > pb.mass * 9.81 * THAW_H)) { dbg('thawHit'); thaw(pb); }
+   noteShock(point, e);
+   if (pa) struck.set(pa, clock);
+   if (pb) struck.set(pb, clock);
+@@ -3731,9 +3737,13 @@ function housekeeping(dt: number): void {
+       destroyPiece(p);
+     }
+   }
++  if (frozenOn.size) checkSupports();
++  if (frozenList.length && stepCount % 6 === 0) actorsThaw();
+   maintainT -= dt;
+   if (maintainT > 0) return;
+   maintainT = 0.5;
++  actors.length = 0;
++  if (frozenOn.size) pruneSupports();
+   for (const p of bullets) {
+     b3.b3Body_GetLinearVelocity(_v, p.body);
+     if (p.dead || vec3.squaredLength(_v) < 16) { if (!p.dead) b3.b3Body_SetBullet(p.body, false); bullets.delete(p); }
+@@ -3744,6 +3754,8 @@ function housekeeping(dt: number): void {
+     if (p.depth === 0 && !p.welds.length && p.demolished && !shattering.has(p) && BREAKUP_MATS.has(p.mat)) fallen(p);
+     if (p.welds.length && p.demolished && !p.dead) looseCluster(p);
+     if (!p.dead && p.movedStep >= stepCount - 1) creep(p);
++    if (p.mechs || p.root.spec.mech || p.root.spec.vehicle || p.root.spec.wheel) actors.push(p);
++    else if (!p.dead && p.demolished && p.fade <= 0 && !frozenSet.has(p)) settled(p);
+     if (p.fade > 0 || !p.demolished || p.depth === 0 || p.rebars.length || frozenSet.has(p)) continue;
+     if (p.movedStep < stepCount - 2) p.sleepT += 0.5;
+     if (p.volume < 0.012 && p.sleepT > 30) { if (canFreeze(p) && onRubble(p)) freezeRubble(p); else startFade(p); }
+@@ -3853,6 +3865,14 @@ function onRubble(p: Piece): boolean {
+ const _frz: Piece[] = [];
+ function freezeRubble(p: Piece): void {
+   if (frozenSet.has(p)) return;
++  /* what it lies on and against: should one of them shift or go, it is free again (below) */
++  restingOn(p);
++  for (const q of _sup) {
++    let d = frozenOn.get(q);
++    if (!d) frozenOn.set(q, d = { pos: [q.curPos[0], q.curPos[1], q.curPos[2]], on: [] });
++    d.on.push(p);
++  }
++  frozenState.set(p, { md: b3.b3Body_GetMassData(p.body), debris: p.debris });
+   frozenSet.add(p);
+   const resting = !b3.b3Body_IsAwake(p.body);
+   if (resting) {
+@@ -3875,6 +3895,126 @@ function freezeRubble(p: Piece): void {
+ /** settled rubble held static (harness) */
+ export function frozenRubble(): number { return frozenList.length; }
+ 
++/* Rubble of any size that has come to rest while the heap round it is still being solved (run 4). Box3D solves a
++   whole island while any of it moves, and one collapsing building is one island: the tower's heap held ~1600 settled
++   slabs and blocks in the solve for 10 s after they stopped. A loose piece that has not shifted a centimetre or turned
++   a degree in REST_T seconds, and lies only on the ground or on other loose rubble, is set in place like the settled
++   small rubble above, and set free again by anything that would move it: a blow that could lift it 2 cm, a blast
++   over it, a tool, a machine or vehicle touching it, or one of the pieces it lies on shifting or going. */
++const REST_T = 2, REST_D = 0.01, REST_DOT = Math.cos(Math.PI / 360), THAW_H = 0.02;
++const restAt = new WeakMap<Piece, { pos: Vec3; rot: Quat; t: number }>();
++const frozenState = new WeakMap<Piece, { md: ReturnType<typeof b3.b3Body_GetMassData>; debris: boolean }>();
++/* support → the frozen pieces resting on it, and where the support was when they were set */
++const frozenOn = new Map<Piece, { pos: Vec3; on: Piece[] }>();
++const actors: Piece[] = [];
++let thawed = 0;
++const DBG: Record<string, number> = ((globalThis as any).__frz = {});
++const dbg = (k: string) => { DBG[k] = (DBG[k] ?? 0) + 1; };
++const _rw: Vec3 = [0, 0, 0];
++
++function settled(p: Piece): void {
++  if (p.welds.length || p.rebars.length || p.ropes.length || p.hinged || p.svc || p.burning || p.queued || p.pm.explosive || p.curPos[1] < -1 || shattering.has(p)) { if (b3.b3Body_IsAwake(p.body)) dbg('excl:' + (p.welds.length ? 'w' : p.rebars.length ? 'r' : p.ropes.length ? 'rope' : p.hinged ? 'h' : p.svc ? 'svc' : p.burning ? 'b' : p.queued ? 'q' : 'o')); return; }
++  const r = restAt.get(p);
++  if (!r) { restAt.set(p, { pos: [p.curPos[0], p.curPos[1], p.curPos[2]], rot: [p.curRot[0], p.curRot[1], p.curRot[2], p.curRot[3]], t: 0 }); return; }
++  if (vec3.distance(p.curPos, r.pos) > REST_D || Math.abs(quat.dot(p.curRot, r.rot)) < REST_DOT) {
++    copy3(r.pos, p.curPos); copy4(r.rot, p.curRot); r.t = 0;
++    return;
++  }
++  r.t += 0.5;
++  if (r.t < REST_T) return;
++  if (hasDetail(p)) { dbg('detail'); return; }
++  dbg('cand');
++  b3.b3Body_GetLinearVelocity(_v, p.body);
++  b3.b3Body_GetAngularVelocity(_rw, p.body);
++  if (vec3.squaredLength(_v) > 0.03 * 0.03 || vec3.squaredLength(_rw) > 0.05 * 0.05) { dbg('fast'); return; }
++  if (restingOn(p)) { dbg('freeze'); freezeRubble(p); } else dbg('notOn');
++}
++
++/* Its touching contacts: true when it touches something and all of it is static ground or loose unjointed rubble
++   (never a standing member, a machine, a vehicle, the player or a soft body). The rubble it touches is left in _sup. */
++let _cbuf: ContactsBuffer | null = null, _con: B3Contact | null = null, _man: Manifold | null = null;
++const _sup: Piece[] = [];
++function restingOn(p: Piece): boolean {
++  const cb = _cbuf ??= b3.createContactsBuffer(), con = _con ??= b3.createContact(), man = _man ??= b3.createManifold();
++  _sup.length = 0;
++  b3.getBodyContactData(cb, p.body);
++  const n = b3.getNumContacts(cb);
++  let touching = false, ok = true;
++  for (let i = 0; i < n; i++) {
++    b3.getContactAt(con, cb, i);
++    if (con.manifoldCount === 0) continue;
++    const pa = entityOfShape(con.shapeIdA) === p, sh = pa ? con.shapeIdB : con.shapeIdA;
++    const e = entityOfShape(sh);
++    touching = true;
++    if (e && e.kind === 'piece') {
++      const q = e as Piece;
++      if (q === p || q.dead) continue;
++      if (q.welds.length || q.rebars.length || q.ropes.length || q.mechs || q.hinged || q.root.spec.mech || q.root.spec.vehicle || q.root.spec.wheel) { if (ok) dbg(q.welds.length ? 'onWelded' : 'onOther'); ok = false; }
++      /* only what it lies on or leans against, not what lies on it (the normal runs from shape A to shape B) */
++      const ny = b3.getManifoldAt(man, con, 0).normal[1];
++      if ((pa ? -ny : ny) > -0.2 && !_sup.includes(q)) _sup.push(q);
++    } else if (e ? e.kind !== 'ground' : b3.b3Body_GetType(b3.b3Shape_GetBody(sh)) !== b3.b3BodyType.b3_staticBody) { if (ok) dbg('onNonPiece:' + (e?.kind ?? 'dyn')); ok = false; }
++  }
++  return touching && ok;
++}
++
++function thaw(p: Piece): void {
++  if (p.dead || !frozenSet.has(p)) return;
++  frozenSet.delete(p);
++  const i = frozenList.indexOf(p);
++  if (i >= 0) frozenList.splice(i, 1);
++  const s = frozenState.get(p);
++  frozenState.delete(p);
++  restAt.delete(p);
++  slowSince.delete(p);
++  p.sleepT = 0;
++  b3.b3Body_SetType(p.body, b3.b3BodyType.b3_dynamicBody);
++  if (s) {
++    b3.b3Body_SetMassData(p.body, s.md);
++    if (s.debris && !p.debris) { p.debris = true; debrisCount++; }
++  }
++  b3.b3Body_SetAwake(p.body, true);
++  thawed++;
++}
++/** Set a piece that was set in place as settled rubble free again (tools that take hold of it). */
++export function thawPiece(p: Piece): void { thaw(p); }
++/** settled rubble set free again (harness) */
++export function thawedRubble(): number { return thawed; }
++
++/* A support that has shifted a centimetre since, or is gone, lets what rests on it go (every step: what it bore
++   must fall with it, not hang in the air for half a second). */
++function checkSupports(): void {
++  for (const [s, d] of frozenOn) {
++    if (!s.dead && (s.movedStep !== stepCount || vec3.distance(s.curPos, d.pos) <= REST_D)) continue;
++    frozenOn.delete(s);
++    for (const q of d.on) { if (frozenSet.has(q)) dbg(s.dead ? 'thawSupDead' : 'thawSupMoved'); thaw(q); }
++  }
++}
++function pruneSupports(): void {
++  for (const [s, d] of frozenOn) {
++    let k = 0;
++    for (const q of d.on) if (!q.dead && frozenSet.has(q)) d.on[k++] = q;
++    d.on.length = k;
++    if (!k) frozenOn.delete(s);
++  }
++}
++/* A moving machine part, wheel or vehicle body that touches settled rubble shoves it (a blade into a heap, a grab
++   closing on it) however slowly it comes on. */
++function actorsThaw(): void {
++  const cb = _cbuf ??= b3.createContactsBuffer(), con = _con ??= b3.createContact();
++  for (const a of actors) {
++    if (a.dead || a.movedStep !== stepCount) continue;
++    b3.getBodyContactData(cb, a.body);
++    const n = b3.getNumContacts(cb);
++    for (let i = 0; i < n; i++) {
++      b3.getContactAt(con, cb, i);
++      if (con.manifoldCount === 0) continue;
++      const ea = entityOfShape(con.shapeIdA), e = ea === a ? entityOfShape(con.shapeIdB) : ea;
++      if (e && e.kind === 'piece' && frozenSet.has(e as Piece)) { dbg('thawActor'); thaw(e as Piece); }
++    }
++  }
++}
++
+ function fadeScale(p: Piece): number {
+   return p.fade > 0 ? Math.max(0.02, p.fade / 0.7) : 1;
+ }
+@@ -3964,6 +4104,7 @@ export function hoistOf(p: Piece): { hook: Piece; length: number; taut: boolean
+ }
+ 
+ export function applyImpulseAt(p: Piece, impulse: Vec3, point: Vec3): void {
++  thaw(p);
+   if (!p.dead) b3.b3Body_ApplyLinearImpulse(p.body, impulse, point, true);
+ }
+ 
+diff --git a/src/game/tools/gravgun.ts b/src/game/tools/gravgun.ts
+index bd12917..d81e82b 100644
+--- a/src/game/tools/gravgun.ts
++++ b/src/game/tools/gravgun.ts
+@@ -2,7 +2,7 @@ import { vec3, clamp } from 'math';
+ import type { b3Filter, b3ShapeId } from 'box3d.js';
+ import type { Vec3 } from '../../types';
+ import { b3, CAT, ALL, raycast, entityOfBody, drive, type PhysEntity } from '../../physics/physics';
+-import { pieceOf, applyImpulseAt, kinetic, type Piece } from '../../destruction/structure';
++import { pieceOf, applyImpulseAt, kinetic, thawPiece, type Piece } from '../../destruction/structure';
+ import { fx } from '../../render/fx';
+ import { viewmodelGrip } from '../../render/viewmodel';
+ import { audio } from '../../audio/audio';
+@@ -90,6 +90,7 @@ export function gravFire(eye: Vec3, fwd: Vec3, canGrab: (e: PhysEntity) => boole
+     if (piece.fade > 0) return 'Nothing to grab';
+     if (piece.welds.length === 0) {
+       if (piece.mass > MAX_MASS) return `Too heavy to lift (${(piece.mass / 1000).toFixed(1)} t)`;
++      thawPiece(piece);
+       grab(piece, piece, HOLD + Math.cbrt(piece.volume) * 0.6);
+       return null;
+     }
