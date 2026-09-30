@@ -56,24 +56,19 @@ export function cottageRow(p: Placement & { count?: number; protected?: boolean 
     backs.push({ c: oc, w: 0.8, y0: 0, h: 2.0, glass: false }, { c: bc, w: 1.0, y0: 0.9, h: 1.4 });
     backsUp.push({ c: bc, w: 0.9, y0: 0.8, h: 1.35 }, { c: oc - (dr ? 0.35 : -0.35), w: 0.7, y0: 0.9, h: 1.1 });
   }
-  /* any row but the red 'terrace' has its fronts rendered and painted, each house its own colour over a dark
-     painted plinth (the render units are laid white, then tinted per house) */
+  /* any row but the red 'terrace' has its fronts rendered and painted, each house its own colour (the paint stops at
+     the party line) over a dark painted plinth */
   const paints = [0xf4e9c9, 0xc6dcc0, 0xf4cfb2, 0xc4d3ea, 0xf6e59c, 0xebc6c6];
-  const paint = (q: PieceSpec[]): PieceSpec[] => {
-    if (red) return q;
-    for (const m of q) for (const u of m.detail ?? []) {
-      if (u.mat !== 'concrete' || u.tint === undefined) continue;
-      const house = Math.min(n - 1, Math.max(0, Math.floor((u.pos[0] + X) / bay)));
-      u.tint = u.pos[1] < 0.42 ? shadeTint(vary(0x45423f, u, 0.06, 3), 1) : mulTint(u.tint, paints[(house + seed) % paints.length]);
-    }
-    return q;
+  const houseAt = (x: number) => Math.min(n - 1, Math.max(0, Math.floor((x + X) / bay)));
+  const face: LimeOpts = red ? {} : {
+    render: 0xffffff, renderSplit: [0.42], renderSplitAlong: centres.slice(1, -1),
+    renderTint: (x, y) => (y < 0.42 ? 0x45423f : mulTint(0xffffff, paints[(houseAt(x) + seed) % paints.length])),
   };
-  const face: LimeOpts = red ? {} : { render: 0xffffff };
   // front and back walls, one run per storey; the meter's service is sleeved through a patch beside each front door
   for (const [s, lo, up] of [[1, fronts, frontsUp], [-1, backs, backsUp]] as const) {
     const at = s * (Z - t / 2), f = s > 0 ? face : {};
-    ps.push(...paint(run({ ...brick, from: -X, to: X, at, t, y0: 0, h: f1, out: s, openings: lo }, s, f, s > 0 ? meters.map((m) => [m, 1.55] as [number, number]) : [])));
-    ps.push(...paint(run({ ...brick, from: -X, to: X, at, t, y0: f1, h: eave - f1, out: s, openings: up }, s, f)));
+    ps.push(...run({ ...brick, from: -X, to: X, at, t, y0: 0, h: f1, out: s, openings: lo }, s, f, s > 0 ? meters.map((m) => [m, 1.55] as [number, number]) : []));
+    ps.push(...run({ ...brick, from: -X, to: X, at, t, y0: f1, h: eave - f1, out: s, openings: up }, s, f));
   }
   for (const l of leafs) ps.push(door('x', l.u, [0, 2.45], [Z - t, Z], 1, { tint: l.tint, fan: 0.4 }));
   /* chimney breasts: each house's breast is on the side away from its door, corbelled from that wall; two cheeks and

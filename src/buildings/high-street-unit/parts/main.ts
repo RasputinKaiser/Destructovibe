@@ -1,6 +1,6 @@
 import type { PieceSpec } from '../../../types.ts';
-import { block, carton, wallRun, type Opening, type Range } from '../../../levels/kit.ts';
-import { layerize } from '../../../levels/layers.ts';
+import { block, carton, cyl, wallRun, weldParts, type Opening, type Range } from '../../../levels/kit.ts';
+import { layerize, withDetail } from '../../../levels/layers.ts';
 import { band } from '../../../levels/facade.ts';
 import { BORE, clipped, combiBoiler, conduit, lamp, LIGHT, radiatorPanel, supplyBox } from '../../../levels/services.ts';
 import type { Placement } from '../../_shared/base.ts';
@@ -98,8 +98,49 @@ export function highStreetUnit(p: Placement & { X?: number; Z?: number; tint?: n
       faces.push(top); lines.push(...letters('THE', top, 0xe2c26a), ...letters('RAILWAY', bot, 0xe2c26a));
     }
     ps.push(...inscribe([board], lines, faces));
+    ps.push(...pubFittings(X, Z));
   } else {
     ps.push(carton(X - 1.6, -Z + 0.9, 0), carton(X - 1.0, -Z + 0.9, 0, [0.4, 0.3, 0.3], 0xa87c4c), carton(X - 1.6, -Z + 1.4, 0, [0.35, 0.25, 0.3]));
   }
   return put(layerize(ps, { timber: true }), p, p.pub ? 'pub' : 'shop');
+}
+
+/* The pub's bar, fitted along the blank east gable: a panelled mahogany counter with a polished top and a three-pull
+   beer engine, the servery behind it, and the back bar against the gable (panelled cupboards under shelves of bottles
+   in front of a mirror); two cast-iron-pedestal tables by the front windows. Free-standing joinery on the floor. */
+function pubFittings(X: number, Z: number): PieceSpec[] {
+  const wood = 0x4a2a1c, top = 0x5a2e1c, xi = X - 0.25, cz: Range = [-3.4, 1.4];
+  const j = (tint: number) => ({ tint, finish: 'joinery' as const });
+  const ps: PieceSpec[] = [];
+  ps.push(panelled(block('wood', [xi - 2.1, xi - 1.6], [0, 1.0], cz, j(wood)), 'z', -1, { cols: 6, tint: wood, relief: 0.02 }));
+  ps.push(block('wood', [xi - 2.18, xi - 1.52], [1.0, 1.05], [cz[0] - 0.08, cz[1] + 0.08], j(top)));
+  // the beer engine: three pulls on a brass-capped base
+  const eng = block('wood', [xi - 1.95, xi - 1.75], [1.05, 1.5], [-0.9, 0.3], j(wood));
+  const pulls = [-0.6, -0.3, 0].flatMap((z) => [
+    block('wood', [xi - 1.9, xi - 1.8], [1.1, 1.3], [z - 0.05, z + 0.05], j(0xd8cfc0)),
+    block('copper', [xi - 1.88, xi - 1.82], [1.3, 1.5], [z - 0.03, z + 0.03], { tint: 0xc9a24a, finish: 'satin' }),
+  ]);
+  ps.push(withDetail(eng, [block('wood', [xi - 1.95, xi - 1.75], [1.05, 1.1], [-0.9, 0.3], j(wood)), ...pulls]));
+  // back bar: cupboards, then shelves of bottles before a mirror
+  ps.push(panelled(block('wood', [xi - 0.5, xi - 0.01], [0, 0.95], [cz[0] + 0.1, cz[1] - 0.1], j(wood)), 'z', -1, { cols: 5, tint: wood, relief: 0.02 }));
+  const sh = block('wood', [xi - 0.3, xi - 0.01], [0.95, 2.3], [cz[0] + 0.1, cz[1] - 0.1], j(wood));
+  const sd: PieceSpec[] = [
+    block('glass', [xi - 0.03, xi - 0.02], [1.05, 2.2], [cz[0] + 0.2, cz[1] - 0.2], { finish: 'smoked' }),
+    block('wood', [xi - 0.3, xi - 0.02], [0.95, 2.3], [cz[0] + 0.1, cz[0] + 0.18], j(wood)), block('wood', [xi - 0.3, xi - 0.02], [0.95, 2.3], [cz[1] - 0.18, cz[1] - 0.1], j(wood)),
+    block('wood', [xi - 0.3, xi - 0.02], [2.22, 2.3], [cz[0] + 0.18, cz[1] - 0.18], j(wood)),
+  ];
+  const glass = [0x2f4a2a, 0x5a3a1a, 0x3a5a4a, 0xd8d4c8, 0x6a2a2a];
+  for (const [k, y] of [1.4, 1.8].entries()) {
+    sd.push(block('wood', [xi - 0.3, xi - 0.04], [y - 0.03, y], [cz[0] + 0.18, cz[1] - 0.18], j(wood)));
+    for (let z = cz[0] + 0.3, i = k; z < cz[1] - 0.3; z += 0.16, i++) {
+      sd.push(cyl('glass', 0.075, [y, y + 0.28 + 0.04 * (i % 2)], xi - 0.16, z, { tint: glass[i % glass.length], finish: 'smoked' }));
+    }
+  }
+  ps.push(withDetail(sh, sd));
+  // two pub tables by the front windows
+  for (const x of [-1.5, 1.5]) {
+    ps.push(weldParts([cyl('castiron', 0.42, [0, 0.06], x, Z - 1.5, { tint: 0x1f2124 }), cyl('castiron', 0.07, [0.06, 0.7], x, Z - 1.5, { tint: 0x1f2124 }),
+      cyl('wood', 0.62, [0.7, 0.74], x, Z - 1.5, { tint: top, finish: 'joinery' })]));
+  }
+  return ps;
 }

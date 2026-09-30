@@ -30,9 +30,10 @@ import { foundationLocal as chimneyFoundation } from '../../buildings/boiler-chi
                x 23..29) into the yards · Terrace Row (E-W, z 35..41), with a back alley behind the houses.
      North of High Street, east to west: the utility compound and the heritage quarter (chapel, drained canal cut
                under a stone arch bridge, rotunda) west of Mill Lane; the high street shops and pub, with the
-               construction site behind them; the industrial yard (boiler house, works hall, press shop) past
-               Works Road.
-     South of High Street: the car park and the builders' merchant; Terrace Row houses; open demolition ground
+               construction site behind them (hoarded on three sides); the works yard past Works Road, its
+               boiler house and brick chimney at the east end with a felling lane down the yard.
+     South of High Street: the car park, a green with a cut-through path and the builders' merchant; Terrace Row
+               houses behind walled front gardens, then cleared plots down to their slabs; open demolition ground
                in the south-west by the Mill Lane entrance, where the player starts.
    Every street verge carries the mains, plot side to kerb: gas, water, power (see V below), buried at their real
    cover under the footways and verges (grid.ts). The ground is terrain (terrain/*): carriageways carved a kerb below
@@ -43,6 +44,9 @@ import { foundationLocal as chimneyFoundation } from '../../buildings/boiler-chi
 const V = { power: 0.3, water: 1.0, gas: 1.65 };
 const HSN = 0.35, HSS = 11.65, MLW = -27.65, MLE = -16.35, TRS = 43.15;
 const at = { hsN: (k: keyof typeof V) => HSN - V[k], mlW: (k: keyof typeof V) => MLW - V[k], mlE: (k: keyof typeof V) => MLE + V[k], trS: (k: keyof typeof V) => TRS + V[k] };
+/** the boiler-house chimney (square to the blast grid, flue toward +x) and its boiler house, whose west wall the flue
+    meets `wall` metres east of the chimney's axis */
+const STACK = { x: 52, z: -10, wall: 4 }, BH = { x: STACK.x + STACK.wall + 3.5, z: STACK.z };
 
 /* ---------------- local buildings (stockpiles only; the buildings are packages under src/buildings) ---------------- */
 
@@ -186,7 +190,7 @@ export function clearanceZone(): Blueprint {
   g.main('power', [[at.mlE('power'), at.hsN('power') + 0.07], [at.mlE('power'), at.trS('power')], [60, at.trS('power')]], { group: 'feeder' });
   g.main('power', [[at.mlE('power') + 0.07, HSS + V.power], [60, HSS + V.power]], { group: 'feeder' });
   // the governor's outlet turns down into the ground
-  g.main('gas', [[-32.2, -48.8 + MAIN.gas.d / 2], [-32.2, -40], [at.mlW('gas'), -40], [at.mlW('gas'), at.hsN('gas')], [50, at.hsN('gas')]],
+  g.main('gas', [[-32.2, -48.8 + MAIN.gas.d / 2], [-32.2, -40], [at.mlW('gas'), -40], [at.mlW('gas'), at.hsN('gas')], [60, at.hsN('gas')]],
     { valves: [[at.mlW('gas'), -30], [-8, at.hsN('gas')], [36, at.hsN('gas')]], group: 'gasmain', rise: 0.2 });
   g.main('gas', [[at.mlE('gas'), at.hsN('gas') + 0.09], [at.mlE('gas'), at.trS('gas')], [55, at.trS('gas')]], { valves: [[10, at.trS('gas')]], group: 'gasmain' });
 
@@ -228,12 +232,13 @@ export function clearanceZone(): Blueprint {
   bld('cottages', cottageRow({ x: 10.5, z: 50.8, rot: 2 }), 'drop');
   bld('semis', semiPair({ x: 28, z: 51.4, rot: 2 }), 'drop', true, false, true);
   bld('chapel', chapelLite({ x: -53, z: -8 }), 'drop', false, false, false, { depth: 1.0 });
-  bld('boilerhouse', boilerHouse({ x: 45, z: -13, rot: 1 }), 'ground', true, true);
-  // its brick chimney west of it on a mass-concrete pad, the flue duct running to the boiler house's west wall (x 41.5)
-  // between its windows; felled west along z -13 it falls across the yard and Works Road, clear for ~25 m, its top
-  // coming down on the back yards behind the high street shops
-  const stack = { x: 37, z: -13, wall: 41.5 - 37 };
-  add(onFoundation(assemble(boilerChimney, stack), place(chimneyFoundation(stack.wall), stack.x, stack.z), plan));
+  // the boiler house at the east end of the works yard; the brick chimney is its flue, so the guyed steel stack the
+  // plant kit stands on its end wall (and the stack's guys) is left out
+  bld('boilerhouse', place(boilerHouse({ x: 0, z: 0 }).filter((q) => q.pos[0] < 5.12 && Math.abs(q.pos[2]) < 4.2), BH.x, BH.z, 1), 'ground', true, true);
+  // its brick chimney west of it on a mass-concrete pad, the flue duct running to the boiler house's west wall between
+  // its windows; felled west along z -10 it comes down the length of the works yard (the felling lane, kept clear of
+  // plant) and its top lands on Works Road: ~36 m of open ground for a ~34 m pile
+  add(onFoundation(assemble(boilerChimney, STACK), place(chimneyFoundation(STACK.wall), STACK.x, STACK.z), plan));
   bld('merchant', merchantShed({ x: 47, z: 24 }), 'ground');
   add(rotunda({ x: -54, z: 22 }), stoneArchBridge({ x: -40, z: 12 }).filter((q) => !kindOf(q)));
   world.push(...canalCut(plan, -40, [-24, 32], [[9.2, 14.8]]));
@@ -241,11 +246,12 @@ export function clearanceZone(): Blueprint {
   // machines in the halls stand on their floors, the yard plant on the ground
   const hallKit = [M.conveyorLine({ x: 36.5, z: -41.5, len: 5, feed: 'grid' }), M.robotArm({ x: 45, z: -41.2, feed: 'grid' }), M.cncGantry({ x: 54.5, z: -39.2, rot: 1, feed: 'grid' }),
     M.pressLine({ x: 48, z: -54, presses: 3, feed: 'grid', group: 'pressline' })].map((m) => stand(m, DPC));
+  // the yard plant stands north of the chimney's felling lane (z -10), where a fall drifting off line cannot reach it
   const yard = [
     M.rotaryKiln({ x: 58.5, z: -22, rot: 1, feed: 'grid' }),
-    M.bucketElevator({ x: 51, z: -4.5, feed: 'grid' }),
-    M.coolingTowerFans({ x: 58, z: -4.2, cells: 1, feed: 'grid' }),
-    M.fanBank({ x: 38.5, z: -4.2, feed: 'grid' }),
+    M.bucketElevator({ x: 54.5, z: -20, feed: 'grid' }),
+    M.coolingTowerFans({ x: 51, z: -21, cells: 1, feed: 'grid' }),
+    M.fanBank({ x: 44.5, z: -20.5, feed: 'grid' }),
     M.ventStack({ x: 60.5, z: -29.5, feed: 'grid' }),
     // the builders' merchant's scrap corner: a grid-fed magnet crane working a scrap heap by the pavement
     EL.magnetCrane({ x: 59.5, z: 18.2, rot: 1, feed: 'grid', slew: 0.55 }),
@@ -254,9 +260,9 @@ export function clearanceZone(): Blueprint {
   for (const m of [...hallKit, ...yard]) world.push(...m);
   for (const b of buildings) world.push(...b.ps);
 
-  // steam off-take from the boiler house header, turned along the north wall clear of the flue stack
-  const sy = DPC + 3.6;
-  const steamStub = route('steel', [[44.6, sy, -17.35], [43.5, sy, -17.35], [43.5, sy, -17.7]], 0.14, { tint: SVC.steam, util: 'steam', group: 'boilerhouse' }, { round: true, elbow: 0.18 });
+  // steam off-take from the boiler house header, turned along the north end wall (points in the house's frame)
+  const sy = DPC + 3.6, bh = ([lx, lz]: [number, number]): [number, number, number] => [BH.x + lz, sy, BH.z - lx];
+  const steamStub = route('steel', [bh([4.35, -0.4]), bh([4.35, -1.5]), bh([4.7, -1.5])], 0.14, { tint: SVC.steam, util: 'steam', group: 'boilerhouse' }, { round: true, elbow: 0.18 });
   buildings.find((b) => b.name === 'boilerhouse')!.ps.push(...steamStub);
   world.push(...steamStub);
   const swap = (b: B, ps: PieceSpec[]) => {
@@ -307,7 +313,7 @@ export function clearanceZone(): Blueprint {
     house(frameUnderConstruction({ x: 10, z: -26 })),
     siteCabin({ x: -8, z: -19.5 }), siteCabin({ x: -8, z: -23, tint: 0x2f6f4f }),
     // the winter-works enclosure: an air dome over the ground-works bay
-    [airDome([-17, -11], [-31, -27], 0, 3, [-14, -31.7], { tint: 0xe9e9e4 })],
+    [airDome([-15.4, -9.4], [-31, -27], 0, 3, [-12.4, -31.7], { tint: 0xe9e9e4 })],
     M.excavator({ x: -6, z: -54, rot: 3 }),
     M.dumpTruck({ x: 11, z: -56 }),
     M.mixerTruck({ x: 11, z: -36, rot: 2 }),
@@ -318,7 +324,7 @@ export function clearanceZone(): Blueprint {
     M.scissorLift({ x: 9.5, z: -18.2 }),
     M.lightTower({ x: -12, z: -46 }),
     M.lightTower({ x: 16, z: -40, rot: 2 }),
-    stockpiles({ x: -12, z: -60 }),
+    stockpiles({ x: -10, z: -60 }),
     dump({ x: 17, z: -60, barrels: [2, 1], propane: [2, 1], group: 'site-gas' }),
   );
 
@@ -356,8 +362,66 @@ export function clearanceZone(): Blueprint {
   /* back alley behind Terrace Row: garden fences, wheelie bins at the back gates */
   furn.push(...fence('x', -16.35, 44, 59.54, 0, 1.8));
   for (const x of [-9, -3, 7, 14, 24, 32]) furn.push(wheelieBin(x, 60.3, 0, x % 2 ? 0x2f5a3a : 0x3a3d40));
-  /* the site hoarding round the construction site, open at its gate on Works Road side */
+  /* the site hoarding round the construction site: along the shops' back yards (open at the plant gate by the frame),
+     down Mill Lane and down Works Road (open at the delivery gate) */
   furn.push(...fence('x', -16, 20.4, -15.4, 0, 2.2, 'plywood', 0x4f6f4f, 6.1).filter((q) => Math.abs(q.pos[0] - 14.5) > 3.5));
+  furn.push(...fence('z', -15.45, -62.5, -16, 0, 2.2, 'plywood', 0x4f6f4f, 8.2));
+  furn.push(...fence('z', -15.45, -37.6, 20.4, 0, 2.2, 'plywood', 0x4f6f4f, 8.2), ...fence('z', -44.2, -62.5, 20.4, 0, 2.2, 'plywood', 0x4f6f4f, 8.2));
+
+  /* plot boundaries (ground features: low walls stand as the ground does) */
+  const wall = (x: Range, z: Range, top: number, mat: 'brick' | 'stone' | 'concrete' = 'brick', tint?: number, y0 = -0.1) => {
+    plan.block(x, z, y0, top, mat);
+    if (tint !== undefined) plan.spec.blocks[plan.spec.blocks.length - 1].tint = tint;
+  };
+  const coped = (x: Range, z: Range, top: number, tint = 0x9c5a44) => {
+    const alongX = x[1] - x[0] > z[1] - z[0];
+    wall(x, z, top - 0.08, 'brick', tint);
+    wall(alongX ? x : [x[0] - 0.03, x[1] + 0.03], alongX ? [z[0] - 0.03, z[1] + 0.03] : z, top, 'stone', 0xcfc6b2, top - 0.08);
+  };
+  // Terrace Row front gardens: a dwarf wall with brick piers at each gate, half-brick walls between the gardens, a
+  // flagged path from each gate to the step; the row ends walled back to the alley
+  const FW: Range = [43.2, 43.43], FRONT = 46.9;
+  const rows = [{ x: [-13.35, 1.35] as Range, doors: [-12.32, -4.37, -2.83], party: [-8.55, -3.75] },
+    { x: [3.15, 17.85] as Range, doors: [4.18, 12.13, 13.66], party: [7.95, 12.75] },
+    { x: [22.5, 33.5] as Range, doors: [26.95, 29.05], party: [28] }];
+  for (const r of rows) {
+    const gates = r.doors.map((d) => [d - 0.5, d + 0.5] as Range).sort((a, b) => a[0] - b[0]);
+    let x0 = r.x[0];
+    for (const g0 of gates) {
+      if (g0[0] - x0 > 0.3) coped([x0, g0[0]], FW, 0.85);
+      for (const px of [g0[0] - 0.18, g0[1] + 0.18]) coped([px - 0.17, px + 0.17], [FW[0] - 0.06, FW[1] + 0.06], 1.1, 0x8e4e3a);
+      plan.mat([g0[0] + 0.05, g0[1] - 0.05], [FW[1], 47.1], 'paving');
+      x0 = g0[1];
+    }
+    if (r.x[1] - x0 > 0.3) coped([x0, r.x[1]], FW, 0.85);
+    for (const px of r.party) wall([px - 0.06, px + 0.06], [FW[1], FRONT], 0.9);
+  }
+  // side walls closing the gardens off from Mill Lane and from the cleared plots east of the semis
+  coped([-16.25, -16.02], [FW[0], 59.3], 1.5);
+  coped([35.4, 35.63], [FW[0], 59.3], 1.5);
+  // the builders' merchant's yard: palisade on its west side, along the green
+  furn.push(...fence('z', 12.2, 32.3, 33.2, 0, 2.0, 'steel', 0x2f3a36, 6.8));
+  // the works yard's frontage to High Street: palisade, open at the yard gate
+  furn.push(...fence('x', 32.4, 63.6, -1.95, 0, 2.0, 'steel', 0x2f3a36, 6.8).filter((q) => q.pos[0] < 38.5 || q.pos[0] > 45.5));
+  // a cut-through path across the green from High Street to Terrace Row, with a bench on it
+  plan.mat([21.3, 22.7], [11.65, 32.85], 'paving');
+  furn.push(bench(23.6, 22, 0, false, 1), litterBin(23.4, 24.6, 0));
+  // the shops' back yards: yard walls between them and a rear wall along the hoarding
+  const yardWall = (x: Range, z: Range) => world.push(block('brick', x, [0, 1.8], z, { tint: 0x9a5a46, anchored: true, group: 'yards' }));
+  yardWall([-4.3, -4.07], [-15.1, -9.95]);
+  yardWall([3.6, 3.83], [-15.1, -10.85]);
+  yardWall([10.55, 10.78], [-15.1, -10.85]);
+  yardWall([-4.07, 3.6], [-15.1, -14.87]);
+  yardWall([3.83, 10.55], [-15.1, -14.87]);
+  /* the cleared plots at the east end of Terrace Row: three houses already down to their floor slabs and footings,
+     the ground broken up and a heap of what came out of them */
+  plan.mat([36, 63], [44.5, 59.5], 'rubble');
+  for (const x0 of [37.5, 45, 52.5]) {
+    wall([x0, x0 + 6.4], [47.4, 55.2], 0.12, 'concrete', 0x8f8a80);
+    wall([x0 - 0.12, x0 + 6.52], [47.28, 47.52], 0.3, 'brick', 0x8e4e3a);
+    wall([x0 + 6.4, x0 + 6.64], [47.4, 51 + (x0 % 2)], 0.45, 'brick', 0x8e4e3a);
+  }
+  add(rubble(58.5, 52, 29));
 
   const pieces = [...world, ...g.ps, ...furn];
   for (const q of pieces) delete q.protected;

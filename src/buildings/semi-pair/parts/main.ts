@@ -37,6 +37,8 @@ export function semiPair(p: Placement & { tint?: number }): PieceSpec[] {
   const frontUp = both((s) => [op(s, bayU[0], bayU[1], 0.7, 1.4, false), op(s, 1.3, 1.9, 0.9, 1.0)]);
   const back = both((s) => [op(s, 0.5, 1.35, 0, 2.05), op(s, 2.15, 3.35, 0.9, 1.1)]);
   const backUp = both((s) => [op(s, 0.75, 1.35, 1.1, 0.8), op(s, 2.25, 3.25, 0.9, 1.0)]);
+  // the two halves' render was last painted at different times: the left half a shade warmer and darker
+  const rendered: LimeOpts = { render, foot: -1, renderTint: (x) => (x < 0 ? shadeTint(render, 0.93, 0.6) : render), renderSplitAlong: [0] };
   const run = (w: WallRunOpts, out: 1 | -1, lo: LimeOpts = {}, patches: [number, number][] = []) =>
     brickRun(w, out, { bond: 'stretcher', dress: cas1, patches, ...lo });
   // front and back walls, brick below, rendered above; the service tails are sleeved through patches: the meters'
@@ -45,11 +47,11 @@ export function semiPair(p: Placement & { tint?: number }): PieceSpec[] {
     const at = s * (Z - t / 2);
     const patches: [number, number][] = s > 0 ? [[0.33, 1.7], [-0.33, 1.7]] : [[4.25, 0.3], [-4.25, 0.3], [2.775, 0.3], [-2.775, 0.3]];
     ps.push(...run({ ...br, from: -X, to: X, at, y0: 0, h: up, out: s, openings: [...lo] }, s, {}, patches));
-    ps.push(...run({ ...br, tint: render, from: -X, to: X, at, y0: up, h: top - up, out: s, openings: [...hi] }, s, { render, foot: -1 }));
+    ps.push(...run({ ...br, tint: render, from: -X, to: X, at, y0: up, h: top - up, out: s, openings: [...hi] }, s, rendered));
   }
   for (const s of [1, -1] as const) {
     const w = { ...br, axis: 'z' as const, from: -Z + t, to: Z - t, at: s * (X - t / 2), out: s };
-    ps.push(...run({ ...w, y0: 0, h: up }, s), ...run({ ...w, tint: render, y0: up, h: top - up }, s, { render, foot: -1 }));
+    ps.push(...run({ ...w, y0: 0, h: up }, s), ...run({ ...w, tint: render, y0: up, h: top - up }, s, rendered));
     // first floor and ceiling joists butting the party, side, front and back walls
     ps.push(timberDeck(block('plywood', mr(s, tp / 2, X - t), [g, up], [-Z + t, Z - t], { tint: 0x9a7a58 }), { span: 'x' }));
     ps.push(timberDeck(block('plywood', mr(s, tp / 2, X - t), [top - 0.15, top], [-Z + t, Z - t], { tint: 0xb89b72 }), { span: 'x', boards: false }));
@@ -94,8 +96,6 @@ export function semiPair(p: Placement & { tint?: number }): PieceSpec[] {
     ps.push(...clipped('gas', 'copper', [P(gas, 1.25, zb), P(gas, 0.3, zb), P(gas - 0.7, 0.3, zb)], BORE.cu22, [0, 0, -1]));
     ps.push(...kitchenSink(mx(s, c), bi));
   }
-  // the two halves' render was last painted at different times: the left half a shade warmer and darker
-  for (const q of ps) for (const u of q.detail ?? []) if (u.mat === 'concrete' && u.pos[0] < 0 && u.tint !== undefined) u.tint = shadeTint(u.tint, 0.93, 0.6);
   return put(layerize(ps, { timber: true }), p, 'semis');
 }
 
@@ -125,14 +125,17 @@ function bay(u: Range, f: number, brickTint: number): PieceSpec[] {
 }
 
 /* The panel between a bay's lights: a timber-framed core hung with 265 × 165 plain tiles at a 100 mm gauge on its
-   front and canted faces (oriented units), each tile fired a little differently. */
+   front and canted faces (oriented units). Each tile hangs from its batten on its nibs, so it leans out at the foot
+   and every course stands proud of the head of the one below, casting a thin shadow line on it; the tiles butt
+   tight side by side (no mortar), each fired a little differently. The tiles are drawn as matte clay (a painted-render
+   skin, so no facing texture shows on them). */
 function tileHung(plan: [number, number][], y0: number, y1: number): PieceSpec {
   const p = hull('roof', plan.flatMap(([x, z]) => [[x, y0, z], [x, y1, z]] as Vec3[]), { tint: 0xa0503c });
-  const [bl, br, fr, fl] = plan, tt = 0.012;
+  const [bl, br, fr, fl] = plan, tt = 0.012, kick = 0.012;
   const cx = (bl[0] + br[0] + fr[0] + fl[0]) / 4, cz = (bl[1] + br[1] + fr[1] + fl[1]) / 4;
   const inset = (q: [number, number], d: number): [number, number] => { const dx = cx - q[0], dz = cz - q[1], l = Math.hypot(dx, dz); return [q[0] + (dx / l) * d, q[1] + (dz / l) * d]; };
-  const d: PieceSpec[] = [hull('wood', [bl, br, fr, fl].map((q) => inset(q, 0.08)).flatMap(([x, z]) => [[x, y0 + 0.002, z], [x, y1 - 0.002, z]] as Vec3[]), { tint: 0x3a2a22 })];
-  // faces: left canted (bl→fl), front (fl→fr), right canted (fr→br); tiles on the outer 12 mm of each
+  const d: PieceSpec[] = [hull('wood', [bl, br, fr, fl].map((q) => inset(q, 0.08)).flatMap(([x, z]) => [[x, y0 + 0.002, z], [x, y1 - 0.002, z]] as Vec3[]), { tint: 0x4a3228 })];
+  // faces: left canted (bl→fl), front (fl→fr), right canted (fr→br); tiles in the outer 26 mm of each
   for (const [a, b] of [[bl, fl], [fl, fr], [fr, br]] as [[number, number], [number, number]][]) {
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]), ux = (b[0] - a[0]) / L, uz = (b[1] - a[1]) / L;
     const nx = uz, nz = -ux;                          // outward normal for a clockwise-in-plan face order
@@ -143,16 +146,16 @@ function tileHung(plan: [number, number][], y0: number, y1: number): PieceSpec {
     for (let y = y0 + 0.004; y + 0.02 < y1; y += g, row++) {
       const off = (row & 1) * wTile / 2;
       for (let s = 0.04 - off; s < L - 0.04; s += wTile) {
-        const sa = Math.max(0.04, s) + 0.004, sb = Math.min(L - 0.04, s + wTile) - 0.004, yb = Math.min(y1 - 0.003, y + g - 0.008);
+        const sa = Math.max(0.04, s) + 0.0015, sb = Math.min(L - 0.04, s + wTile) - 0.0015, yb = Math.min(y1 - 0.003, y + g - 0.001);
         if (sb - sa < 0.03 || yb - y < 0.03) continue;
         const pts: Vec3[] = [];
-        for (const ss of [sa, sb]) for (const w of [0.002, 0.002 + tt]) for (const yy of [y, yb]) {
+        // the face leans out toward the tile's foot; its head sits back against the batten
+        for (const ss of [sa, sb]) for (const [yy, w0] of [[y, 0.002], [yb, 0.002 + kick]] as const) for (const w of [w0, w0 + tt]) {
           const [ix, iz] = inward(w);
           pts.push([a[0] + ux * ss + ix, yy, a[1] + uz * ss + iz]);
         }
-        // plain clay tiles, each fired differently; the dark backing shows in the joints between them
-        const q = hull('ceramic', pts);
-        q.tint = vary(0x9c4a36, q, 0.3, 9);
+        const q = hull('plaster', pts);
+        q.tint = shadeTint(vary(0xa4553d, q, 0.22, 9), 1, 0.2);
         d.push(q);
       }
     }

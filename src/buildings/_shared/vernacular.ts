@@ -274,8 +274,15 @@ export interface LimeOpts {
   both?: boolean;
   plaster?: number;
   bond?: 'flemish' | 'english' | 'stretcher';
-  /** render the outside face instead of exposing the brick (pebbledash, painted render) */
+  /** render the outside face instead of exposing the brick (painted render); the reveals of the run's openings are
+      rendered too */
   render?: number;
+  /** the render's paint at a point (a house's own colour, a painted plinth); default `render` */
+  renderTint?: (x: number, y: number, z: number) => number;
+  /** heights where the render's cells are split (the top of a painted plinth) */
+  renderSplit?: number[];
+  /** positions along the run where the render's cells are split (party lines, where one house's paint stops) */
+  renderSplitAlong?: number[];
   /** how far the room-face plaster stops short of the run's ends (default: the wall's thickness) */
   inset?: number;
   /** no plaster at all (a garden or outbuilding wall seen from both sides) */
@@ -323,17 +330,43 @@ function boxLike(u: PieceSpec, lo: number[], hi: number[]): PieceSpec {
 const PL = 0.0115;
 
 /* a skin over the whole face of a member in near-square cells of about `step`, fitted to its edges so no strip of
-   the brick behind shows at the member's ends, head or foot */
-function tiles(s: Slab, T: Range, mat: MaterialId, step: number, tint: number): PieceSpec[] {
-  const nu = Math.max(1, Math.round((s.U[1] - s.U[0]) / step)), nv = Math.max(1, Math.round((s.V[1] - s.V[0]) / step));
-  const du = (s.U[1] - s.U[0]) / nu, dv = (s.V[1] - s.V[0]) / nv, out: PieceSpec[] = [];
-  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
-    const u: Range = [s.U[0] + i * du, s.U[0] + (i + 1) * du], v: Range = [s.V[0] + j * dv, s.V[0] + (j + 1) * dv];
-    const q = s.u === 0 ? block(mat, u, v, T) : block(mat, T, v, u);
-    q.tint = tint;
-    out.push(q);
+   the brick behind shows at the member's ends, head or foot; `splits` are heights where a row of cells must end */
+function tiles(s: Slab, T: Range, mat: MaterialId, step: number, tint: number, splits: number[] = [], along: number[] = [], jitter = false): PieceSpec[] {
+  const out: PieceSpec[] = [];
+  const bands = (r: Range, at: number[]): Range[] => {
+    const c = [r[0], ...at.filter((y) => y > r[0] + 0.05 && y < r[1] - 0.05).sort((a, b) => a - b), r[1]], o: Range[] = [];
+    for (let k = 0; k + 1 < c.length; k++) o.push([c[k], c[k + 1]]);
+    return o;
+  };
+  const even = (r: Range): Range[] => {
+    const n = Math.max(1, Math.round((r[1] - r[0]) / step)), w = (r[1] - r[0]) / n;
+    return Array.from({ length: n }, (_, i) => [r[0] + i * w, r[0] + (i + 1) * w] as Range);
+  };
+  /* a jittered row: cell widths 0.7-1.3 × step, so the skin's joints do not line up course to course and no two
+     neighbouring cells are the same size (a flat skin cell draws its texture scaled to the cell) */
+  const ragged = (r: Range, row: number): Range[] => {
+    const o: Range[] = [];
+    let a = r[0];
+    for (let k = 0; r[1] - a > 1.35 * step; k++) { const w = step * (0.7 + 0.6 * hash3(row, k, r[0], 29)); o.push([a, a + w]); a += w; }
+    if (r[1] - a > 0.9 * step || !o.length) o.push([a, r[1]]);
+    else { const last = o.pop()!, m = (last[0] + r[1]) / 2; o.push([last[0], m], [m, r[1]]); }
+    return o;
+  };
+  for (const V of bands(s.V, splits)) for (const [j, v] of even(V).entries()) for (const U of bands(s.U, along)) {
+    for (const u of jitter ? ragged(U, Math.round(v[0] * 100) + j) : even(U)) {
+      const q = s.u === 0 ? block(mat, u, v, T) : block(mat, T, v, u);
+      q.tint = tint;
+      out.push(q);
+    }
   }
   return out;
+}
+
+/* painted render weathers as a whole wall, not cell by cell: a faint, slow variation over metres (so neighbouring
+   cells differ by a percent or so and their edges do not show) and a soft darkening toward the foot */
+function renderShade(x: number, y: number, z: number, foot: number): number {
+  const slow = 0.02 * Math.sin(x * 0.83 + z * 0.61 + 1.3) * Math.cos(y * 0.57 - 0.4) + 0.01 * Math.sin(x * 1.7 - z * 1.3 + y * 1.1);
+  return (1 + slow) * (1 - 0.1 * Math.exp(-Math.max(0, y - foot) / 0.35));
 }
 
 /** Give the brick members of one wallRun their units: solid brick in bond with lime plaster on the room face(s) and,
@@ -387,15 +420,41 @@ export function lime(ps: PieceSpec[], out: 1 | -1, o: LimeOpts = {}): PieceSpec[
       st.tint = hd.tint ?? 0xe6dcc6;
       d.push(st);
     }
+    const renderAt = (u: PieceSpec) => shadeTint(o.renderTint?.(u.pos[0], u.pos[1], u.pos[2]) ?? o.render!, renderShade(u.pos[0], u.pos[1], u.pos[2], foot));
+    if (o.render !== undefined) {
+      /* the reveals of openings: where this member's end is not the run's end and no other member of the run abuts it,
+         the render is returned into the opening over the brick's thickness (the bricks there are cut back for it) */
+      const tk = alongX ? 2 : 0;
+      for (const [end, at] of [[0, s.U[0]], [1, s.U[1]]] as const) {
+        if (at < lo + 1e-3 || at > hi - 1e-3) continue;
+        const covered: Range[] = [];
+        for (const q of ps) {
+          if (q === p || q.mat !== 'brick') continue;
+          const qa = q.pos[uk] - q.size[uk] / 2, qb = q.pos[uk] + q.size[uk] / 2;
+          if (Math.abs((end === 0 ? qb : qa) - at) < 1e-3) covered.push([q.pos[1] - q.size[1] / 2, q.pos[1] + q.size[1] / 2]);
+        }
+        let open: Range[] = [[s.V[0], s.V[1]]];
+        for (const c of covered) open = open.flatMap(([a, b]) => ([[a, Math.min(b, c[0])], [Math.max(a, c[1]), b]] as Range[]).filter(([x, y]) => y - x > 0.05));
+        for (const v of open) {
+          const zu: Range = end === 0 ? [at, at + PL] : [at - PL, at];
+          const zl = [0, 0, 0], zh = [0, 0, 0];
+          zl[uk] = zu[0]; zh[uk] = zu[1]; zl[1] = v[0]; zh[1] = v[1]; zl[tk] = brickT[0]; zh[tk] = brickT[1];
+          d = d.flatMap((u) => subtract(u, zl, zh));
+          const nv = Math.max(1, Math.round((v[1] - v[0]) / 0.6)), dv = (v[1] - v[0]) / nv;
+          for (let j = 0; j < nv; j++) {
+            const q = block('plaster', [zl[0], zh[0]], [v[0] + j * dv, v[0] + (j + 1) * dv], [zl[2], zh[2]]);
+            q.tint = renderAt(q);
+            d.push(q);
+          }
+        }
+      }
+    }
     const inset = o.inset ?? T, U: Range = [Math.max(s.U[0], lo + inset), Math.min(s.U[1], hi - inset)];
     if (rin && U[1] - U[0] > 0.05) d.push(...tiles({ ...s, U }, bandT(T - rin, rin), 'plaster', 0.6, o.plaster ?? 0xeee7da));
     if (rout) {
-      const skin = tiles(s, bandT(0, rout), o.render !== undefined ? 'concrete' : 'plaster', o.render !== undefined ? 0.15 : 0.6, o.render ?? o.plaster ?? 0xeee7da);
-      if (o.render !== undefined) for (const u of skin) {
-        // weathered roughcast: darker at the foot and in faint streaks, otherwise near-uniform
-        const streak = hash3(Math.round(u.pos[0] * 2), 0, Math.round(u.pos[2] * 2), 17) < 0.25 ? 0.94 : 1;
-        u.tint = shadeTint(vary(o.render, u, 0.03, 13), (u.pos[1] < foot + 0.5 ? 0.86 : 1) * streak);
-      }
+      // painted render (plaster cells tinted by a slow whole-wall variation), or a plaster skin
+      const skin = tiles(s, bandT(0, rout), 'plaster', 0.6, o.render ?? o.plaster ?? 0xeee7da, o.render !== undefined ? o.renderSplit : [], o.render !== undefined ? o.renderSplitAlong : [], o.render !== undefined);
+      if (o.render !== undefined) for (const u of skin) u.tint = renderAt(u);
       d.push(...skin);
     }
     const q = layered('brick', s, d, { tint: p.tint });
