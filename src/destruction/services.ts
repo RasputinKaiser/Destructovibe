@@ -6,7 +6,9 @@ import { coverAt, groundAt, dig, mound } from '../terrain/terrain';
 import { fx } from '../render/fx';
 import { audio } from '../audio/audio';
 import { lampLights } from '../render/lights';
-import { setPieceHeat } from './batches';
+import { waterColumn, setWaterJets, clearWaterJets, setTailSource, type JetSpec } from '../render/utilityfx';
+import { makeTail, stepTail, kickTail, tailEnd, type Tail } from './conductors';
+import { setPieceHeat, setPiecePower } from './batches';
 import { flammable } from './materials';
 import { explode, heat, ignite, douse, burningPieces, live, releaseGround, type Piece } from './structure';
 import * as fields from '../sim/fields/index';
@@ -127,6 +129,14 @@ interface Break {
   ua: number;               // power: arc voltage, V
   vp: number;               // power: speed the parting ends draw the arc out, m/s
   ec: number;               // contact class its arc energy was last assessed at
+  u: number;                // water / steam / gas: exit speed at the orifice, m/s
+  duct: boolean;            // the member it parted from rose through the surface: a buried break vents up its hole
+  jv: number;               // water, drawn: speed that carries the jet to its reach (0: a weep or a sprinkler)
+  jd: number;               // water, drawn: width of the column at its foot, m
+  jm: number;               // water, drawn: soil in it, 0..1
+  jdir: Vec3;               // water, drawn: direction it leaves in
+  id: number;
+  tail: Tail | null;        // power: the fallen half of a snapped overhead conductor whose free end this is
 }
 
 interface Net { kind: UtilityKind; src: Piece; y: number; cap: number; area: number; P: number; u0: number; load: number; S: number }
@@ -291,7 +301,7 @@ let lampsLit = 0;
 let running = 0;
 let activeCount = { power: 0, gas: 0, water: 0, steam: 0 };
 const tally = { leaks: 0, ruptures: 0, trips: 0, shut: 0, deflagrations: 0, sprinklers: 0, flashovers: 0, insulation: 0, contactFires: 0, surges: 0,
-  dug: 0, strokes: 0, burnouts: 0, tipped: 0, hoses: 0, atsStarts: 0, hammers: 0, alarms: 0 };
+  dug: 0, strokes: 0, burnouts: 0, tipped: 0, hoses: 0, atsStarts: 0, hammers: 0, alarms: 0, scoured: 0 };
 
 const _v: Vec3 = [0, 0, 0], _d: Vec3 = [0, 0, 0], _w: Vec3 = [0, 0, 0], _c: Vec3 = [0, 0, 0];
 
@@ -507,15 +517,53 @@ function strain(l: SvcLink, s: number): void {
 export function svcLinkLost(a: Piece, b: Piece, pos: Vec3, n: Vec3, record: boolean, posB?: Vec3): void {
   topoDirty = true;
   if (!record) return;
+  if (posB) { snapWire(a, b, pos, posB); return; }
   for (const [p, s] of [[a, 1], [b, -1]] as const) {
     if (p.dead || breaks.length > 400) continue;
     vec3.set(_d, n[0] * s, n[1] * s, n[2] * s);
     const m = p.svc!, o = (p === a ? b : a).svc;
     const bore = o ? Math.min(m.bore, o.bore) : m.bore;
-    if (addBreak(p, s < 0 && posB ? posB : pos, _d, (Math.PI / 4) * bore * bore, true)) tally.ruptures++;
+    const br = addBreak(p, s < 0 && posB ? posB : pos, _d, (Math.PI / 4) * bore * bore, true);
+    if (!br) continue;
+    tally.ruptures++;
+    /* a riser that stood up through the surface (a hydrant barrel, a standpipe) leaves its hole open when it goes */
+    const q = (p === a ? b : a).root.spec, g = groundAt(q.pos[0], q.pos[2]);
+    br.duct = q.pos[1] - q.size[1] / 2 < g - 0.05 && q.pos[1] + q.size[1] / 2 > g + 0.05;
   }
 }
 
+/* A span conductor parts somewhere along its length (where the tension found its weakest strand): each half swings
+   down from its insulator on its own (conductors.ts) and its free end is the open break, arcing where it lands if its
+   side is still live. A live end on the ground is an earth fault of ~U0 / R_EARTH (15 A on LV): no fuse clears that,
+   so a downed line lies there live and spitting; touching metal, water or the other conductor it is a bolted fault. */
+interface Fallen { t: Tail; p: Piece }
+const fallen: Fallen[] = [];
+const MAX_FALLEN = 32;
+function snapWire(a: Piece, b: Piece, pa: Vec3, pb: Vec3): void {
+  const L = vec3.distance(pa, pb), f = 0.3 + 0.4 * rnd();
+  vec3.lerp(_c, pa, pb, f);
+  for (const [p, at, len] of [[a, pa, f * L], [b, pb, (1 - f) * L]] as const) {
+    if (fallen.length >= MAX_FALLEN) continue;
+    const t = makeTail(at, _c, len);
+    tailEnd(t, _w, _d);
+    /* an insulator blown off with it drops its half whole, and dead */
+    const br = breaks.length > 400 || p.dead ? null : addBreak(p, _w, _d, 0, true);
+    if (br) { br.tail = t; tally.ruptures++; }
+    fallen.push({ t, p });
+  }
+}
+function stepFallen(dt: number): void {
+  for (const f of fallen) {
+    stepTail(f.t, f.p.dead ? null : f.p.curPos, dt, groundAt);
+  }
+}
+setTailSource(() => fallen);
+/** Fallen conductor halves for tools and tests: insulator, free end, lying on the ground, still moving, live. */
+export function serviceFallen(): { piece: Piece; end: Vec3; grounded: boolean; awake: boolean; live: boolean }[] {
+  return fallen.map((f) => { tailEnd(f.t, _w, _d); return { piece: f.p, end: [_w[0], _w[1], _w[2]] as Vec3, grounded: f.t.grounded, awake: f.t.awake, live: !f.p.dead && !!f.p.svc?.on }; });
+}
+
+let breakIds = 0;
 function addBreak(p: Piece, pos: Vec3, dir: Vec3, area: number, full: boolean): Break | null {
   const m = p.svc!;
   const lp = b3.b3Body_GetLocalPoint([0, 0, 0], p.body, pos) as Vec3;
@@ -527,7 +575,7 @@ function addBreak(p: Piece, pos: Vec3, dir: Vec3, area: number, full: boolean): 
   const lit = m.kind === 'gas' && (p.temp > 450 || (full && (p.mat === 'steel' || p.mat === 'castiron') && rnd() < 0.15));
   const b: Break = { p, kind: m.kind, lp, ld, t0: clock, fxT: rnd() * 0.1, auT: rnd() * 0.25, size: 0, active: false, shown: false,
     area, full, link: null, spr: false, lit, q: 0, arcT: m.kind === 'power' && m.on ? 3 : 0, arcing: false,
-    contact: 0, chk: -1, enc: undefined, gone: false, ins: false, hv: m.hv, ia: 0, ua: 0, vp: 0.1 + rnd() * 0.2, ec: -1 };
+    contact: 0, chk: -1, enc: undefined, gone: false, ins: false, hv: m.hv, ia: 0, ua: 0, vp: 0.1 + rnd() * 0.2, ec: -1, u: 0, duct: false, jv: 0, jd: 0, jm: 0, jdir: [0, 1, 0], id: ++breakIds, tail: null };
   breaks.push(b);
   return b;
 }
@@ -672,6 +720,7 @@ function recompute(): void {
     }
   }
   if (down) audio.powerDown(down.curPos);
+  buildingSupply();
   for (const p of members) {
     const m = p.svc!;
     if (m.frag && m.on && !m.vented) {
@@ -696,6 +745,66 @@ function setEmit(p: Piece, k: number): void {
   const m = p.svc!;
   m.emit = k;
   if (m.glows) setPieceHeat(p.gfx, k);
+}
+
+/* ---------------- windows ---------------- */
+
+/* A building's windows show its rooms lit as the hour has it only while its own wiring is live: when its supply goes
+   (a trip, a cut cable, the substation blown) every pane goes dark together after the same stutter as its lamps, and
+   comes back when it is restored. A building with no wiring of its own keeps its windows as they are. Render-only. */
+const panes = new Map<string, Piece[]>();
+const paneNet = new Map<string, number>();
+const paneShown = new Map<string, number>();
+const paneFlick = new Map<string, number>();
+let panesAt = -1e9;
+/* the windows' stutter draws on a stream of its own: what is only drawn must not shift the game's seeded randomness */
+let vs = 0x9e3779b9;
+const vrnd = (): number => { vs ^= vs << 13; vs ^= vs >>> 17; vs ^= vs << 5; return (vs >>> 0) / 4294967296; };
+function buildingSupply(): void {
+  if (clock - panesAt > 1) {
+    panesAt = clock;
+    panes.clear();
+    const wired = new Set<string>();
+    for (const p of members) if (p.svc!.kind === 'power' && p.root.spec.group) wired.add(p.root.spec.group);
+    for (const p of live) {
+      const g = p.root.spec.group;
+      if (p.dead || !g || (p.mat !== 'glass' && p.mat !== 'tempered') || !wired.has(g)) continue;
+      (panes.get(g) ?? panes.set(g, []).get(g)!).push(p);
+    }
+  }
+  if (!panes.size) return;
+  const on = new Map<string, boolean>();
+  paneNet.clear();
+  for (const p of members) {
+    const m = p.svc!, g = p.root.spec.group;
+    if (m.kind !== 'power' || !g || !panes.has(g) || m.source || isGate(m)) continue;
+    const lit = m.on && !m.blown;
+    on.set(g, (on.get(g) ?? false) || lit);
+    if (lit) paneNet.set(g, m.net);
+  }
+  for (const [g, list] of panes) {
+    const want = on.get(g) ? 1 : 0, was = paneShown.get(g);
+    if (want === was) continue;
+    paneShown.set(g, want);
+    /* first sight: as it stands, no stutter */
+    if (was === undefined) { if (!want) for (const p of list) if (!p.dead) setPiecePower(p.gfx, 0); continue; }
+    paneFlick.set(g, 0.25 + vrnd() * 0.4);
+    if (!want) for (const p of list) if (!p.dead) setPiecePower(p.gfx, 0.6);
+  }
+}
+/** Buildings with wiring and windows: how many panes, whether their supply is shown on (tools, tests). */
+export function serviceWindows(): { group: string; panes: number; lit: boolean }[] {
+  return [...panes].map(([group, l]) => ({ group, panes: l.length, lit: paneShown.get(group) !== 0 }));
+}
+
+/* the stutter of a dying (or struck) supply, stepped only while one runs */
+function stepPanes(dt: number): void {
+  for (const [g, t] of paneFlick) {
+    const list = panes.get(g), left = t - dt;
+    const k = left <= 0 ? paneShown.get(g) ?? 1 : vrnd() < 0.45 ? 0.05 : 0.4 + 0.6 * vrnd();
+    if (left <= 0) paneFlick.delete(g); else paneFlick.set(g, left);
+    if (list) for (const p of list) if (!p.dead) setPiecePower(p.gfx, k);
+  }
 }
 
 /* ---------------- circuits ---------------- */
@@ -803,6 +912,8 @@ export function servicesStep(dt: number): void {
   tickT += dt;
   if (tickT >= TICK) { tickT -= TICK; tick(); }
   if (watch.length) stepLinks(dt);
+  if (fallen.length) stepFallen(dt);
+  if (paneFlick.size) stepPanes(dt);
   stepBreaks(dt);
   stepMagnets();
   stepWeather(dt);
@@ -860,6 +971,7 @@ function tick(): void {
   tracking();
   corona();
   updateBreaks();
+  lookJets();
   protect();
   if (sprinklers.size) sprinklerHeat();
   gasRooms();
@@ -1307,14 +1419,19 @@ function corona(): void {
 }
 let coronaOn = false;
 
+/** soil the last breakWorld's break vents up through, m (0 in the open, in a crater over it, or up an open duct) */
+let bwCover = 0;
 function breakWorld(b: Break): void {
+  bwCover = 0;
+  if (b.tail) { tailEnd(b.tail, _v, _d); return; }
   /* an arc flash or blowout earlier in the same tick can have destroyed the piece and freed its body */
   if (b.p.dead) { vec3.copy(_v, b.p.curPos); vec3.transformQuat(_d, b.ld, b.p.curRot); return; }
   b3.b3Body_GetWorldPoint(_v, b.p.body, b.lp);
   vec3.transformQuat(_d, b.ld, b.p.curRot);
   /* a break in the ground vents up through the soil (or out of the crater over it): the gas, water or steam
      comes out at the surface above it */
-  if (coverAt(_v[0], _v[1], _v[2]) > 0.05) { _v[1] = groundAt(_v[0], _v[2]) + 0.05; vec3.set(_d, 0, 1, 0); }
+  const c = coverAt(_v[0], _v[1], _v[2]);
+  if (c > 0.05) { _v[1] = groundAt(_v[0], _v[2]) + 0.05; vec3.set(_d, 0, 1, 0); bwCover = b.duct ? 0 : c; }
 }
 
 /* Flow at every open break: what the network's supply can push through all of them at once. */
@@ -1357,6 +1474,8 @@ function updateBreaks(): void {
     if (b.kind === 'water' && n) drive = Math.max(0, n.P - (_v[1] - n.y) / HEAD);
     const A = b.area * m.flow;
     b.q = CV[b.kind] * A * Math.sqrt(drive);
+    /* the jet leaves at Cv·√(2ΔP/ρ) (Cv ≈ 0.97; the orifice's Cd ≈ 0.6 in CV is the contraction of its area) */
+    b.u = drive > 0 ? 0.97 * Math.sqrt((2 * GAUGE[b.kind] * drive) / RHO[b.kind]) : 0;
     b.size = drive > 0 ? clamp(1.4 * Math.sqrt((A / A_REF) * drive), 0.08, 2.5) : 0;
     if (b.kind === 'gas') {
       /* a burning leak is a jet flame fed as fast as the gas comes: it stays one (no gas gathers to blow up) until its
@@ -1397,10 +1516,10 @@ const INSULATE = new Set<MaterialId>(['wood', 'oak', 'plywood', 'pvc', 'glass', 
 function arcState(b: Break): void {
   b.arcT -= TICK;
   if (b.ins) b.contact = 2;
-  else if (b.p.movedStep > b.chk || b.chk < 0) {
+  else if (b.p.movedStep > b.chk || b.chk < 0 || b.tail?.awake) {
     b.chk = stepCount;
     breakWorld(b);
-    let c: 0 | 1 | 2 = _v[1] < 0.15 ? 1 : 0;
+    let c: 0 | 1 | 2 = (b.tail ? b.tail.grounded : _v[1] < 0.15) ? 1 : 0;
     const r = 0.22, src = b.p;
     overlapAABB([_v[0] - r, _v[1] - r, _v[2] - r], [_v[0] + r, _v[1] + r, _v[2] + r], CAT.structure | CAT.debris | CAT.prop, shape => {
       if (c === 2) return;
@@ -1411,6 +1530,11 @@ function arcState(b: Break): void {
       if (CONDUCT.has(q.mat)) c = 2; else if (!INSULATE.has(q.mat)) c = 1;
     });
     if (c < 2) for (const o of breaks) if (o.kind === 'water' && o.size > 0.1 && vec3.squaredDistance(o.p.curPos, b.p.curPos) < 2.25) { c = 2; break; }
+    /* a fallen end swinging into the other conductor: phase to neutral */
+    if (c < 2 && b.tail) for (const f of fallen) {
+      if (f.t === b.tail) continue;
+      for (let i = 0, x = f.t.x; i < x.length && c < 2; i += 3) if ((x[i] - _v[0]) ** 2 + (x[i + 1] - _v[1]) ** 2 + (x[i + 2] - _v[2]) ** 2 < 0.15 * 0.15) c = 2;
+    }
     b.contact = c;
   }
   if (b.arcT > 0 || b.contact > 0) faultAt(b); else b.arcing = false;
@@ -1564,10 +1688,12 @@ function gasRooms(): void {
       const kg = Math.min(400, b.q * 1000);
       if (b.spr) fields.addWaterSpray(_v, _d, kg, TICK);
       else {
-        /* a jet lands a few metres out; a weep runs down the pipe */
+        /* a jet lands a few metres out along its throw, on the surface it came out over (a column falls back round
+           its own foot); a weep runs down the pipe */
         const L = b.size * 1.5;
-        vec3.scaleAndAdd(_c, _v, _d, L);
+        vec3.set(_c, _v[0] + _d[0] * L, _v[1] + Math.min(0, _d[1]) * L + 0.1, _v[2] + _d[2] * L);
         fields.addWater(_c, kg, TICK);
+        if (bwCover > 0.05 && b.full) scour(b);
       }
     } else if (b.kind === 'steam') fields.addGas(_v, Math.min(20, b.q * 0.6), 'steam', TICK);
   }
@@ -1578,6 +1704,17 @@ function gasRooms(): void {
     /* the leak's clock is compressed GAS_TIME×, so is the stirring that spreads it through a room (~a minute) */
     if (g.mean > 1e-4) fields.mixIn(_lo, _hi, 'methane', 1 - Math.exp(-(GAS_TIME * TICK) / 60));
   }
+}
+
+/* A main bursting under open ground washes the soil out over it (~5 % of its flow by volume: a 200 mm main opens a
+   pit a metre across in a minute) until the pipe lies open in its own crater and jets from it. A sound pavement holds
+   (digging takes only what lies on it): the water boils up through its cracks. */
+const SCOUR = 0.05;
+function scour(b: Break): void {
+  const R = 0.9, vol = Math.min(0.04, SCOUR * b.q) * TICK;
+  if (vol <= 0) return;
+  const got = dig(_v[0], _v[2], R, vol / (0.5 * Math.PI * R * R));
+  if (got > 0) tally.scoured += got;
 }
 
 /* The enclosure's box runs to the outside of its walls: sample the cells well inside them. */
@@ -1681,13 +1818,18 @@ function stepBreaks(dt: number): void {
       // a sputtering earth fault of a few amps to a bolted fault of kiloamps
       const k = clamp(0.3 + 0.28 * Math.log10(Math.max(b.ia, 10) / 30), 0.25, 1.4);
       arc(b, k * (b.contact === 2 ? 1 + rnd() * 0.5 : 0.7 + rnd() * 0.5));
+      /* each strike jumps the end it burns at: a live conductor on the ground twitches and crawls */
+      if (b.tail && b.contact > 0) { vec3.set(_w, rnd() - 0.5, 0.6 + rnd() * 0.6, rnd() - 0.5); vec3.normalize(_w, _w); kickTail(b.tail, _w, 1.8 * k * k, dt); }
       continue;
     }
     if (b.fxT <= 0) {
       b.fxT += 0.1;
       if (b.shown) {
         if (b.kind === 'gas') { if (b.lit) fx.gasJet(_v, _d, b.size); else fx.gasVent(_v, _d, b.size); }
-        else if (b.kind === 'water') fx.waterSpray(_v, _d, b.spr ? Math.max(b.size, 0.5) : b.size);
+        else if (b.kind === 'water') {
+          if (b.jv > 0.5) waterColumn(_v, b.jdir, b.jv, b.jd, b.jm);
+          else if (!b.full || b.spr) fx.waterSpray(_v, _d, b.spr ? Math.max(b.size, 0.5) : b.size);
+        }
         else fx.steamJet(_v, _d, b.size);
       }
     }
@@ -1701,6 +1843,32 @@ function stepBreaks(dt: number): void {
       jetEffect(b);
     }
   }
+}
+
+/* A full-bore water break as it looks, assessed each tick for the shown ones: a column thrown to the height its
+   pressure gives, less what a jet loses breaking up in the air (a thick jet keeps ~65 % of its head, a thin one
+   ~35 %), so it drops as more breaks share the supply. Pushing up through soil it is a low muddy boil; a main broken
+   open in its trench or crater hits the pit's side and is turned up out of it, carrying the soil it scours. */
+const jetList: JetSpec[] = [];
+function lookJets(): void {
+  jetList.length = 0;
+  for (const b of breaks) {
+    b.jv = 0;
+    if (b.kind !== 'water' || !b.shown || !b.full || b.spr || b.p.dead) continue;
+    breakWorld(b);
+    const A = b.area * b.p.svc!.flow, D = Math.sqrt((4 * A) / Math.PI);
+    if (bwCover > 0.05) {
+      const H = clamp(0.15 + 0.9 * Math.sqrt(b.q), 0.15, 1.2) / (1 + bwCover);
+      b.jv = Math.sqrt(2 * G * H); b.jd = 0.35 + 2 * D; b.jm = 1; vec3.set(b.jdir, 0, 1, 0);
+    } else {
+      const eta = 0.35 + 0.3 * clamp(D / 0.2, 0, 1), pit = !b.duct && coverAt(_v[0], _v[1] - 0.3, _v[2]) > 0;
+      b.jv = Math.sqrt(eta) * b.u; b.jd = D; b.jm = pit ? clamp(1 - (clock - b.t0) / 12, 0.15, 1) : 0;
+      if (pit) { vec3.set(b.jdir, _d[0] * 0.5, Math.max(_d[1], 0) + 1.2, _d[2] * 0.5); vec3.normalize(b.jdir, b.jdir); }
+      else vec3.copy(b.jdir, _d);
+    }
+    if (b.jv > 0.5) jetList.push({ key: b.id, pos: [_v[0], _v[1], _v[2]], dir: [b.jdir[0], b.jdir[1], b.jdir[2]], v0: b.jv, D: b.jd, mud: b.jm, floor: groundAt(_v[0], _v[2]) });
+  }
+  setWaterJets(jetList);
 }
 
 function arc(b: Break, strength: number): void {
@@ -1726,6 +1894,7 @@ function arc(b: Break, strength: number): void {
   }
   const net = b.p.svc!.net;
   for (const p of lamps) if (p.svc!.net === net && p.svc!.on && !flicker.has(p)) flicker.set(p, 0.08 + rnd() * 0.12);
+  for (const [g, n] of paneNet) if (n === net && !paneFlick.has(g) && paneShown.get(g) !== 0) paneFlick.set(g, 0.08 + vrnd() * 0.12);
   const r = 0.8;
   const src = b.p;
   overlapAABB([_v[0] - r, _v[1] - r, _v[2] - r], [_v[0] + r, _v[1] + r, _v[2] + r], CAT.structure | CAT.debris | CAT.prop, shape => {
@@ -1801,7 +1970,15 @@ function blowout(pos: Vec3, fixture: FixtureKind, volume: number): void {
       audio.arcFlash(pos);
       explode(pos, 3 * k, 30e3 * k * k, 1200 * k);
       if (fixture === 'generator') { igniteAround(pos, 5 * k, 0.8); spill(pos, 400 * k, true); }
-      else igniteAround(pos, 4 * k, 0.5);
+      else {
+        igniteAround(pos, 4 * k, 0.5);
+        /* an oil-filled distribution transformer (~250 L per 500 kVA) splits its tank: the mineral oil sprays out through
+           the arc and burns as a pool round the plinth under a column of black smoke (a dry consumer unit holds none) */
+        if (volume > 1.5) {
+          fx.fire([pos[0], pos[1] + 0.6, pos[2]], 2.5, 1.6 * k);
+          oilFire([pos[0], groundAt(pos[0], pos[2]) + 0.05, pos[2]], clamp(120 * volume, 150, 900), 2.5 * volume);
+        }
+      }
       break;
     }
     case 'gasmain': {
@@ -2594,6 +2771,16 @@ function rupture(m: Mech): void {
 
 /* Diesel on the ground: a pool fire whose size follows the spill and whose life its burning rate
    (~0.045 kg/m²·s), played ten times faster. */
+/* Burning oil held in a bund (the plinth's kerb, the pit round a transformer): the pool can spread no wider than it,
+   so it burns as long as its depth lasts (~4.5 mm/min regression for a mineral-oil pool, compressed ×10 like a spill). */
+function oilFire(pos: Vec3, litres: number, bund: number): void {
+  if (pools.length > 12) return;
+  const area = clamp(Math.min(litres / 5, bund), 1, 50), r = Math.sqrt(area / Math.PI);
+  const t = clamp((litres * 0.84) / (0.045 * area) / 10, 12, 120);
+  pools.push({ pos: [pos[0], Math.max(0.05, pos[1]), pos[2]], t, r, lit: true });
+  fx.fire(pos, t, clamp(r * 0.8, 0.6, 3));
+}
+
 export function spill(pos: Vec3, litres: number, lit: boolean): void {
   if (litres <= 0 || pools.length > 12) return;
   const area = clamp(litres / 5, 1, 50);
@@ -2905,6 +3092,9 @@ export function clearServices(): void {
   for (const k of Object.keys(tally) as (keyof typeof tally)[]) tally[k] = 0;
   svcCost.ms = 0; svcCost.steps = 0;
   lampLights.clear();
+  clearWaterJets();
+  fallen.length = 0;
+  panes.clear(); paneNet.clear(); paneShown.clear(); paneFlick.clear(); panesAt = -1e9;
 }
 
 export function serviceStats(): { services: number; lampsLit: number; arcs: number; jets: number; mechs: number; mechsRunning: number }
