@@ -429,7 +429,7 @@ export function clearanceZone(): Blueprint {
   /* the chimney's exclusion zone. The fall line runs west down the yard (a bed of broken-out slab and soil laid along
      it to take the impact); a spoil bund across its end on the concrete behind the shops catches what skids and
      bounces on past Works Road short of shop-a, with mesh fencing along its front; Works Road and the High Street
-     stretch past the yard are closed at barriers for the felling, and the yard gate is fenced shut. */
+     from shop-a to past the yard gate are closed at barriers for the felling, and the yard gate is fenced shut. */
   plan.mat([31.2, 47.5], [-13.5, -6.5], 'soil');
   for (const [i, y] of [0.6, 1.2, 1.8, 2.3].entries()) plan.level([14.8 + i * 0.5, 20.4 - i * 0.5], [-15.0 + i * 0.4, -3.4 - i * 0.4], y, 'soil');
   furn.push(heras('z', -15.3, -2.9, 21.4, lv(21.4, -9)), heras('x', 38.8, 44.7, -2.6, lv(41.75, -2.6)));
@@ -439,8 +439,10 @@ export function clearanceZone(): Blueprint {
   };
   closed('x', 23.3, 28.7, -1.6, [[23.8, -0.4], [26, 0]], 23.2, -1.3);
   closed('x', 23.3, 28.7, -24, [], 28.8, -24.3);
-  closed('z', 2.8, 9.2, 12.4, [[13.8, 3.4], [15.2, 4.4]], 12.4, 2.3);
-  closed('z', 2.8, 9.2, 35.4, [[34, 8.6], [32.6, 7.6]], 35.4, 9.7);
+  // High Street from the shops to past the yard's east end (a fall drifting 10-15 deg south of the lane throws
+  // brick over the yard frontage onto the carriageway as far east as the yard gate); cones taper each approach
+  closed('z', 2.8, 9.2, 12.4, [[11, 3.4], [9.6, 4.4]], 12.4, 2.3);
+  closed('z', 2.8, 9.2, 50.5, [[51.9, 8.6], [53.3, 7.6]], 50.5, 9.7);
 
   /* the demolition contractor's staging ground by the Mill Lane entrance: a hardcore laydown with two stockpiles of
      crushed brick, a dozer, and a rutted haul track in from the lane with standing water in the ruts */
