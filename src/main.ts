@@ -29,7 +29,7 @@ import { terrainStep } from './terrain/terrain';
 import { stand } from './levels/maps/ground';
 import { PREFABS, prefabView, type Prefab } from './levels/prefabs';
 import {
-  player, createPlayer, playerPreStep, playerPostStep, updateCamera, applyLook, toggleFly, addTrauma, kickFov,
+  player, harness, createPlayer, playerPreStep, playerPostStep, updateCamera, applyLook, toggleFly, addTrauma, kickFov,
   knockback, eyePosition, forward, respawn, teleport as teleportPlayer, setPlayerEnabled, vfov, padLook,
 } from './game/player';
 import {
@@ -38,6 +38,9 @@ import {
   setWeaponHooks, weaponName, BANK_COUNT, releaseFire, toolWheel, toolSecondary, toolReadout, timelineView, weaponsDebug,
   devices, setDelay, fired,
 } from './game/weapons';
+import * as rigLines from './game/tools/lines';
+import * as vehicleMod from './vehicles/vehicle';
+import { grappleDebug } from './game/tools/grapple';
 import * as scoring from './game/scoring';
 import { driving, vehicleNear, enterVehicle, exitVehicle, driveControls, driveLook, driveCamera, driveHud } from './vehicles/drive';
 import { operating, machineNear, enterMachine, exitMachine, operateControls, operateLook, operateCamera, operateHud, vehicleGear, releaseVehicleGear } from './vehicles/operate';
@@ -420,6 +423,7 @@ function finish(won: boolean): void {
       hammer: 0, cannon: 1, rocket: 2, charge: 2, airstrike: 5, thermite: 2, cutter: 2, wrecker: 3, winch: 1, gravgun: 0, incendiary: 1, megabomb: 8,
       grinder: 1, saw: 1, drill: 1, shears: 1, plasma: 2, torch: 2, planner: 0, excavator: 1, breaker: 1, hose: 0, splitter: 1, wiresaw: 2,
       flamer: 2, launcher: 1, recoilless: 2, thermobaric: 3, buster: 6, satchel: 3,
+      grapple: 0, tether: 1, hoist: 0,
     };
     let spare = 0, issued = 0;
     for (const w of WEAPONS) {
@@ -798,6 +802,9 @@ function endReplay(): void {
   if (state === 'playing' || state === 'paused') viewmodel.setVisible(true);
 }
 
+/** dev playtests: hold the fire button down without pointer lock */
+let devHold = false;
+
 function handleInput(): void {
   // Start on a pad pauses, like Esc (the lock goes and the pause menu comes up)
   if (pollPad()) { releaseLock(); return; }
@@ -816,9 +823,10 @@ function handleInput(): void {
   if (!updatePlacement()) {
     // the wheel sets the tool's own parameter where it has one (scroll up = more), else cycles tools
     if (input.wheel && !toolWheel(input.wheel > 0 ? -1 : 1)) cycle(input.wheel > 0 ? 1 : -1);
-    if ((input.buttons & 1) && !busy) tryFire();
+    const lmb = (input.buttons & 1) !== 0 || devHold;
+    if (lmb && !busy) tryFire();
     else if (fireHeld) releaseFire();
-    fireHeld = (input.buttons & 1) !== 0;
+    fireHeld = lmb;
     const rmb = (input.clicked & 4) !== 0 && !toolSecondary();
     if (rmb || tapped('detonate')) {
       if (detonate()) flashHint('Detonating', 1);
@@ -1249,6 +1257,7 @@ if (import.meta.env.DEV) window.__dv = {
   get objective() { return { ...scoring.objective, target: active.target, met: scoring.goalMet(active.target), id: active.id }; },
   look: (dx: number, dy: number) => applyLook(dx, dy),
   fire: () => { startClock(); return tryFire(); },
+  hold: (on: boolean) => { startClock(); devHold = on; },
   select: (id: WeaponId) => { startClock(); select(id); },
   detonate: () => detonate(),
   setPlaying: () => { if (state === 'paused') { state = 'playing'; ui.showScreen(null); } },
@@ -1265,6 +1274,22 @@ if (import.meta.env.DEV) window.__dv = {
   secondary: () => toolSecondary(),
   wheel: (d: number) => toolWheel(d),
   weaponsDebug: () => weaponsDebug(),
+  rig: () => ({ lines: rigLines.rigDebug(), grapple: grappleDebug(), harness: { ...harness } }),
+  rigLines,
+  /** rigging playtests: vehicles to drive a pull, pieces under a ray */
+  /** playtests in a hidden tab (no animation frames): run n fixed steps exactly as the frame loop does */
+  advance: (n: number) => {
+    for (let i = 0; i < n; i++) {
+      if (!driving.vehicle && !operating.machine) { playerPreStep(FIXED_DT); weaponsPreStep(); }
+      physicsStep(handlers);
+      afterStep(FIXED_DT);
+      terrainStep(live);
+      weaponsAfterStep(FIXED_DT);
+      playerPostStep();
+    }
+    return stepCount;
+  },
+  rigEnv: { vehicles: vehicleMod, raycast, pieceOf, explode, NO_HIT: CAT.structure | CAT.debris | CAT.prop | CAT.ground },
   replay: {
     start: () => { startReplay(); return replay.playing; },
     stop: () => endReplay(),

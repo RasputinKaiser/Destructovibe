@@ -52,6 +52,17 @@ import {
   clearExcavator,
 } from './tools/excavator';
 import { holeNear } from './tools/machining';
+import {
+  initRigging, rigAfterStep, syncRigging, rigTags, lineCutAim, lineCutStep, lineCutting, clearRigging, type CutTool,
+} from './tools/lines';
+import { tetherFire, tetherSecondary, tetherWheel, tetherStatus, tetherPending, clearTether, TETHER_REACH } from './tools/tether';
+import {
+  initHoist, hoistRig, hoistRigged, hoistPreStep, hoistSecondary, hoistWheel, hoistStatus, syncHoist, clearHoist, HOIST,
+} from './tools/hoist';
+import {
+  initGrapple, grappleFire, grappleOut, grapplePreStep, grappleAfterStep, grappleSecondary, grappleWheel, grappleStatus,
+  syncGrapple, clearGrapple, cut as stowGrapple,
+} from './tools/grapple';
 import { hitstop } from './timefx';
 import { tags, initTags } from '../render/tags';
 import { strikes, initStrikes } from '../render/strikes';
@@ -68,8 +79,8 @@ import { shotStrike } from './ordnance/shot';
 import { contactCharge } from './ordnance/breach';
 import { young } from './ordnance/penetration';
 
-/* Ordered tool list; `bank` is the six-slot page the number keys address (Q cycles). */
-export const BANK_COUNT = 6;
+/* Ordered tool list; `bank` is the six-slot page the number keys address (Q cycles). A new bank is a block of up to
+   six entries with the next bank number; BANK_COUNT follows the table. */
 export const WEAPONS: { id: WeaponId; name: string; key: string; bank: number; cooldown: number }[] = [
   { id: 'hammer', name: 'Sledgehammer', key: '1', bank: 0, cooldown: 0.62 },
   { id: 'cannon', name: 'Hand Cannon', key: '2', bank: 0, cooldown: 0.95 },
@@ -95,6 +106,9 @@ export const WEAPONS: { id: WeaponId; name: string; key: string; bank: number; c
   { id: 'hose', name: 'Water Cannon', key: '4', bank: 3, cooldown: 0.2 },
   { id: 'splitter', name: 'Rock Splitter', key: '5', bank: 3, cooldown: 0.6 },
   { id: 'wiresaw', name: 'Diamond Wire Saw', key: '6', bank: 3, cooldown: 0.5 },
+  { id: 'grapple', name: 'Grapple Launcher', key: '1', bank: 4, cooldown: 0.8 },
+  { id: 'tether', name: 'Rigging Lines', key: '2', bank: 4, cooldown: 0.25 },
+  { id: 'hoist', name: 'Lever Hoist', key: '3', bank: 4, cooldown: 0.25 },
   { id: 'flamer', name: 'Flamethrower', key: '1', bank: 5, cooldown: 0.05 },
   { id: 'launcher', name: 'Grenade Launcher', key: '2', bank: 5, cooldown: 1.1 },
   { id: 'recoilless', name: 'Recoilless Rifle', key: '3', bank: 5, cooldown: 2.4 },
@@ -102,6 +116,7 @@ export const WEAPONS: { id: WeaponId; name: string; key: string; bank: number; c
   { id: 'buster', name: 'Bunker Buster', key: '5', bank: 5, cooldown: 4 },
   { id: 'satchel', name: 'Satchel Charge', key: '6', bank: 5, cooldown: 0.8 },
 ];
+export const BANK_COUNT = Math.max(...WEAPONS.map(w => w.bank)) + 1;
 const DEF = Object.fromEntries(WEAPONS.map(w => [w.id, w])) as Record<WeaponId, (typeof WEAPONS)[number]>;
 
 export const MAX_CHARGES = 8;
@@ -137,7 +152,8 @@ const PLANT_REACH = 4;
 const SATCHEL = { kg: 9.1 * 1.34, max: 4, throw: 8.5, lift: 2 };
 const PLAN = { reach: 60, autoMsPerM: 150, step: 50, big: 250, max: 5000 };
 /* Tools that act once per click rather than auto-repeating while fire is held. */
-const PRESS_ONLY = new Set<WeaponId>(['wrecker', 'winch', 'gravgun', 'planner', 'splitter', 'wiresaw', 'buster', 'satchel']);
+const PRESS_ONLY = new Set<WeaponId>(['wrecker', 'winch', 'gravgun', 'planner', 'splitter', 'wiresaw', 'buster', 'satchel', 'tether']);
+const CUT_TOOLS = new Set<WeaponId>(['grinder', 'saw', 'shears', 'plasma', 'torch']);
 
 export type ProjType = 'ball' | 'rocket' | 'charge' | 'beacon' | 'bomb' | 'thermite' | 'cutter' | 'bottle' | 'megabomb'
   | 'grenade' | 'heat' | 'tbx' | 'pen' | 'satchel';
@@ -211,6 +227,9 @@ let frame = 0;
 let lastTry = -9;
 let reelFrame = -9;
 let workFrame = -9;
+let lineFrame = -9;
+let grappleFrame = -9;
+let hoistFrame = -9;
 let chargeKg = 2.5;
 /** grenade launcher: programmed airburst range (m), 0 = point-detonating */
 let airburst = 0;
@@ -243,6 +262,9 @@ export function initWeapons(s: THREE.Scene): void {
   initStrikes(s);
   initWrecker(s);
   initWinch(s);
+  initRigging(s);
+  initHoist(s);
+  initGrapple(s);
   machineHooks.consume = id => {
     const a = loadout.ammo[id];
     if (a === undefined || a === 0) return false;
@@ -324,7 +346,7 @@ export function liveOrdnance(): number {
 export function rangedAmmoLeft(): number {
   let n = 0;
   for (const w of WEAPONS) {
-    if (w.id === 'hammer' || w.id === 'gravgun') continue;
+    if (w.id === 'hammer' || w.id === 'gravgun' || w.id === 'grapple' || w.id === 'hoist') continue;
     const a = loadout.ammo[w.id];
     if (a === undefined) continue;
     n += a < 0 ? 999 : a;
@@ -381,11 +403,34 @@ export function tryFire(): boolean {
   if (isMachineTool(id)) {
     if (a === 0) return deny(id, `${DEF[id].name}: no consumables left`, fresh);
     workFrame = frame;
+    // a line in the way of the tool: the tool works the line
+    const lc = CUT_TOOLS.has(id) ? lineCutAim(id as CutTool, _eye, _fwd, frame) : false;
+    if (lc !== false) { lineFrame = frame; return lc ? deny(id, lc, fresh) : true; }
     const err = machiningHold(id, _eye, _fwd, fresh);
     return err ? deny(id, err, fresh) : true;
   }
   switch (id) {
     case 'hammer': return windHammer();
+    case 'grapple': {
+      grappleFrame = frame;
+      if (grappleOut() || !fresh) return false;
+      if (now - lastFire[id] < DEF[id].cooldown) return false;
+      const pv: Vec3 = [0, 0, 0];
+      b3.b3Body_GetLinearVelocity(pv, player.e.body);
+      const err = grappleFire(_eye, _fwd, _muzzle, pv);
+      if (err) return deny(id, err, true);
+      spend(id, 0);
+      kickRecoil(0.5); addTrauma(0.05);
+      return true;
+    }
+    case 'hoist': {
+      hoistFrame = frame;
+      if (hoistRigged() || !fresh) return false;
+      const err = hoistRig(_eye, _fwd);
+      if (err) return deny(id, err, true);
+      viewmodel.fire(id);
+      return true;
+    }
     case 'breaker': {
       workFrame = frame;
       const err = breakerHold(_eye, _fwd);
@@ -445,6 +490,14 @@ export function tryFire(): boolean {
     lastFire[id] = now;
     plannerClick();
     viewmodel.fire(id);
+    return true;
+  }
+  if (id === 'tether') {
+    if (a === 0 && !tetherPending()) return deny(id, 'No rigging lines left', true);
+    const had = tetherPending();
+    const err = tetherFire(_eye, _fwd);
+    if (err) return deny(id, err, true);
+    if (had) spend(id, a); else { lastFire[id] = now; viewmodel.fire(id); }
     return true;
   }
   if (id === 'splitter' || id === 'wiresaw') {
@@ -634,6 +687,8 @@ export function releaseFire(): void {
   lastTry = -9;
   reelFrame = -9;
   workFrame = -9;
+  grappleFrame = -9;
+  hoistFrame = -9;
   releaseMachining();
   flamerRelease();
   if (loadout.current === 'hammer') releaseHammer();
@@ -775,6 +830,17 @@ export function toolWheel(dir: number): boolean {
     case 'winch':
       onDeny(`${setWinchParts(winchParts() + dir)} part(s) of line through snatch blocks`);
       return true;
+    case 'tether':
+      onDeny(tetherWheel(dir));
+      return true;
+    case 'hoist':
+      onDeny(hoistWheel(dir));
+      return true;
+    case 'grapple': {
+      const m = grappleWheel(dir);
+      if (m) onDeny(m);
+      return m !== null;
+    }
     case 'wrecker':
       onDeny(`Boom luffed: tip ${luffBoom(dir)} m over the target for the next rig`);
       return true;
@@ -811,6 +877,9 @@ export function toolSecondary(): boolean {
       onDeny(warhead === 'tandem' ? 'Warhead: tandem HEAT-FT — punches through, then detonates inside' : 'Warhead: HE-FRAG — blast at the surface');
       return true;
     case 'winch': return castOff();
+    case 'tether': return tetherSecondary(_eye, _fwd);
+    case 'hoist': return hoistSecondary();
+    case 'grapple': return grappleSecondary(_eye, _fwd);
     case 'wrecker': {
       const err = dropBall(_eye, _fwd);
       if (err) deny('wrecker', err, true);
@@ -1603,6 +1672,9 @@ export function weaponsPreStep(): void {
     gravPreStep(_eye, _fwd, loadout.current === 'gravgun', FIXED_DT);
   }
   winchPreStep(reelFrame === frame && loadout.current === 'winch');
+  if (loadout.current !== 'grapple') stowGrapple();
+  grapplePreStep(grappleFrame === frame && loadout.current === 'grapple', FIXED_DT);
+  hoistPreStep(hoistFrame === frame && loadout.current === 'hoist', FIXED_DT);
   wreckerPreStep(FIXED_DT);
 }
 
@@ -1749,9 +1821,12 @@ export function weaponsAfterStep(dt: number): void {
     if (now >= b.at + 3) busters.splice(i, 1);
   }
   winchAfterStep(dt);
+  rigAfterStep(dt);
+  grappleAfterStep(dt);
   wreckerAfterStep(dt);
   const cur = loadout.current;
-  machiningStep(dt, workFrame === frame && isMachineTool(cur));
+  lineCutStep(dt, workFrame === frame && lineFrame === frame && isMachineTool(cur), frame);
+  machiningStep(dt, workFrame === frame && lineFrame !== frame && isMachineTool(cur));
   breakerStep(dt, workFrame === frame && cur === 'breaker');
   hoseStep(dt);
   excavatorStep(dt);
@@ -1978,6 +2053,7 @@ function preview(): void {
       const hit = raycast(_eye, [_fwd[0] * WINCH_RANGE, _fwd[1] * WINCH_RANGE, _fwd[2] * WINCH_RANGE], NO_HIT);
       const p = hit ? pieceOf(hit.entity) : null;
       if (hit && p) { const s: AimState = vehicleOf(p) ? 'sel' : 'ok'; marks.marker(hit.point as Vec3, hit.normal as Vec3, 0.25, s); outline(p, s); }
+      rigTags();
       break;
     }
     case 'gravgun': {
@@ -2036,6 +2112,16 @@ function preview(): void {
       if (flameLanding) marks.marker(flameLanding.point, flameLanding.normal, 0.5, flamerLit() ? 'ok' : 'sel');
       break;
     }
+    case 'tether': {
+      reachPreview(TETHER_REACH, p => (p ? (vehicleOf(p) ? 'sel' : 'ok') : 'far'));
+      const first = tetherPending();
+      const hit = raycast(_eye, [_fwd[0] * TETHER_REACH, _fwd[1] * TETHER_REACH, _fwd[2] * TETHER_REACH], NO_HIT);
+      if (first && hit) marks.line(first, hit.point as Vec3, 'sel');
+      rigTags();
+      break;
+    }
+    case 'hoist': reachPreview(HOIST.rigReach, p => (p ? 'ok' : 'far')); rigTags(); break;
+    case 'grapple': rigTags(); break;
   }
   marks.end();
   tags.end();
@@ -2154,6 +2240,9 @@ export function syncProjectiles(alpha: number, dt: number): void {
   syncWire();
   gravFlyby();
   syncMachining(alpha, dt);
+  syncHoist(alpha);
+  syncGrapple(alpha);
+  syncRigging(alpha, dt, frame);
   const cur = loadout.current;
   if (cur === 'breaker' || cur === 'hose' || cur === 'excavator') viewmodel.hold(workFrame >= frame - 1, cur === 'hose' ? (hoseFog() ? 0.5 : 1) : 0.8);
   if (cur === 'flamer') viewmodel.arsenal(flamerOn(), 1, flamerLit());
@@ -2173,6 +2262,8 @@ export function toolReadout(): ToolReadout | null {
   const cur = loadout.current;
   eyePosition(_eye, 1);
   if (isMachineTool(cur)) {
+    const lc = lineFrame >= frame - 2 ? lineCutting() : null;
+    if (lc) return { title: `${DEF[cur].name} · cutting the ${lc.name}`, progress: clamp(lc.progress, 0, 1), detail: lc.tension > 2e3 ? `${Math.round(lc.tension / 1000)} kN on it — it will part before the cut is through, and whip back` : 'slack: it will just drop', warn: lc.tension > 2e3 };
     const s = machiningStatus();
     const name = DEF[cur].name;
     if (!s) return { title: name, progress: null, detail: `hold LMB on a member · ${machineHint(cur)}`, warn: false };
@@ -2246,6 +2337,9 @@ export function toolReadout(): ToolReadout | null {
       warn: busters.length > 0,
     });
     case 'satchel': return { title: `Satchel charge · ${SATCHEL.kg.toFixed(1)} kg TNT-eq`, progress: null, detail: `9.1 kg C-4 · lethal radius ${blastOf(SATCHEL.kg).radius.toFixed(1)} m · press on within ${PLANT_REACH} m, else thrown · RMB/G detonate · delays on the Detonator Panel`, warn: false };
+    case 'grapple': return grappleStatus();
+    case 'tether': return tetherStatus();
+    case 'hoist': return hoistStatus();
   }
   return null;
 }
@@ -2308,8 +2402,13 @@ export function clearWeapons(): void {
   clearSplitter();
   clearWire();
   clearExcavator();
+  clearRigging();
+  clearTether();
+  clearHoist();
+  clearGrapple();
   reelFrame = -9;
   workFrame = -9;
+  lineFrame = grappleFrame = hoistFrame = -9;
   marks.begin();
   marks.end();
   tags.begin();

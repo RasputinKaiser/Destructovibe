@@ -67,6 +67,9 @@ export type WeaponId =
   | 'hose'        // water cannon / fire monitor: ballistic stream douses fires and shoves light debris
   | 'splitter'    // hydraulic wedge splitter in a drilled hole: cracks a block or member along the hole
   | 'wiresaw'     // diamond wire saw looped round a member: slow, unattended cut through any section
+  | 'grapple'     // pneumatic grapple launcher: a grapnel on HMPE line, reeled by a powered ascender (haul in, climb)
+  | 'tether'      // rigging lines: wire rope, nylon kinetic rope or chain tied between members, vehicles, ground anchors
+  | 'hoist'       // 3.2 t lever hoist: a hand-ratcheted chain pull, slow and strong
   | 'flamer'      // bank VI: portable flamethrower, a burning rope of thickened fuel that splashes, sticks and pools
   | 'launcher'    // 40 mm grenade launcher: arcing low-velocity HE-frag, impact or airburst fuze
   | 'recoilless'  // 84 mm recoilless rifle, HEAT: a shaped-charge jet that holes what it perforates, spall behind
@@ -446,6 +449,9 @@ export interface ToolReadout {
   progress: number | null;
   detail: string;
   warn: boolean;
+  /** rigging lines: each loaded line's tension as a share of its breaking load, and where its working load limit sits
+   *  on that scale (the HUD's tension bars) */
+  lines?: { label: string; util: number; wll?: number }[];
 }
 
 export interface TimelineView {

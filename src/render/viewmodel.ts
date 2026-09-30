@@ -37,6 +37,10 @@ let torchFlame: THREE.Sprite, torchCore: THREE.Sprite;
 let planBtn: THREE.Mesh, planLed: THREE.MeshStandardMaterial, planScreen: THREE.MeshStandardMaterial;
 let excStickL: THREE.Group, excStickR: THREE.Group, excLed: THREE.MeshStandardMaterial;
 let brkChisel: THREE.Group, hoseTip: THREE.Group, splitWedge: THREE.Group, wireBtn: THREE.Mesh, wireLed: THREE.MeshStandardMaterial;
+let grapHook: THREE.Group, grapSpool: THREE.Group, coilMat: THREE.MeshStandardMaterial, coilLinks: THREE.Group, coilRope: THREE.Group;
+let hoistLever: THREE.Group, hoistWheel: THREE.Group;
+/** rigging tools' state from the game, every frame: grapnel in the muzzle, reel turning (rad/s), lever stroke 0..1 */
+const rigVm = { hook: true, reel: 0, lever: 0, strokes: 0, coil: 0x9a9da0, chain: false, fibre: false };
 const work = { on: false, load: 0, heat: 0, close: 0, lit: false, spin: 0, chain: 0 };
 /** bank VI tools held on (flamer stream, designator laser) and the flamer's igniter */
 const arsenal = { on: false, k: 0, lit: true };
@@ -78,6 +82,41 @@ function texMat(set: SetId, color: number, rep: [number, number], metal: boolean
     color, map: c(s.map), normalMap: c(s.normal), roughnessMap: orm, metalnessMap: metal ? orm : null,
     roughness: rough, metalness: metal ? 1 : 0,
   });
+}
+
+/* A rope's surface to wrap round a tube, one lay length a tile (u along the rope, v round it): six strands laid
+   diagonally for wire rope, a twelve-strand braid for fibre. Greyscale; the material colours it. */
+const lays: Partial<Record<'wire' | 'fibre', THREE.CanvasTexture>> = {};
+function layTexture(fibre: boolean): THREE.CanvasTexture {
+  const key = fibre ? 'fibre' : 'wire';
+  const have = lays[key];
+  if (have) return have;
+  const W = 64, H = 64;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const u = x / W, v = y / H;
+    let k: number;
+    if (fibre) {
+      const a = (v + u) * 6, b = (v - u + 1) * 6;
+      const over = (Math.floor(a) + Math.floor(b)) % 2;
+      k = 0.55 + 0.45 * (over ? Math.sin(Math.PI * (a % 1)) : Math.sin(Math.PI * (b % 1)));
+    } else {
+      const f = ((v - u + 1) * 6) % 1;
+      k = f < 0.12 || f > 0.88 ? 0.4 : 0.8 + 0.2 * Math.sin(Math.PI * f);
+    }
+    const i = (y * W + x) * 4;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(255 * k);
+    img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return (lays[key] = t);
 }
 
 const plain = (color: number, rough: number, metal = 0): THREE.MeshStandardMaterial =>
@@ -617,6 +656,141 @@ function buildModels(): Record<WeaponId, Model> {
     mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.16, 8), black, 0, -0.06, 0.08),
   );
 
+  // grapple launcher: pneumatic tube along -Z over its air bottle, the grapnel's tines folded in the muzzle; under the
+  // tube the line canister (60 m of 10 mm HMPE is ~5 L) with the reel motor and its battery behind, a harness clip
+  // strap off the back
+  const hmpe = plain(0xe8e9e4, 0.8);
+  grapHook = new THREE.Group();
+  grapHook.position.set(0, 0.03, -0.3);
+  grapHook.add(mesh(alongZ(new THREE.CylinderGeometry(0.006, 0.006, 0.09, 8)), polished, 0, 0, -0.02));
+  for (let i = 0; i < 4; i++) {
+    const tine = mesh(new THREE.TorusGeometry(0.018, 0.004, 6, 10, Math.PI * 0.8), polished);
+    tine.rotation.set(0, Math.PI / 2, (i / 4) * Math.PI * 2);
+    tine.position.set(Math.cos((i / 4) * Math.PI * 2) * 0.012, Math.sin((i / 4) * Math.PI * 2) * 0.012, -0.075);
+    grapHook.add(tine);
+  }
+  grapSpool = new THREE.Group();
+  grapSpool.position.set(0, -0.1, -0.12);
+  const spoolFl = new THREE.CylinderGeometry(0.1, 0.1, 0.008, 28).rotateZ(Math.PI / 2);
+  grapSpool.add(
+    mesh(new THREE.CylinderGeometry(0.092, 0.092, 0.19, 28).rotateZ(Math.PI / 2), hmpe),
+    mesh(spoolFl, black, 0.099, 0, 0), mesh(spoolFl, black, -0.099, 0, 0),
+    mesh(new THREE.BoxGeometry(0.19, 0.006, 0.016), polished, 0, 0.092, 0),
+  );
+  const gGrip = mesh(new RoundedBoxGeometry(0.034, 0.11, 0.05, 2, 0.01), rubber, 0, -0.1, 0.07);
+  gGrip.rotation.x = -0.3;
+  const grapple = new THREE.Group();
+  grapple.add(
+    mesh(alongZ(new THREE.CylinderGeometry(0.03, 0.03, 0.34, 20)), oliveDark, 0, 0.03, -0.14),
+    mesh(alongZ(new THREE.CylinderGeometry(0.033, 0.033, 0.02, 20)), black, 0, 0.03, -0.3),
+    mesh(alongZ(new THREE.CylinderGeometry(0.027, 0.027, 0.02, 20, 1, true)), bore, 0, 0.03, -0.305),
+    mesh(alongZ(new THREE.CylinderGeometry(0.02, 0.02, 0.16, 18)), yellow, 0.045, 0.03, -0.06),
+    // the line canister's cage round the spool (60 m of 10 mm line wound is ~6 L), its reel motor on the side, and the
+    // battery pack behind it
+    // an open cage: straps over the top so the wound line shows, a base plate under it
+    mesh(new THREE.BoxGeometry(0.012, 0.012, 0.22), oliveDark, 0.105, 0.0, -0.12),
+    mesh(new THREE.BoxGeometry(0.012, 0.012, 0.22), oliveDark, -0.105, 0.0, -0.12),
+    mesh(new THREE.BoxGeometry(0.22, 0.012, 0.22), oliveDark, 0, -0.2, -0.12),
+    mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.06, 16).rotateZ(Math.PI / 2), iron, 0.14, -0.1, -0.12),
+    mesh(new RoundedBoxGeometry(0.07, 0.07, 0.09, 2, 0.008), black, 0, -0.06, 0.07),
+    mesh(new THREE.BoxGeometry(0.016, 0.03, 0.03), iron, 0, 0.005, 0.02),
+    mesh(new THREE.BoxGeometry(0.006, 0.018, 0.008), black, 0, -0.03, 0.012),
+    mesh(new THREE.TorusGeometry(0.018, 0.004, 6, 14), polished, 0, 0.01, 0.12),
+    mesh(new THREE.BoxGeometry(0.03, 0.004, 0.08), plain(0x2b3a52, 0.9), 0, 0.012, 0.16),
+    gGrip, grapSpool, grapHook,
+  );
+
+  // rigging lines: a coil of the chosen line (a coil of 16 mm wire is ~0.45 m across, 28 d), its eye and shackle hanging
+  // (drawn ~0.3 m across, smaller than a real hand coil's 0.5-0.8 m, so it doesn't fill the view)
+  coilMat = plain(0xb4b7ba, 0.6, 0.3);
+  coilMat.map = layTexture(false);
+  coilRope = new THREE.Group();
+  const TURNS = 8;
+  const turnR = Array.from({ length: TURNS + 1 }, (_, k) => 0.17 * (1 + 0.1 * Math.sin(k * 2.7 + 0.4)));
+  const turnY = Array.from({ length: TURNS + 1 }, (_, k) => 0.012 * Math.sin(k * 1.9));
+  const helix = new THREE.CatmullRomCurve3(Array.from({ length: TURNS * 16 + 1 }, (_, i) => {
+    const a = (i / 16) * Math.PI * 2, k = Math.floor(i / 16), f = (i % 16) / 16;
+    const r = turnR[k] + (turnR[Math.min(TURNS, k + 1)] - turnR[k]) * f;
+    const y = (i / (TURNS * 16)) * 0.06 + turnY[k] + (turnY[Math.min(TURNS, k + 1)] - turnY[k]) * f;
+    // each loop sags a little where it hangs off the hand
+    return new THREE.Vector3(Math.cos(a) * r, y - 0.03 * Math.max(0, -Math.cos(a)), Math.sin(a) * r * 0.9);
+  }));
+  const tube = new THREE.TubeGeometry(helix, 700, 0.008, 8, false);
+  coilMat.map.repeat.set(Math.round(helix.getLength() / 0.1), 1);
+  coilRope.add(mesh(tube, coilMat));
+  const tape = plain(0x1c1c1c, 0.7);
+  for (const a of [0.5, 2.6, 4.7]) {
+    const r = 0.17;
+    const band = mesh(new THREE.TorusGeometry(0.032, 0.005, 5, 12), tape, Math.cos(a) * r, 0.03 - 0.03 * Math.max(0, -Math.cos(a)), Math.sin(a) * r * 0.9);
+    band.scale.set(1, 1.3, 1);
+    band.rotation.y = -a;
+    coilRope.add(band);
+  }
+  const tail = mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.12, 8), coilMat, 0.17, -0.05, 0.01);
+  tail.rotation.z = 0.15;
+  const thimble = mesh(new THREE.TorusGeometry(0.016, 0.005, 6, 14), polished, 0.178, -0.12, 0.01);
+  thimble.scale.set(1, 1.35, 1);
+  coilRope.add(tail, thimble);
+  coilLinks = new THREE.Group();
+  for (let i = 0; i < 26; i++) {
+    const a = (i / 26) * Math.PI * 2;
+    const l = mesh(new THREE.TorusGeometry(0.011, 0.0045, 6, 10), plain(0x3a3a3c, 0.6, 0.65), Math.cos(a) * 0.1, 0, Math.sin(a) * 0.1);
+    l.scale.set(1, 1.55, 1);
+    l.rotation.set(i % 2 ? Math.PI / 2 : 0, -a, 0);
+    coilLinks.add(l);
+  }
+  coilLinks.visible = false;
+  const shackle = new THREE.Group();
+  shackle.add(
+    mesh(new THREE.TorusGeometry(0.02, 0.0055, 8, 16, Math.PI), polished, 0, 0.02, 0),
+    mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.03, 8), polished, 0.02, 0.005, 0),
+    mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.03, 8), polished, -0.02, 0.005, 0),
+    mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.056, 8).rotateZ(Math.PI / 2), brass, 0, -0.01, 0),
+  );
+  shackle.position.set(0.178, -0.165, 0.01);
+  shackle.rotation.set(0, 0, Math.PI);
+  const tether = new THREE.Group();
+  tether.add(coilRope, coilLinks, shackle);
+
+  // lever hoist, as the real thing: a flat red housing with the big round gear cover on one side, the load brake and
+  // ratchet on the other under the flat stamped lever with its rubber grip, top hook with safety latch, bright load
+  // chain down to the bottom hook
+  const hRed = plain(0xb3261a, 0.45, 0.25);
+  hoistWheel = new THREE.Group();
+  hoistWheel.position.set(0.024, 0, -0.02);
+  hoistWheel.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.006, 20).rotateZ(Math.PI / 2), iron));
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const tooth = mesh(new THREE.BoxGeometry(0.006, 0.008, 0.005), polished, 0.002, Math.cos(a) * 0.032, Math.sin(a) * 0.032);
+    tooth.rotation.x = a;
+    hoistWheel.add(tooth);
+  }
+  hoistLever = new THREE.Group();
+  hoistLever.position.set(0.034, 0, -0.02);
+  const lvBar = mesh(new THREE.BoxGeometry(0.005, 0.02, 0.2), hRed, 0, 0, 0.1);
+  const lvGrip = mesh(new RoundedBoxGeometry(0.02, 0.03, 0.06, 2, 0.006), rubber, 0, 0, 0.2);
+  const pawl = mesh(new THREE.BoxGeometry(0.004, 0.006, 0.02), polished, -0.004, 0.034, -0.008);
+  pawl.rotation.x = 0.4;
+  hoistLever.add(lvBar, lvGrip, pawl);
+  const hoist = new THREE.Group();
+  const latch = mesh(new THREE.BoxGeometry(0.004, 0.024, 0.006), polished, 0, 0.078, -0.004);
+  latch.rotation.x = 0.5;
+  const bottomHook = mesh(new THREE.TorusGeometry(0.016, 0.005, 8, 16, Math.PI * 1.45), polished, -0.004, -0.2, -0.02);
+  bottomHook.rotation.z = Math.PI;
+  hoist.add(
+    mesh(new RoundedBoxGeometry(0.036, 0.1, 0.08, 2, 0.006), hRed, 0, 0, -0.02),
+    mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.014, 24).rotateZ(Math.PI / 2), hRed, -0.024, 0, -0.02),
+    mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.01, 20).rotateZ(Math.PI / 2), hRed, 0.02, 0, -0.02),
+    mesh(new THREE.TorusGeometry(0.018, 0.005, 8, 16, Math.PI * 1.5), polished, 0, 0.068, -0.02),
+    latch, bottomHook, hoistWheel, hoistLever,
+  );
+  for (let i = 0; i < 8; i++) {
+    const l = mesh(new THREE.TorusGeometry(0.007, 0.0028, 6, 10), plain(0xb9bdc1, 0.35, 0.8), -0.004, -0.058 - i * 0.017, -0.02);
+    l.scale.set(1, 1.6, 1);
+    l.rotation.y = i % 2 ? Math.PI / 2 : 0;
+    hoist.add(l);
+  }
+
   const mk = (group: THREE.Group, pos: Vec3, rot: Vec3, muzzle: THREE.Object3D | null, scale = 1): Model => ({ group, pos, rot, muzzle, scale });
   return {
     // framing: everything rests in the lower-right third with its working end short of the crosshair, clear of the
@@ -646,6 +820,9 @@ function buildModels(): Record<WeaponId, Model> {
     splitter: mk(splitter, [0.26, -0.21, -0.48], [0.05, -0.05, 0], null),
     wiresaw: mk(wiresaw, [0.23, -0.19, -0.48], [0.8, -0.3, 0.06], null, 0.85),
     ...buildArsenalModels(),
+    grapple: mk(grapple, [0.27, -0.21, -0.5], [0.03, -0.05, 0], null),
+    tether: mk(tether, [0.24, -0.12, -0.5], [0.9, -0.5, 0.15], null, 0.62),
+    hoist: mk(hoist, [0.25, -0.1, -0.5], [0.2, -1.1, 0.05], null, 0.85),
   };
 }
 
@@ -753,6 +930,10 @@ export const viewmodel = {
       kickP.velocity[2] += 1.8; kickR.velocity[0] += 4; drumSpin = 55;
     } else if (id === 'gravgun') {
       kickP.velocity[2] += 1.2; kickR.velocity[0] += 3; prongK.velocity -= 14;
+    } else if (id === 'grapple') {
+      kickP.velocity[2] += 2.2; kickR.velocity[0] += 5;
+    } else if (id === 'tether' || id === 'hoist') {
+      kickP.velocity[2] -= 0.7; kickR.velocity[0] -= 1.5;
     } else if (id === 'wrecker' || id === 'planner' || id === 'wiresaw') {
       kickR.velocity[0] -= 0.8;
     } else if (id === 'splitter') {
@@ -875,6 +1056,9 @@ export const viewmodel = {
 
   /** bank VI: flamer streaming / designator lasing this frame (intensity 0..1), and whether the flamer's igniter is lit */
   arsenal(on: boolean, k: number, lit: boolean): void { arsenal.on = on; arsenal.k = k; arsenal.lit = lit; },
+  /** rigging tools, every frame: grapnel home in the muzzle, reel speed, hoist lever stroke 0..1 and strokes made,
+   *  the colour of the line on the coil (chain shows links) */
+  rig(s: Partial<typeof rigVm>): void { Object.assign(rigVm, s); },
 };
 
 /** dev: move a model live (position, rotation, scale) to tune its framing */
@@ -1038,6 +1222,25 @@ function animateWeapon(m: Model, dt: number): void {
     const t = firedWith === 'winch' ? fireT : 99;
     winchHook.visible = t < 0.07 || t > 1.1;
     winchHook.position.z = HOOK_Z - (t < 0.07 ? (t / 0.07) * 0.12 : 0.06 * (1 - easing.cubicOut(Math.min(1, Math.max(0, (t - 1.1) / 0.3)))));
+  } else if (current === 'grapple') {
+    grapHook.visible = rigVm.hook;
+    grapSpool.rotation.x -= rigVm.reel * dt;
+    if (rigVm.reel > 0.1) { g.position.x += (Math.random() - 0.5) * 0.0015; g.position.y += (Math.random() - 0.5) * 0.0015; }
+  } else if (current === 'tether') {
+    coilMat.color.setHex(rigVm.coil);
+    coilMat.metalness = rigVm.fibre ? 0 : 0.3;
+    coilMat.roughness = rigVm.fibre ? 0.85 : 0.6;
+    const lay = layTexture(rigVm.fibre);
+    if (coilMat.map !== lay) { lay.repeat.copy(coilMat.map!.repeat); coilMat.map = lay; coilMat.needsUpdate = true; }
+    coilLinks.visible = rigVm.chain;
+    coilRope.visible = !rigVm.chain;
+  } else if (current === 'hoist') {
+    // the lever throws through its arc, the wheel turns a tooth at a time
+    const k = Math.sin(Math.PI * rigVm.lever);
+    hoistLever.rotation.x = -0.25 + 0.7 * k;
+    hoistWheel.rotation.x = -((rigVm.strokes + Math.floor(rigVm.lever * 5) / 5) * Math.PI * 2 * 5) / 12;
+    g.position.y += 0.012 * k;
+    g.rotation.x += 0.05 * k;
   } else if (current === 'gravgun') {
     spring.damp(gripK, gripping ? 1 : 0, 0.08, dt);
     spring.update(prongK, gripping ? PRONG_SHUT : PRONG_OPEN, 0.05, 0.4, dt);

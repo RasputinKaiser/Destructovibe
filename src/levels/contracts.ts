@@ -35,6 +35,7 @@ const ALL_TOOLS: Record<WeaponId, number> = {
   grinder: -1, saw: -1, drill: -1, shears: -1, plasma: -1, torch: -1,
   planner: -1, excavator: -1, breaker: -1, hose: -1, splitter: -1, wiresaw: -1,
   flamer: -1, launcher: -1, recoilless: -1, thermobaric: -1, buster: -1, satchel: -1,
+  grapple: -1, tether: -1, hoist: -1,
 };
 
 const ODD_JOBS: Omit<Job, 'chapter'>[] = [

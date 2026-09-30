@@ -12,6 +12,10 @@ export const GROUND_Y = -0.5;
 export const toolHooks = { notify: (_msg: string): void => {} };
 
 const _iq: Quat = [0, 0, 0, 1];
+/* Render-interpolated rotation of a body. */
+export function interpRot(out: Quat, e: PhysEntity, alpha: number): Quat {
+  return quat.slerp(out, e.prevRot, e.curRot, e.movedStep === stepCount ? alpha : 1) as Quat;
+}
 /* Render-interpolated world position of a body-local point. */
 export function interpPoint(out: Vec3, e: PhysEntity, local: Vec3, alpha: number): Vec3 {
   const a = e.movedStep === stepCount ? alpha : 1;

@@ -1463,6 +1463,26 @@ function buildWinch(c: AudioContext): WinchLoop {
   return { g, motor, whine, grit, on: false, load: -1 };
 }
 
+/* the grapple's reel: a small geared DC drive, higher and thinner than the tow winch */
+interface ReelLoop { g: GainNode; motor: OscillatorNode; whine: OscillatorNode; on: boolean; load: number }
+let reelLoop: ReelLoop | null = null;
+
+function buildReel(c: AudioContext): ReelLoop {
+  const g = silentBus(c, world);
+  const motor = loopOsc(c, 'sawtooth', 120);
+  const lp = c.createBiquadFilter();
+  lp.frequency.value = 1400;
+  const gm = c.createGain();
+  gm.gain.value = 0.35;
+  motor.connect(lp).connect(gm).connect(g);
+  const whine = loopOsc(c, 'triangle', 900);
+  const gw = c.createGain();
+  gw.gain.value = 0.1;
+  whine.connect(gw).connect(g);
+  layer(c, g, B.crackle, 'bandpass', 3200, 1.5, 0.05, 2);
+  return { g, motor, whine, on: false, load: -1 };
+}
+
 interface GravLoop {
   g: GainNode;
   on: boolean;
@@ -3311,6 +3331,69 @@ export const audio = {
         return;
       }
     }
+  },
+
+  /** pneumatic grapple launcher: the air charge dumps down the tube, then the line whirs off the reel */
+  grapple(pos: Vec3): void {
+    if (!live()) return;
+    const v = voice({ pos, level: 0.55, dur: 0.9, ref: 5, send: 0.2 });
+    if (!v) return;
+    const t = v.t0;
+    tone(v, 'sine', 95, t, 0.002, 0.7, 0.09, 45, 0.08);
+    nburst(v, B.white, t, 'lowpass', 900, 0.8, 0.001, 0.6, 0.05);
+    const hiss = nburst(v, B.white, t + 0.01, 'bandpass', 5000, 0.9, 0.004, 0.35, 0.28);
+    hiss.frequency.exponentialRampToValueAtTime(1800, t + 0.3);
+    const whirr = nburst(v, B.pink, t + 0.05, 'bandpass', 2400, 3, 0.02, 0.18, 0.6);
+    whirr.frequency.exponentialRampToValueAtTime(900, t + 0.65);
+  },
+
+  /** the grapnel lands: steel on whatever it struck, the tines skittering */
+  hookBite(pos: Vec3, surface: string): void {
+    if (!live()) return;
+    if (!allow('hook', 6, 3, ctx!.currentTime)) return;
+    const v = voice({ pos, level: 0.5, dur: 0.6, ref: 5, send: 0.3 });
+    if (!v) return;
+    const t = v.t0;
+    strike(v, t, 'steel', 0.55);
+    strike(v, t + rr(0.03, 0.06), 'steel', 0.25);
+    if (surface === 'concrete') nburst(v, B.white, t, 'bandpass', 1800, 0.8, 0.001, 0.4, 0.05);
+    else if (surface === 'wood') tone(v, 'sine', 220, t, 0.002, 0.4, 0.06, 140, 0.05);
+    else if (surface === 'ground' || surface === 'dirt') nburst(v, B.pink, t, 'lowpass', 700, 0.7, 0.002, 0.5, 0.08);
+  },
+
+  /** the grapple's reel running, pitch falling as the load comes on */
+  reel(on: boolean, load: number): void {
+    if (!live()) return;
+    const c = ctx!;
+    const L = clamp(load, 0, 1);
+    if (!reelLoop) { if (!on) return; reelLoop = buildReel(c); }
+    const w = reelLoop;
+    if (on === w.on && Math.abs(L - w.load) < 0.04) return;
+    const now = c.currentTime;
+    const f = 240 - 110 * L;
+    if (on) {
+      w.motor.frequency.setTargetAtTime(f, now, 0.08);
+      w.whine.frequency.setTargetAtTime(f * 7, now, 0.08);
+      w.g.gain.setTargetAtTime(0.22 + 0.15 * L, now, 0.04);
+    } else {
+      w.motor.frequency.setTargetAtTime(f * 0.4, now, 0.15);
+      w.g.gain.setTargetAtTime(0, now + 0.05, 0.1);
+    }
+    w.on = on;
+    w.load = L;
+  },
+
+  /** a ratchet's pawl dropping into the next tooth: a dry steel tick, duller under load */
+  ratchet(pos: Vec3, load: number): void {
+    if (!live()) return;
+    if (!allow('ratchet', 30, 6, ctx!.currentTime)) return;
+    const L = clamp(load, 0, 1);
+    const v = voice({ pos, level: 0.32 + 0.1 * L, dur: 0.12, ref: 3, send: 0.12, hrtf: false });
+    if (!v) return;
+    const t = v.t0;
+    nburst(v, B.white, t, 'bandpass', rr(3800, 4600) - 1200 * L, 2.5, 0.0003, 0.7, 0.008);
+    tone(v, 'sine', rr(2900, 3300) - 800 * L, t, 0.0005, 0.25, 0.03);
+    if (L > 0.3) tone(v, 'sine', 180, t, 0.001, 0.2 * L, 0.04);
   },
 
   spawnPlace(): void {

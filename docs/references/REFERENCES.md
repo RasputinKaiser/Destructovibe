@@ -1238,6 +1238,130 @@ Source for the table: [S https://man.fas.org/dod-101/sys/land/m720.htm]. Wikiped
 - HEAT: per-round hole area is not measured; the face blast (15 % of the fill) is a calibration, not a sourced split.
 - Frames: evidence shots exist for round 1 only (in-app browser, ~10 fps).
 
+# G. Rigging (ropes, chain, winches, hoists, grapples)
+
+Used by `src/game/tools/lines.ts`, `winch.ts`, `tether.ts`, `hoist.ts`, `grapple.ts`, `src/render/ropes.ts` and the
+rigging critic packs. Photos cached under `refs/rigging-<item>/`.
+
+## rigging/pulldown — demolition by pulling with wire ropes
+
+Reference media
+- [SaddamStatue.jpg](https://commons.wikimedia.org/wiki/File:SaddamStatue.jpg) - Public domain per Commons (provenance "US military website", re-check before redistributing). Angle/shows: low angle, statue tilted ~45° off its plinth, wire rope + block + chain round the neck, pivoting at the feet. — local: `refs/rigging-pulldown/01.jpg`
+- [1871 destruction of the Vendome Column.jpg](https://commons.wikimedia.org/wiki/File:1871_destruction_of_the_Vendome_Column.jpg) - Public domain. Angle/shows: side view, column mid-fall breaking into drum segments. — local: `refs/rigging-pulldown/02.jpg`
+- [Colonne-vendôme-Illustration.jpg](https://commons.wikimedia.org/wiki/File:Colonne-vend%C3%B4me-Illustration.jpg) - Public domain. Angle/shows: pull ropes from the column top led to a capstan; the fall. — local: `refs/rigging-pulldown/03.jpg`
+- [Démolition des cheminées de la Raffinerie de Collombey 03](https://commons.wikimedia.org/wiki/File:D%C3%A9molition_des_chemin%C3%A9es_de_la_Raffinerie_de_Collombey_03_-_Chute_de_la_chemin%C3%A9e_gauche.jpg) - CC BY-SA 4.0. Angle/shows: chimney rotating ~20° about its base hinge (felling kinematics). — local: `refs/rigging-pulldown/04.jpg`
+
+Benchmarks
+- Pulling medium: "a securely anchored winch or plant designed for towing and heavy enough to apply the required tension without sliding or lifting"; horizontal distance from the work to the pulling medium at least **2 × the height of the highest part being pulled**; nobody where a failing rope could strike them; walls cut into sections before pulling, **vertical rebar left uncut until the wall is over** (it is the hinge); chimney clear space ~1.5 × height. **[S]** https://www.safework.nsw.gov.au/__data/assets/pdf_file/0015/52161/Demolition-work-COP.pdf (s.4.13, p.43)
+- UK THSP guidance: rope pulling is "attaching ropes, usually of steel, to a structure and pulling the pre-weakened structure to the ground by winch or tracked plant"; a failed pull leaves the structure unsafe. **[S]** https://my.thsp.co.uk/download-guidance.php?id=27 (p.16)
+- BS 6187 (older editions, summarised): pulling rope ≥ 16 mm, factor of safety 6, rope flatter than 1 in 2, nobody between the tractor and the building or beside the rope. **[Q]** https://1library.net/article/methods-demolition-bs-code-practice-demolition.zw8eg6lz
+- Firdos Square statue (12 m) was pulled over by an M88 recovery vehicle; a cable round the torso was rejected because "if the cable snapped, it might whiplash and kill people", so a chain went round the neck. **[S]** https://en.wikipedia.org/wiki/Firdos_Square_statue_destruction
+- Vendôme Column (44 m, 1871): cables, pulleys and a capstan after bevelled cuts at the base; "broke up almost before it reached its bed". **[S]** https://bonjourparis.com/history/gustave-courbet-and-the-fall-of-the-vendome-column/ , https://en.wikipedia.org/wiki/Place_Vend%C3%B4me
+
+Tells
+1. A pulled structure hinges at a pre-weakened base and rotates toward the pull; an un-weakened building resists (the code says to cut walls into sections first).
+2. The puller stands at least 2 × the height away; lines run shallow (flatter than 1 in 2).
+3. Tall masonry breaks into segments during the rotation rather than landing whole.
+
+## rigging/wirerope — steel wire rope, stiffness, snap-back, discard
+
+Reference media
+- [Steel wire rope on a drum.jpg](https://commons.wikimedia.org/wiki/File:Steel_wire_rope_on_a_drum.jpg) - CC0. Angle/shows: close-up of ~20 mm rope wraps on a winch drum, lay helix clear. — local: `refs/rigging-wirerope/01.jpg`
+- [Close-up of wire rope assembly, Lisbon](https://commons.wikimedia.org/wiki/File:Close-up_of_wire_rope_assembly,_Jardim_da_Funda%C3%A7%C3%A3o_Calouste_Gulbenkian,_Lisbon,_Portugal_julesvernex2.jpg) - CC BY-SA 4.0. Angle/shows: taut thin rope into a swaged fork, lay visible. — local: `refs/rigging-wirerope/02.jpg`
+- [Wire rope clamps.jpg](https://commons.wikimedia.org/wiki/File:Wire_rope_clamps.jpg) - CC BY-SA 4.0. Angle/shows: heavy rusty rope on a drum with U-bolt clamps. — local: `refs/rigging-wirerope/03.jpg`
+- [Fraying wire rope.jpg](https://commons.wikimedia.org/wiki/File:Fraying_wire_rope.jpg) - CC BY 2.0. Angle/shows: galvanised rope with many broken outer wires sprung out along one section. — local: `refs/rigging-wirerope-broken/01.jpg`
+- [Torn apart (15514192401).png](https://commons.wikimedia.org/wiki/File:Torn_apart_(15514192401).png) - CC BY 2.0. Angle/shows: parted rope end, strands broomed. — local: `refs/rigging-wirerope-broken/02.png`
+
+Benchmarks
+- 6x36 WS IWRC galvanised: 13 mm 0.691 kg/m, MBL 106.5 kN (1770) / **117.9 kN (1960)**; 16 mm 1.047 kg/m, 161.3 / **178.6 kN**. **[S]** https://steelwirerope.com/wp-content/uploads/2025/02/Datasheet-6x36-Galvanised-WS-IWRC-1.pdf ; cross-check **[S]** https://www.katradis.com/our-products/wire-ropes/standard-wire-ropes/6x36-ws-steel-core-iwrc/
+- Apparent modulus 6x36 IWRC 6000 kp/mm² on the nominal area (worked example 28 mm, 200 m, 10 t → 540 mm); constructional stretch 0.25 % at SF 5. **[S]** https://www.certex.co.uk/steel-wire-rope-properties → 58.8 GPa; EA 7.81 MN (13 mm), 11.83 MN (16 mm); elastic strain at MBL 1.51 %. **[D]**
+- Rope modulus about half plain steel's; elongation at break 3.2–4.7 %. **[S]** https://www.casar.de/Portals/0/Documents/Brochures/technical-documentation.pdf (p.24)
+- Stored energy U = F²L/2EA: 13 mm at MBL over 30 m 26.7 kJ, 16 mm 40.4 kJ; free-end recoil v = F/√(EA·m') ≈ 51 m/s. **[D]**
+- Snap-back: synthetic ends up to 800 km/h, wires up to 500 km/h; a rope may recoil past its securing point "to a distance almost equal to the remaining length"; synthetics give little warning. **[S]** https://www.westpandi.com/news-and-resources/loss-prevention-bulletins/snap-back-zones/
+- OCIMF/COSWP: treat the whole mooring area as the snap-back danger zone; painted zones give false security; older geometry: recoil up to 200 % and ~20° deviation. **[S]** (secondary) https://www.athinatraining.gr/wp-content/uploads/2024/01/snap-back-zones-training-moments-final.pdf
+- Discard: ten broken wires in one lay or five in one strand; kinking, crushing, bird-caging. **[S]** https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.184 ; ISO 4309 example 9 broken wires over 6d. **[S]** https://www.safed.co.uk/publications-home/tc2-machinery-lift-crane/policy-statements-for-download/54-guidance-on-wire-rope-discard-criteria-as-detailed-within-bs-iso-4309-2017/file
+
+Tells
+1. Wire rope reads as six strands laid round the core (lay length ~6.5 d), dark grease in the grooves, crowns bright.
+2. Failing rope: broken outer wires stick out as short spikes, then strands open (birdcage), then the end brooms.
+3. A parted loaded line whips back past its anchor; nobody should stand in line with it.
+
+## rigging/synthetic — nylon kinetic rope, HMPE line, round slings
+
+Reference media
+- [LIROS Dyneema hollow.jpg](https://commons.wikimedia.org/wiki/File:LIROS_Dyneema_hollow.jpg) - CC BY-SA 3.0. Angle/shows: macro of grey Dyneema hollow braid, frayed end. — local: `refs/rigging-synthetic/03.jpg`
+- [Fishermen with tractors at Caspian Sea.jpg](https://commons.wikimedia.org/wiki/File:Fishermen_with_tractors_at_Caspian_Sea.jpg) - CC BY 2.0. Angle/shows: tractor winch hauling orange synthetic rope (small in frame). — local: `refs/rigging-synthetic/02.jpg`
+
+Benchmarks
+- Yankum 7/8" (22 mm) double-braid nylon kinetic rope: MBS 28,600 lb (127.2 kN), stretches "up to 30%". **[S]** https://yankum.com/products/python-kinetic-recovery-rope
+- ~20 % elongation in proper use, 30 % at break; size the rope at ~3 × the recovering vehicle's GVW; run in at ≤ 5 mph; ropes "smoothly transfer the kinetic energy". **[S]** https://www.asroffroad.com/kinetic-recovery-rope-info-use/
+- Snatch strap ~20 % stretch, laid with ~1 m of slack. **[S]** https://en.wikipedia.org/wiki/Snatch_strap
+- Samson AmSteel-Blue 3/8": 0.0506 kg/m, min break 17,600 lb (78.3 kN), elongation 0.96 % at 30 % of break. **[S]** https://www.samsonrope.com/mooring/amsteel--blue → EA ≈ 2.72 MN. **[D]**
+- MAIB (Zarga): UHMPE alone ~2 % elongation, "minimal snap-back"; the danger came from an elastic tail. **[S]** https://www.iims.org.uk/maib-releases-safety-warning-following-mooring-line-failure/
+- Polyester round slings: 7:1 safety factor. **[S]** https://www.h-lift.com/products/polyester-round-sling-en1492-2
+
+Tells
+1. Kinetic rope visibly lengthens under load and gives it back; HMPE barely stretches and, being ~14 × lighter than steel of the same strength, carries little into a recoil.
+2. Braided rope shows a diamond weave; cut or overloaded yarns fuzz.
+
+## rigging/chain — grade 80 lifting chain (EN 818-2)
+
+Reference media
+- [Chain Block (YS).JPG](https://commons.wikimedia.org/wiki/File:Chain_Block_(YS).JPG) - CC BY-SA 3.0. Angle/shows: chain block on a tripod. — local: `refs/rigging-chain/03.jpg`
+- [US Navy 030306-N-5362F-002 fall chains](https://commons.wikimedia.org/wiki/File:US_Navy_030306-N-5362F-002_Airman_Apprentice_Shyhede_Randall_from_Dallas,_Texas,_cleans_the_%27fall_chains%27_used_to_lift_heavy_equipment_such_as_jet_engines.jpg) - Public domain. Angle/shows: hanging load chains. — local: `refs/rigging-chain/02.jpg`
+
+Benchmarks
+- 10 mm: pitch 30 mm, WLL 3.15 t, MBF 126 kN, 2.20 kg/m; 13 mm: pitch 39 mm, WLL 5.3 t, MBF 212 kN, 3.70 kg/m; minimum 20 % elongation before failure. **[S]** https://www.h-lift.com/products/grade-80-chain-for-chain-sling-en-818-2
+- Chain axial stiffness: not sourced (practically inextensible below proof load = 2.5 × WLL). Gap.
+
+## rigging/hoist — lever hoists and wire-rope pulling hoists
+
+Reference media
+- [Tirfor T35 grip puller 01.jpg](https://commons.wikimedia.org/wiki/File:Tirfor_T35_grip_puller_01.jpg) - CC BY 2.0. Angle/shows: Tirfor body, rope, hook and handle. — local: `refs/rigging-leverhoist/01.jpg`
+- [Carl Stahl Hebelzug Flaschenzug.jpg](https://commons.wikimedia.org/wiki/File:Carl_Stahl_Hebelzug_Flaschenzug.jpg) - CC BY-SA 3.0 de. Angle/shows: red lever hoist (lever, load chain, hooks). — local: `refs/rigging-leverhoist/02.jpg`
+- [Comealong.jpg](https://commons.wikimedia.org/wiki/File:Comealong.jpg) - Public domain. Angle/shows: cable come-along. — local: `refs/rigging-leverhoist/03.jpg`
+
+Benchmarks
+- Kito LB032 (3.2 t): pull to lift the rated load **363 N**, load chain 10 × 28 mm, 15 kg, lever 415 mm, load signal at 100–120 % of capacity. **[S]** https://kito.net/files/downloads/lb-oll/manuals/en/OM-L5ZZZZ-CEE-01.pdf
+- Yale UNOplus-A 3 t: 20 mm lift per full lever turn, 40 daN handle pull at WLL. **[S]** https://www.cmco.com/globalassets/catalogs--documents/emea/en/yale_unoplus_a_4pages_2021_12_15_wup_en.pdf → 50 turns per metre; ~1.47 m of hand travel per turn, so ~6 mm of chain per ~0.46 m stroke of a 415 mm lever. **[D]**
+- Tirfor TU-32: WLL 3,200 daN, 54 kg lever effort, 30 mm rope travel per forward stroke, 16.3 mm rope breaking 16,000 daN, shear-pin overload protection. **[S]** https://www.tractel.com/PIM/Technical%20Data%20Sheets/LH/tirfor/TU%20Series/T2102_EN%20ind01%20TIRFOR%20TU.pdf
+- Stroke rate of an operator: not sourced (judgement, 0.7–1.3 strokes/s). Gap.
+
+## rigging/winch — vehicle recovery winches
+
+Reference media
+- [JeepLiberty Winch SelfRecovery.JPG](https://commons.wikimedia.org/wiki/File:JeepLiberty_Winch_SelfRecovery.JPG) - CC BY-SA 4.0. Angle/shows: taut wire rope to a tree, people standing aside. — local: `refs/rigging-winch/01.jpg`
+- [RA1 tram rescue vehicle Vallila depot winch.jpg](https://commons.wikimedia.org/wiki/File:RA1_tram_rescue_vehicle_Vallila_depot_winch.jpg) - CC BY 4.0. Angle/shows: bumper winch, roller fairlead, wire rope. — local: `refs/rigging-winch/02.jpg`
+
+Benchmarks
+- Pierce 18,000 lb hydraulic recovery winch: 23 ft/min max line speed at 15.9 gpm, 19.4:1 two-stage planetary, ½" × 165 ft rope. **[S]** https://www.piercearrowinc.com/products/18000-lb-hydraulic-recovery-winch → 80.1 kN, 0.117 m/s. **[D]**
+- Smittybilt 17.5K electric: 77.8 kN on layer 1 (62 % by layer 4); 6.9 m/min with no load, 0.99 m/min at full load. **[S]** https://static.thiecommerce.com/assets/production/smittybilt-gen2-winch-specs/a53f2a49672d517004f322c9cd04af3f.pdf
+- A snatch block doubles the pull **[S]** https://www.warn.com/warn-winch-performance-specifications-pulling-capacity-by-layer and halves the speed. **[D]**
+- OEM winch ropes break close to the rated pull (11 mm 1960-grade 84.4 kN vs 77.8 kN, 1.08 ×). **[D]**
+
+## rigging/grapple — line throwers, grapnels, powered ascenders
+
+Reference media
+- [15th MEU Marines ... 141208-M-ST621-015.jpg](https://commons.wikimedia.org/wiki/File:15th_MEU_Marines_train_in_combined_arms_training_141208-M-ST621-015.jpg) - Public domain. Angle/shows: grapnel mid-throw, trailing line. — local: `refs/rigging-grapnel/01.jpg`
+- [20th century folding grapnel anchor unfolded](https://commons.wikimedia.org/wiki/File:20th_century_folding_grapnel_anchor_13_5_kg_66_cm_marked_SAV_Norway_unfolded.jpg) - CC BY 4.0. Angle/shows: four-fluke grapnel, 3/4 view. — local: `refs/rigging-grapnel/02.jpg`
+
+Benchmarks
+- Restech PLT pneumatic line thrower: Pick-up Grapple **85 m**, projectiles to 230 m, 200/300 bar. **[S]** https://restech.no/all-products/plt-multi/
+- Weapon-launched grapnel hook: 75–100 m, 150 m of line. **[S]** https://www.prc68.com/I/LaunchedGrapnelHook.html
+- CMI five-tine steel grappling hook: 1.6 kg, 21.6 cm across, overall MBS 3,900 lb (17.3 kN), each tine 2,000 lb (8.9 kN). **[S]** https://helixoperations.com/products/cmi-grappling-hook
+- Atlas APA-4 powered ascender: up to 66 m/min (1.1 m/s), 160 kg standard / 250 kg heavy-duty. **[S]** https://helixoperations.com/Tactical/Products/Motorised-Ascenders/Atlas-Powered-Ascender-APA-4
+- Edge bearing of masonry/concrete under one tine: not sourced (judgement 3.5–6 kN). Gap.
+- Fall-arrest energy absorbers (EN 355) limit the arrest force to ~6 kN; the reel's 2.6 kN slip clutch stays under it. **[Q]** EN 355:2002 (standard not consulted directly)
+
+## rigging/anchors — ground anchors and hitches
+
+- US Army FM 5-125 *Rigging Techniques, Procedures and Applications*: single steel picket in loamy soil 300–700 lb; 1-1-1 picket line 1,000–2,000 lb; 3-2-1 picket holdfast ~4,000 lb (**17.8 kN [D]**), the line on the three-picket front group, each group lashed from its heads to the foot of the group behind, pickets ~5 ft driven ~3 ft leaning back from the pull; log deadman in firm soil ~1,550–3,550 lb per foot of log (**~120 kN for a 3 m log [D]**). **[Q]** (field-manual figures as summarised; the online copy was not re-fetched)
+- Pull ropes attached to each cut section of what is pulled; nobody where a rope could strike them if it failed. **[S]** NSW Code of Practice *Demolition work* (2019) s.4.13 p.43, https://www.safework.nsw.gov.au/__data/assets/pdf_file/0015/52161/Demolition-work-COP.pdf
+- Chain choked round the statue's neck at Firdos Square rather than a cable, for whiplash risk. **[S]** https://en.wikipedia.org/wiki/Firdos_Square_statue_destruction
+- Timber needle and bearing plate through a wall, and friction of a steel tine on steel (0.2–0.4, a hook sliding past ~20° off square): **[D]** judgement from standard needling practice and steel-on-steel friction coefficients; not sourced to a document.
+
+---
+
 # Gaps (unsourced or weak)
 
 - Gothic roof pitch; church-implosion duration/pile (Bingley 1974 has no numbers in the source); retail floor-to-floor for Art Deco stores.
@@ -1248,3 +1372,4 @@ Source for the table: [S https://man.fas.org/dod-101/sys/land/m720.htm]. Wikiped
 - Utilities: no Commons photo of a pillar hydrant sheared *wet* (US wet-barrel type) or of a live LV conductor arcing on the ground; geyser heights are news reports, not measurements.
 - Fragment-size distributions for blast rubble (brick or concrete); concrete tension/compression ratio; Eurocode 3 reduction factors and rotation capacity; glass tensile strength; tempered/annealed comparison photographs.
 - Wrecking-ball swing counts and ball speeds; debris throw distances for wrecking balls and excavators.
+- Rigging: chain axial stiffness; operator stroke rate on a lever hoist; edge bearing under a grapnel tine; a lorry's stall pull on a rope (the vehicle model gives ~31 kN in reverse); FM 5-125 holdfast and deadman holding powers not re-verified against the manual; needle bearing spread over units.

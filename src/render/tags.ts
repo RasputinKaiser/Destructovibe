@@ -50,7 +50,12 @@ function draw(t: Tag, text: string, sub: string, color: string, hot: boolean): v
   g.fill();
   g.fillStyle = color;
   g.fillRect(3, 3, 7, H - 16);
-  g.font = '700 22px ui-monospace, SFMono-Regular, Menlo, monospace';
+  g.font = '600 18px ui-monospace, SFMono-Regular, Menlo, monospace';
+  const subW = g.measureText(sub).width;
+  // a long label shrinks to leave room for the sub-label
+  let px = 22;
+  g.font = `700 ${px}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  while (px > 14 && 18 + g.measureText(text).width + 8 + subW > W - 12) g.font = `700 ${--px}px ui-monospace, SFMono-Regular, Menlo, monospace`;
   g.textBaseline = 'middle';
   g.fillText(text, 18, (H - 13) / 2 + 1);
   g.fillStyle = 'rgba(235,235,230,0.92)';
@@ -63,11 +68,13 @@ function draw(t: Tag, text: string, sub: string, color: string, hot: boolean): v
 
 export const tags = {
   begin(): void { n = 0; },
-  add(pos: Vec3, text: string, sub: string, color: string, hot = false): void {
+  /** `size` scales the tag on screen (1 = a charge's). */
+  add(pos: Vec3, text: string, sub: string, color: string, hot = false, size = 1): void {
     if (!root || n >= MAX) return;
     const t = pool[n++];
     draw(t, text, sub, color, hot);
     t.s.position.set(pos[0], pos[1], pos[2]);
+    t.s.scale.set(0.15 * size, 0.15 * size * (H / W), 1);
   },
   end(): void {
     for (let i = 0; i < pool.length; i++) pool[i].s.visible = i < n;

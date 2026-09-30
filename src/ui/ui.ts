@@ -57,10 +57,10 @@ const BANKS: readonly (readonly WeaponId[])[] = [
   ['cutter', 'wrecker', 'winch', 'gravgun', 'incendiary', 'megabomb'],
   ['grinder', 'saw', 'drill', 'shears', 'plasma', 'torch'],
   ['planner', 'excavator', 'breaker', 'hose', 'splitter', 'wiresaw'],
-  [],
+  ['grapple', 'tether', 'hoist'],
   ['flamer', 'launcher', 'recoilless', 'thermobaric', 'buster', 'satchel'],
 ];
-const BANK_TAG = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+const BANK_TAG = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
 const BANK_OF = new Map<WeaponId, { bank: number; pos: number }>(
   BANKS.flatMap((ids, bank) => ids.map((id, pos) => [id, { bank, pos }] as const)),
 );
@@ -171,7 +171,7 @@ const TEMPLATE = () => `
   </div>
   <div class="pops" data-r="pops"></div>
   <div class="hud-bottom">
-    <div class="hud-tool" data-r="tool"><div class="hud-tool__t" data-r="toolT"></div><div class="hud-tool__bar"><i data-r="toolBar"></i></div><div class="hud-tool__d" data-r="toolD"></div></div>
+    <div class="hud-tool" data-r="tool"><div class="hud-tool__t" data-r="toolT"></div><div class="hud-tool__bar"><i data-r="toolBar"></i></div><div class="hud-tool__d" data-r="toolD"></div><div class="hud-tool__lines" data-r="toolL"></div></div>
     <div class="hud-seq" data-r="seq"><div class="hud-seq__track" data-r="seqTrack"></div><div class="hud-seq__scale" data-r="seqScale"></div></div>
     <div class="hud-charges" data-r="charges"><i class="led"></i><b data-r="chargeN">0</b><span>Armed</span></div>
     <div class="hud-hint" data-r="hint"></div>
@@ -371,7 +371,7 @@ const TEMPLATE = () => `
 const REFS = [
   'vig', 'penFlash', 'hud', 'tl', 'title', 'clock', 'par', 'demo', 'pct', 'demoLabel', 'fill', 'notch', 'notchLabel',
   'tr', 'score', 'combo', 'comboX', 'comboFill', 'penalty', 'xh', 'xhPulse', 'hit', 'pops', 'charges', 'chargeN', 'hint',
-  'weapons', 'fps', 'ptr', 'tool', 'toolT', 'toolBar', 'toolD', 'seq', 'seqTrack', 'seqScale', 'loadFill', 'loadLabel', 'loadPct', 'cards', 'bNo', 'bName', 'bLoc', 'bText', 'bProtect',
+  'weapons', 'fps', 'ptr', 'tool', 'toolT', 'toolBar', 'toolD', 'toolL', 'seq', 'seqTrack', 'seqScale', 'loadFill', 'loadLabel', 'loadPct', 'cards', 'bNo', 'bName', 'bLoc', 'bText', 'bProtect',
   'bProtectText', 'bTerms', 'bTermsLabel', 'bAmmo', 'bKeys', 'bTarget', 'bPar', 'bEnv', 'bStars', 'report', 'rTitle', 'rSub', 'rRows', 'rTotalRow', 'rTotal',
   'rStars', 'rBest', 'rUnlock', 'rRetry', 'rNext', 'sVol', 'oVol', 'sQual', 'sSens', 'oSens', 'sFov', 'oFov', 'sInv', 'oInv', 'sExp', 'oExp', 'sScale', 'sShake', 'oShake', 'sGrain', 'oGrain', 'sCA', 'oCA',
   'pauseKeys', 'sBob', 'oBob', 'sCTog', 'oCTog', 'sSTog', 'oSTog', 'sImp', 'keys', 'keyReset', 'keyNote', 'daze',
@@ -1291,6 +1291,7 @@ const hc = {
   hint: undefined as string | null | undefined,
   tool: '',
   toolBar: -1,
+  toolL: '',
   seq: '',
   fpsAcc: 1,
   fps: -1,
@@ -1501,7 +1502,8 @@ function updateTool(t: ToolReadout | null): void {
   const now = performance.now() / 1000;
   const gist = t ? `${t.title.replace(/[\d.,]+/g, '')}|${t.warn}|${/on target: (\w+)|lands on the ground|no landing/.exec(t.detail)?.[0] ?? ''}` : '';
   if (gist !== toolGist) { toolGist = gist; toolShownAt = now; }
-  const busy = !!t && (t.warn || t.progress !== null);
+  // (a rigging readout stays up while any of its lines carries more than a twentieth of its working load)
+  const busy = !!t && (t.warn || t.progress !== null || !!t.lines?.some(l => l.util / (l.wll ?? 0.2) > 0.05));
   R.tool.classList.toggle('is-idle', !busy && now - toolShownAt > TOOL_IDLE);
   const key = t ? `${t.title}|${t.detail}|${t.warn}|${t.progress === null}` : '';
   if (key !== hc.tool) {
@@ -1513,6 +1515,18 @@ function updateTool(t: ToolReadout | null): void {
       R.tool.classList.toggle('is-warn', t.warn);
       R.tool.classList.toggle('has-bar', t.progress !== null);
     }
+  }
+  /* rigging: one bar per loaded line, full scale its breaking load, a tick at its working load limit; green within the
+     WLL, amber over it, red past 60 % of the break. The number is the share of the WLL, as a rigger reads it. */
+  const ls = t?.lines ?? [];
+  const lk = ls.map(l => `${l.label}:${Math.round((clamp(l.util, 0, 1.2) / (l.wll ?? 0.2)) * 100)}:${l.wll ?? 0}`).join('|');
+  if (lk !== hc.toolL) {
+    hc.toolL = lk;
+    R.toolL.innerHTML = ls.map(l => {
+      const u = clamp(l.util, 0, 1), w = l.wll ?? 0.2;
+      const lvl = u > 0.6 ? ' is-red' : u > w ? ' is-amber' : '';
+      return `<div class="tl${lvl}"><span class="tl__n">${esc(l.label)}</span><span class="tl__b"><i style="transform:scaleX(${u.toFixed(3)})"></i><em style="left:${(w * 100).toFixed(1)}%"></em></span><span class="tl__p">${Math.round((l.util / w) * 100)}% WLL</span></div>`;
+    }).join('');
   }
   const b = t && t.progress !== null ? Math.round(clamp(t.progress, 0, 1) * 200) / 200 : -1;
   if (b !== hc.toolBar) {
