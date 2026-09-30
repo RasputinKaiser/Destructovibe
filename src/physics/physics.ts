@@ -250,7 +250,10 @@ const _z: Vec3 = [0, 0, 0];
 function runaway(e: PhysEntity, force = false): boolean {
   const p = e.curPos, q = e.curRot, dx = p[0] - e.prevPos[0], dy = p[1] - e.prevPos[1], dz = p[2] - e.prevPos[2];
   const dot = Math.abs(q[0] * e.prevRot[0] + q[1] * e.prevRot[1] + q[2] * e.prevRot[2] + q[3] * e.prevRot[3]);
-  if (!force && dot >= RUNAWAY_TURN && (dx * dx + dy * dy + dz * dz <= RUNAWAY_MOVE * RUNAWAY_MOVE || (blasts.length && inBlast(p)))) return false;
+  /* ordnance (not a wrecking ball on its rope) flies at up to the solver's speed cap on purpose: only a spin or a
+     non-finite state is a blow-up there */
+  if (!force && dot >= RUNAWAY_TURN && (dx * dx + dy * dy + dz * dz <= RUNAWAY_MOVE * RUNAWAY_MOVE
+    || (e.kind === 'projectile' && e.mass < 500 ? Number.isFinite(dx + dy + dz) : blasts.length && inBlast(p)))) return false;
   runaways++;
   if (runawayQueue.length < 64) runawayQueue.push(e);
   /* Caught again and again, the place it keeps being put back to is itself the trouble (inside the ground or another

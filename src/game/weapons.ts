@@ -3,8 +3,8 @@ import { vec3, quat, clamp } from 'math';
 import type { b3ShapeId, b3JointId } from 'box3d.js';
 import type { WeaponId, WeaponView, Vec3, Quat, MaterialId, ToolReadout, TimelineView } from '../types';
 import {
-  b3, world, ground, CAT, ALL, filter, register, unregister, raycast, stepCount, copy3, FIXED_DT,
-  type PhysEntity,
+  b3, world, ground, CAT, ALL, filter, register, unregister, raycast, stepCount, copy3, FIXED_DT, queryFilter, entityOfShape,
+  type PhysEntity, type RayHit,
 } from '../physics/physics';
 import {
   explode, damagePiece, applyImpulseAt, pieceOf, heat, ignite, sever, cutRebarNear, type Piece,
@@ -116,10 +116,9 @@ const PLAN = { reach: 60, autoMsPerM: 150, step: 50, big: 250, max: 5000 };
 /* Tools that act once per click rather than auto-repeating while fire is held. */
 const PRESS_ONLY = new Set<WeaponId>(['wrecker', 'winch', 'gravgun', 'planner', 'splitter', 'wiresaw']);
 
-type ProjType = 'ball' | 'rocket' | 'charge' | 'beacon' | 'bomb' | 'thermite' | 'cutter' | 'bottle' | 'megabomb';
-type Warhead = 'tandem' | 'he';
+export type ProjType = 'ball' | 'rocket' | 'charge' | 'beacon' | 'bomb' | 'thermite' | 'cutter' | 'bottle' | 'megabomb';
+export type Warhead = 'tandem' | 'he';
 const STICKY = new Set<ProjType>(['charge', 'thermite', 'megabomb']);
-const LOOKAHEAD = new Set<ProjType>(['rocket', 'bomb', 'charge', 'thermite', 'megabomb', 'bottle']);
 const STICK_OFFSET: Partial<Record<ProjType, number>> = { charge: 0.05, thermite: 0.08, cutter: 0.022, megabomb: 0.2 };
 /* drag: radius (m), drag coefficient */
 const AERO: Partial<Record<ProjType, [number, number]>> = {
@@ -154,6 +153,10 @@ interface Projectile extends PhysEntity {
   /** quadratic drag per unit mass, 1/m */
   drag: number;
   warhead: Warhead;
+  /** where the solver had it, and its velocity, at the start of step `fromStep` (the swept path) */
+  from?: Vec3;
+  fromV?: Vec3;
+  fromStep?: number;
 }
 
 export const loadout = {
@@ -884,7 +887,7 @@ function spawn(type: ProjType, pos: Vec3, vel: Vec3, target?: Vec3): Projectile 
   const sd = b3.b3DefaultShapeDef();
   sd.filter = filter(CAT.projectile, ALL & ~(CAT.player | CAT.projectile));
   sd.enableContactEvents = false;
-  sd.enableHitEvents = type === 'ball';
+  sd.enableHitEvents = type === 'ball' || SWEPT[type] !== undefined;
   sd.baseMaterial.friction = 0.6;
   sd.baseMaterial.restitution = type === 'beacon' ? 0.3 : 0.08;
   sd.baseMaterial.rollingResistance = 0.05;
@@ -1000,46 +1003,63 @@ function faceNormal(p: Projectile, out: Vec3): Vec3 {
 
 /* ---------------- rocket ---------------- */
 
-function rocketImpact(p: Projectile, point: Vec3, entity: PhysEntity | undefined, back: Vec3): void {
-  b3.b3Body_GetLinearVelocity(_v, p.body);
-  const sp = vec3.length(_v) || 1;
-  const dir: Vec3 = [_v[0] / sp, _v[1] / sp, _v[2] / sp];
+function rocketImpact(p: Projectile, point: Vec3, entity: PhysEntity | undefined, back: Vec3, v: Vec3): void {
+  const sp = vec3.length(v) || 1;
+  const dir: Vec3 = [v[0] / sp, v[1] / sp, v[2] / sp];
   const tandem = p.warhead === 'tandem';
   removeProjectile(p);
-  let piece = pieceOf(entity);
-  if (!tandem || !piece) { explode(back, ROCKET.radius, ROCKET.power, ROCKET.impulse); return; }
+  // the solid the jet meets: the first shape on the round's line through the point of impact
+  let at = tandem && pieceOf(entity) ? raycast([point[0] - dir[0] * 0.3, point[1] - dir[1] * 0.3, point[2] - dir[2] * 0.3], [dir[0] * 0.6, dir[1] * 0.6, dir[2] * 0.6], NO_HIT) : null;
+  if (!at || !pieceOf(at.entity)) { explode(back, ROCKET.radius, ROCKET.power, ROCKET.impulse); return; }
   // the precursor's own small blast at the face
   explode(back, 1.2, 12e3, 500, 0.4, 3);
-  let jet = TANDEM.jet, pos: Vec3 = [...point], exit: Vec3 | null = null;
-  for (let layer = 0; layer < 4 && piece; layer++) {
-    const fill = fillOf(piece);
-    const solid = chord(piece, pos, dir);
-    const geo = solid / fill;
+  /* The jet goes through one convex solid at a time (a compound member's parts separately, so a hollow course's flue is
+     open space, not smeared brick). The follow-through is a body flying down the precursor's hole on a short delay: it
+     goes off in the first open space behind what was perforated (a room, a flue), ~0.9 m in or at the next face if that
+     is nearer. The jet runs on and spalls further layers, but the charge never passes a second wall: a hollow stack's
+     far side is hit by the jet, not blown out toward whatever stands behind it. */
+  let jet = TANDEM.jet, exit: Vec3 | null = null, follow: Vec3 | null = null;
+  for (let layer = 0; layer < 4 && at; layer++) {
+    const piece = pieceOf(at.entity);
+    if (!piece) break;
+    const pos: Vec3 = [at.point[0], at.point[1], at.point[2]];
+    const out = exitOf(at.shape, pos, dir);
+    const fill = piece.parts ? 1 : fillOf(piece);
+    const geo = vec3.distance(out, pos), solid = geo * fill;
     const need = solid * Math.sqrt(piece.pm.density / TANDEM.rhoJet);
     const reach = Math.min(geo, (jet / Math.sqrt(piece.pm.density / TANDEM.rhoJet)) / fill);
     cutRebarNear(piece, [pos[0] + dir[0] * reach * 0.5, pos[1] + dir[1] * reach * 0.5, pos[2] + dir[2] * reach * 0.5], 0.12);
     if (need > jet || !Number.isFinite(need)) {
       damagePiece(piece, pos, piece.hp * 0.7, true);
       fx.debris(pos, 10, piece.pm.chips, 6, [-dir[0], -dir[1], -dir[2]]);
-      exit = null;
       break;
     }
     jet -= need;
-    const out: Vec3 = [pos[0] + dir[0] * geo, pos[1] + dir[1] * geo, pos[2] + dir[2] * geo];
     // behind-armour debris: the exit face spalls out in a cone
     damagePiece(piece, out, piece.hp * 1.05, true);
     fx.debris(out, 14, piece.pm.chips, 9, dir);
     exit = out;
-    const next = raycast([out[0] + dir[0] * 0.02, out[1] + dir[1] * 0.02, out[2] + dir[2] * 0.02], [dir[0] * TANDEM.air, dir[1] * TANDEM.air, dir[2] * TANDEM.air], NO_HIT);
-    if (!next) break;
-    piece = pieceOf(next.entity);
-    pos = [next.point[0], next.point[1], next.point[2]];
+    at = raycast([out[0] + dir[0] * 0.02, out[1] + dir[1] * 0.02, out[2] + dir[2] * 0.02], [dir[0] * TANDEM.air, dir[1] * TANDEM.air, dir[2] * TANDEM.air], NO_HIT);
+    const gap = at ? at.fraction * TANDEM.air + 0.02 : Infinity;
+    if (!follow && gap > 0.15) {
+      const k = Math.min(0.9, gap - 0.1);
+      follow = [out[0] + dir[0] * k, out[1] + dir[1] * k, out[2] + dir[2] * k];
+    }
   }
-  if (exit) {
+  // perforated but no open space before the jet gave out: the charge goes off at the end of its hole
+  follow ??= exit;
+  if (follow) {
     const b = blastOf(TANDEM.follow);
-    explode([exit[0] + dir[0] * 0.9, exit[1] + dir[1] * 0.9, exit[2] + dir[2] * 0.9], b.radius, b.power, b.impulse, 1.2);
+    explode(follow, b.radius, b.power, b.impulse, 1.2);
     hitmarker(1);
   } else explode(back, ROCKET.radius * 0.8, ROCKET.power * 0.8, ROCKET.impulse * 0.8);
+}
+
+/* Where a line entering a convex solid at `pos` along `dir` leaves it (a ray cast back at it from beyond). */
+function exitOf(shape: b3ShapeId, pos: Vec3, dir: Vec3): Vec3 {
+  const far: Vec3 = [pos[0] + dir[0] * 8, pos[1] + dir[1] * 8, pos[2] + dir[2] * 8];
+  const r = b3.b3Shape_RayCast(shape, far, [pos[0] - far[0], pos[1] - far[1], pos[2] - far[2]]);
+  return r.hit ? [r.point[0], r.point[1], r.point[2]] : [...pos];
 }
 
 /* ---------------- cutting charge ---------------- */
@@ -1282,7 +1302,53 @@ function updateSorties(): void {
 
 const _v: Vec3 = [0, 0, 0];
 
-/* Look-ahead rays before the solver runs, so fast ordnance detonates/sticks on the surface instead
+/* Swept collision for ordnance that acts on contact (goes off, shatters or sticks). A rocket covers 2 m a step, several
+   times a half-brick wall or a flue's side, so a contact the solver finds at the end of a step can already be past the
+   face, and Box3D reports a bullet's move from before its continuous pass puts it back (curPos can sit behind the wall
+   for a step). So: before the step the round's own sphere is swept along where it is going, from where the solver
+   really has it; a contact the solver reports anyway sets it off; and after the step the path it actually travelled is
+   swept again (a blast's shove, a step it was not steered on). The first solid surface on the path is where it acts. */
+const SWEPT: Partial<Record<ProjType, number>> = { rocket: 0.08, bomb: 0.14, bottle: 0.07, charge: 0.1, thermite: 0.085, megabomb: 0.22 };
+const HIT_Q = queryFilter(NO_HIT);
+const _sp: Vec3 = [0, 0, 0], _sn: Vec3 = [0, 0, 0], PT = [0, 0, 0];
+
+function sweep(from: Vec3, d: Vec3, r: number): RayHit | null {
+  let best = 2, shape: b3ShapeId | null = null;
+  b3.b3World_CastShape(world, from, PT, r, d, HIT_Q, (s: b3ShapeId, pt: ArrayLike<number>, n: ArrayLike<number>, fr: number) => {
+    if (fr < best) { best = fr; shape = s; copy3(_sp, pt); copy3(_sn, n); }
+    return fr;
+  });
+  if (!shape) return null;
+  if (vec3.squaredLength(_sn) < 0.25) {
+    // it starts touching (fired point-blank, shoved into a face): the face from a ray along the path, or straight back
+    const ray = raycast([from[0] - d[0], from[1] - d[1], from[2] - d[2]], [d[0] * 2, d[1] * 2, d[2] * 2], NO_HIT);
+    if (ray) copy3(_sn, ray.normal);
+    else vec3.normalize(_sn, [-d[0], -d[1], -d[2]]);
+  }
+  return { entity: entityOfShape(shape), shape, point: [_sp[0], _sp[1], _sp[2]], normal: [_sn[0], _sn[1], _sn[2]], fraction: best };
+}
+
+function impact(p: Projectile, hit: RayHit, v: Vec3): void {
+  const point = hit.point as Vec3, n = hit.normal as Vec3;
+  const back: Vec3 = [point[0] - v[0] * 0.002, point[1] - v[1] * 0.002, point[2] - v[2] * 0.002];
+  if (STICKY.has(p.type)) stick(p, point, n, hit.entity, plantRot(pieceOf(hit.entity), n));
+  else if (p.type === 'bottle') shatter(p, back, n);
+  else if (p.type === 'rocket') rocketImpact(p, point, hit.entity, back, v);
+  else blowUp(p, back);
+}
+
+/* After the step: what the round passed through on its way from where the step began to where it is now. */
+function sweptPath(p: Projectile): void {
+  const r = SWEPT[p.type];
+  if (r === undefined || !p.from || p.dead || p.stuck || p.fromStep !== stepCount - 1) return;
+  b3.b3Body_GetPosition(_v, p.body);
+  const d: Vec3 = [_v[0] - p.from[0], _v[1] - p.from[1], _v[2] - p.from[2]];
+  if (vec3.squaredLength(d) < 1e-6) return;
+  const hit = sweep(p.from, d, r);
+  if (hit && hit.fraction > 0) impact(p, hit, p.fromV!);
+}
+
+/* Look-ahead sweeps before the solver runs, so fast ordnance detonates/sticks on the surface instead
    of bouncing; drag and rocket thrust; then the hand tools steer their bodies for this step. */
 export function weaponsPreStep(): void {
   const held = heldEntity();
@@ -1300,16 +1366,15 @@ export function weaponsPreStep(): void {
       vec3.scale(_v, _v, k);
       b3.b3Body_SetLinearVelocity(p.body, _v);
     }
-    if (!LOOKAHEAD.has(p.type)) continue;
-    b3.b3Body_GetLinearVelocity(_v, p.body);
+    const r = SWEPT[p.type];
+    if (r === undefined) continue;
+    const from = p.from ??= [0, 0, 0], v = p.fromV ??= [0, 0, 0];
+    b3.b3Body_GetPosition(from, p.body);
+    b3.b3Body_GetLinearVelocity(v, p.body);
+    p.fromStep = stepCount;
     const k = FIXED_DT * 1.25;
-    const hit = raycast(p.curPos, [_v[0] * k, _v[1] * k, _v[2] * k], NO_HIT);
-    if (!hit) continue;
-    const back: Vec3 = [hit.point[0] - _v[0] * 0.002, hit.point[1] - _v[1] * 0.002, hit.point[2] - _v[2] * 0.002];
-    if (STICKY.has(p.type)) stick(p, hit.point as Vec3, hit.normal as Vec3, hit.entity, plantRot(pieceOf(hit.entity), hit.normal as Vec3));
-    else if (p.type === 'bottle') shatter(p, back, hit.normal as Vec3);
-    else if (p.type === 'rocket') rocketImpact(p, hit.point as Vec3, hit.entity, back);
-    else blowUp(p, back);
+    const hit = sweep(from, [v[0] * k, v[1] * k, v[2] * k], r);
+    if (hit) impact(p, hit, v);
   }
   if (player.e) {
     aim();
@@ -1361,6 +1426,8 @@ export function weaponsAfterStep(dt: number): void {
         }
       }
     }
+    if (p !== held) sweptPath(p);
+    if (p.dead) continue;
     switch (p.type) {
       case 'rocket':
         if (age > 7) blowUp(p, [...p.curPos]);
@@ -1404,6 +1471,12 @@ export function weaponsAfterStep(dt: number): void {
         break;
     }
     if (!p.dead && p.curPos[1] < -20) removeProjectile(p);
+    // the next step's path starts here, whether or not the pre-step runs (it does not while the player drives)
+    if (!p.dead && !p.stuck && SWEPT[p.type] !== undefined) {
+      b3.b3Body_GetPosition(p.from ??= [0, 0, 0], p.body);
+      b3.b3Body_GetLinearVelocity(p.fromV ??= [0, 0, 0], p.body);
+      p.fromStep = stepCount;
+    }
   }
 
   updatePatches(dt);
@@ -1422,6 +1495,15 @@ export function weaponsAfterStep(dt: number): void {
 export function onProjectileHit(a: PhysEntity | undefined, b: PhysEntity | undefined, point: Vec3, speed: number, normal?: Vec3): void {
   if (wreckerHit(a, b, point, speed)) return;
   const ball = a?.kind === 'projectile' ? (a as Projectile) : b?.kind === 'projectile' ? (b as Projectile) : null;
+  if (ball && !ball.dead && !ball.stuck && SWEPT[ball.type] !== undefined && ball !== heldEntity()) {
+    // the contact normal points A→B: turn it to face the round
+    const s = ball === a ? -1 : 1, other = ball === a ? b : a;
+    const n: Vec3 = normal ? [normal[0] * s, normal[1] * s, normal[2] * s] : [0, 1, 0];
+    let v = ball.fromV;
+    if (!v || ball.fromStep !== stepCount - 1) { b3.b3Body_GetLinearVelocity(_v, ball.body); v = _v; }
+    impact(ball, { entity: other, shape: ball.shape, point: [point[0], point[1], point[2]], normal: n, fraction: 0 }, v);
+    return;
+  }
   if (!ball || ball.type !== 'ball' || speed < 10) return;
   const other = ball === a ? b : a;
   const struck = pieceOf(other);
@@ -1866,16 +1948,24 @@ let predicted: Vec3 | null = null;
 /** what the aimed shot's arc comes down on (a piece's material, or null for the ground / nothing) */
 let predictedOn: MaterialId | null = null;
 /** Test view: where the aim arc says the shot lands, and what is in flight. */
-export function weaponsDebug(): { predicted: Vec3 | null; strikes: Vec3[]; flying: { type: ProjType; pos: Vec3; vel: Vec3 }[] } {
+export function weaponsDebug(): { predicted: Vec3 | null; strikes: Vec3[]; flying: { type: ProjType; pos: Vec3; vel: Vec3; stuck: boolean }[] } {
   return {
     predicted,
     strikes: sorties.map(s => s.target),
     flying: projectiles.filter(p => !p.dead).map(p => {
-      const v: Vec3 = [0, 0, 0];
+      const v: Vec3 = [0, 0, 0], pos: Vec3 = [0, 0, 0];
       b3.b3Body_GetLinearVelocity(v, p.body);
-      return { type: p.type, pos: [...p.curPos] as Vec3, vel: v };
+      b3.b3Body_GetPosition(pos, p.body);
+      return { type: p.type, pos, vel: v, stuck: p.stuck };
     }),
   };
+}
+
+/** Headless tests: a projectile in flight as if just fired (no player, no ammo spent). */
+export function launch(type: ProjType, pos: Vec3, vel: Vec3, head: Warhead = 'he'): void {
+  const p = spawn(type, pos, vel);
+  p.warhead = head;
+  if (type === 'megabomb') { p.kg = MEGA.kg; p.armAt = now + MEGA.fuse; p.beat = Math.ceil(MEGA.fuse) + 1; }
 }
 
 export function weaponTime(): number {
