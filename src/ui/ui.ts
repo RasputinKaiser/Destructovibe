@@ -1501,7 +1501,8 @@ function updateTool(t: ToolReadout | null): void {
   const now = performance.now() / 1000;
   const gist = t ? `${t.title.replace(/[\d.,]+/g, '')}|${t.warn}|${/on target: (\w+)|lands on the ground|no landing/.exec(t.detail)?.[0] ?? ''}` : '';
   if (gist !== toolGist) { toolGist = gist; toolShownAt = now; }
-  const busy = !!t && (t.warn || t.progress !== null);
+  // (a rigging readout stays up while any of its lines carries more than a twentieth of its working load)
+  const busy = !!t && (t.warn || t.progress !== null || !!t.lines?.some(l => l.util / (l.wll ?? 0.2) > 0.05));
   R.tool.classList.toggle('is-idle', !busy && now - toolShownAt > TOOL_IDLE);
   const key = t ? `${t.title}|${t.detail}|${t.warn}|${t.progress === null}` : '';
   if (key !== hc.tool) {
@@ -1517,7 +1518,7 @@ function updateTool(t: ToolReadout | null): void {
   /* rigging: one bar per loaded line, full scale its breaking load, a tick at its working load limit; green within the
      WLL, amber over it, red past 60 % of the break. The number is the share of the WLL, as a rigger reads it. */
   const ls = t?.lines ?? [];
-  const lk = ls.map(l => `${l.label}:${Math.round(clamp(l.util, 0, 1.2) * 50)}:${l.wll ?? 0}`).join('|');
+  const lk = ls.map(l => `${l.label}:${Math.round((clamp(l.util, 0, 1.2) / (l.wll ?? 0.2)) * 100)}:${l.wll ?? 0}`).join('|');
   if (lk !== hc.toolL) {
     hc.toolL = lk;
     R.toolL.innerHTML = ls.map(l => {
