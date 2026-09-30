@@ -10,8 +10,9 @@ import {
   explode, damagePiece, applyImpulseAt, pieceOf, heat, ignite, sever, cutRebarNear, type Piece,
 } from '../destruction/structure';
 import { flammable } from '../destruction/materials';
+import { randomStream } from '../physics/physics';
 import { softHeat } from '../sim/soft';
-import { addHeat, addSmoke } from '../sim/fields/index';
+import { addHeat, addSmoke, isFragile } from '../sim/fields/index';
 import { heatCap, surfaceArea } from '../sim/fields/thermal';
 import { groundAt } from '../terrain/terrain';
 import { vehicleOf } from '../vehicles/vehicle';
@@ -54,10 +55,21 @@ import { holeNear } from './tools/machining';
 import { hitstop } from './timefx';
 import { tags, initTags } from '../render/tags';
 import { strikes, initStrikes } from '../render/strikes';
+import { fuelStep, syncFuel, clearFuel, douseFuel, launchFuel, fuelInFlight, fuelBurning, PETROL } from './ordnance/fuel';
+import {
+  flamerHold, flamerStep, flamerHooks, flamerOn, flamerLit, toggleIgniter, traceFlame, flamerStatus, clearFlamer,
+} from './ordnance/flamer';
+import { GRENADE, grenadeBurst } from './ordnance/grenade';
+import { HEAT84, heatImpact } from './ordnance/heat';
+import { TBX, thermobaricBurst, thermobaricStep, clearThermobaric, thermobaricPending } from './ordnance/thermobaric';
+import { PEN, penetrate, penetratorStep, clearPenetrator, penetratorPending, approach, penClamp } from './ordnance/penetrator';
+import { backblast as blowBack, BB_ROCKET, BB_RECOILLESS, BB_THERMOBARIC } from './ordnance/backblast';
+import { shotStrike } from './ordnance/shot';
+import { young } from './ordnance/penetration';
 
 /* Ordered tool list; `bank` is the six-slot page the number keys address (Q cycles). */
-export const BANK_COUNT = 4;
-export const WEAPONS: { id: WeaponId; name: string; key: string; bank: 0 | 1 | 2 | 3; cooldown: number }[] = [
+export const BANK_COUNT = 6;
+export const WEAPONS: { id: WeaponId; name: string; key: string; bank: number; cooldown: number }[] = [
   { id: 'hammer', name: 'Sledgehammer', key: '1', bank: 0, cooldown: 0.62 },
   { id: 'cannon', name: 'Hand Cannon', key: '2', bank: 0, cooldown: 0.95 },
   { id: 'rocket', name: 'Rocket Launcher', key: '3', bank: 0, cooldown: 1.25 },
@@ -82,6 +94,12 @@ export const WEAPONS: { id: WeaponId; name: string; key: string; bank: 0 | 1 | 2
   { id: 'hose', name: 'Water Cannon', key: '4', bank: 3, cooldown: 0.2 },
   { id: 'splitter', name: 'Rock Splitter', key: '5', bank: 3, cooldown: 0.6 },
   { id: 'wiresaw', name: 'Diamond Wire Saw', key: '6', bank: 3, cooldown: 0.5 },
+  { id: 'flamer', name: 'Flamethrower', key: '1', bank: 5, cooldown: 0.05 },
+  { id: 'launcher', name: 'Grenade Launcher', key: '2', bank: 5, cooldown: 1.1 },
+  { id: 'recoilless', name: 'Recoilless Rifle', key: '3', bank: 5, cooldown: 2.4 },
+  { id: 'thermobaric', name: 'Thermobaric Rocket', key: '4', bank: 5, cooldown: 2.5 },
+  { id: 'buster', name: 'Bunker Buster', key: '5', bank: 5, cooldown: 4 },
+  { id: 'satchel', name: 'Satchel Charge', key: '6', bank: 5, cooldown: 0.8 },
 ];
 const DEF = Object.fromEntries(WEAPONS.map(w => [w.id, w])) as Record<WeaponId, (typeof WEAPONS)[number]>;
 
@@ -107,23 +125,32 @@ const THERMITE = { delay: 0.6, burn: 7, core: 2500, rate: 0.03, reach: 0.8 };
 /* Host temperature at which a pot has burned through the member (≈ melting point). */
 const MELT: Partial<Record<MaterialId, number>> = { steel: 1400, castiron: 1150, aluminum: 700 };
 const CUTTER = { kick: 0.5, radius: 1.5, power: 9e3, impulse: 500 };
-/* 0.75 L of petrol in a bottle: a ~3 m splash that flashes at ~60 kW/m² for a couple of seconds, then a ~1 m² pool
-   burning ~9 s at ~2.4 MW (0.055 kg/m²·s × 44 MJ/kg). */
-const FIRE = { radius: 3, flux: 60e3, flash: 2, pool: 1.6, poolTime: 9, hrr: 2.4e6 };
+/* 0.75 L of petrol in a bottle: a ~3 m splash that flashes at ~60 kW/m² for a couple of seconds; the rest runs into
+   pools a film ~1 mm deep that burn at 0.055 kg/m²·s × 43.7 MJ/kg (≈ 2.4 MW/m², ~13 s). */
+const FIRE = { radius: 3, flux: 60e3, flash: 2, litres: 0.75, flashShare: 0.25, globs: 14 };
 const MEGA = { kg: 100, weldReach: 1.3, fractures: 120, fuse: 5, fireball: 10 };
 const PLANT_REACH = 4;
+/* M183 demolition charge assembly: 16 × M112 blocks, 9.1 kg of C-4 (RE 1.34) in a canvas satchel; the blocks' adhesive
+   holds it where it is pressed on by hand, thrown it lands and lies. FM 3-06.11: 2 lb makes a mousehole in plain
+   concrete, 10 lb a vehicle-sized hole. */
+const SATCHEL = { kg: 9.1 * 1.34, max: 4, throw: 8.5, lift: 2 };
 const PLAN = { reach: 60, autoMsPerM: 150, step: 50, big: 250, max: 5000 };
 /* Tools that act once per click rather than auto-repeating while fire is held. */
-const PRESS_ONLY = new Set<WeaponId>(['wrecker', 'winch', 'gravgun', 'planner', 'splitter', 'wiresaw']);
+const PRESS_ONLY = new Set<WeaponId>(['wrecker', 'winch', 'gravgun', 'planner', 'splitter', 'wiresaw', 'buster', 'satchel']);
 
-export type ProjType = 'ball' | 'rocket' | 'charge' | 'beacon' | 'bomb' | 'thermite' | 'cutter' | 'bottle' | 'megabomb';
+export type ProjType = 'ball' | 'rocket' | 'charge' | 'beacon' | 'bomb' | 'thermite' | 'cutter' | 'bottle' | 'megabomb'
+  | 'grenade' | 'heat' | 'tbx' | 'pen' | 'satchel';
 export type Warhead = 'tandem' | 'he';
 const STICKY = new Set<ProjType>(['charge', 'thermite', 'megabomb']);
-const STICK_OFFSET: Partial<Record<ProjType, number>> = { charge: 0.05, thermite: 0.08, cutter: 0.022, megabomb: 0.2 };
+/* Faster than the solver's speed cap (physics MAX_SPEED 120 m/s): flown here as a kinematic body that touches nothing,
+   its own swept path the only contact it makes. */
+const FAST = new Set<ProjType>(['heat', 'pen']);
+const STICK_OFFSET: Partial<Record<ProjType, number>> = { charge: 0.05, thermite: 0.08, cutter: 0.022, megabomb: 0.2, satchel: 0.07 };
 /* drag: radius (m), drag coefficient */
 const AERO: Partial<Record<ProjType, [number, number]>> = {
   ball: [0.15, 0.47], rocket: [0.075, 0.3], bomb: [0.14, 0.25], bottle: [0.07, 0.8], beacon: [0.06, 0.8],
   charge: [0.1, 1], thermite: [0.085, 0.9], megabomb: [0.25, 1],
+  grenade: [0.02, 0.35], heat: [0.042, 0.28], tbx: [0.0465, 0.35], satchel: [0.12, 1.05],
 };
 
 interface Projectile extends PhysEntity {
@@ -157,19 +184,23 @@ interface Projectile extends PhysEntity {
   from?: Vec3;
   fromV?: Vec3;
   fromStep?: number;
+  /** rounds faster than the solver's 120 m/s cap fly on their own: velocity, and where this step takes them */
+  fv?: Vec3;
+  to?: Vec3;
 }
 
 export const loadout = {
   current: 'hammer' as WeaponId,
   ammo: {} as Partial<Record<WeaponId, number>>,
 };
+/* weapon-side chance (ignition odds, spreads): seeded from where and when, so a replay or a far viewer sees the same */
+const wrnd = randomStream(0x3e4a01);
 const lastFire = Object.fromEntries(WEAPONS.map(w => [w.id, -99])) as Record<WeaponId, number>;
 let now = 0;
 let scene: THREE.Scene;
 const projectiles: Projectile[] = [];
 const swings: { t: number; k: number }[] = [];
 const detonations: { t: number; p: Projectile }[] = [];
-const patches: { pos: Vec3; until: number; tick: number }[] = [];
 interface Sortie { target: Vec3; heading: Vec3; start: Vec3; t0: number; release: number; dropped: number; mesh: THREE.Object3D | null; done: number }
 const sorties: Sortie[] = [];
 const views: WeaponView[] = WEAPONS.map(w => ({ id: w.id, name: w.name, key: w.key, ammo: 0, available: false, ready: 1 }));
@@ -180,6 +211,11 @@ let lastTry = -9;
 let reelFrame = -9;
 let workFrame = -9;
 let chargeKg = 2.5;
+/** grenade launcher: programmed airburst range (m), 0 = point-detonating */
+let airburst = 0;
+/** bunker buster: voids the fuze counts before it fires (0 = where it stops) */
+let voids = 2;
+const busters: { at: number; target: Vec3; from: Vec3; voids: number; spawned: boolean }[] = [];
 let warhead: Warhead = 'tandem';
 let windAt = -1;
 let lastBlow: { mat: MaterialId | null; energy: number; progress: number; chipped: boolean } | null = null;
@@ -221,9 +257,14 @@ export function initWeapons(s: THREE.Scene): void {
   splitHooks.hit = k => { hitmarker(k); if (k >= 0.7) { hitstop(0.05); addTrauma(0.12 * k); } };
   wireHooks.hit = k => { hitmarker(k); if (k >= 0.7) { hitstop(0.05); addTrauma(0.1 * k); } };
   hoseHooks.kick = k => addTrauma(k);
-  hoseHooks.douseAt = (p, r) => {
-    for (let i = patches.length - 1; i >= 0; i--) if (vec3.distance(patches[i].pos, p) < r + FIRE.pool) { patches.splice(i, 1); fx.dust(p, 1.2, 0xe8eef2); }
+  hoseHooks.douseAt = (p, r) => douseFuel(p, r);
+  flamerHooks.consume = () => {
+    const a = loadout.ammo.flamer;
+    if (a === undefined || a === 0) return false;
+    if (a > 0) loadout.ammo.flamer = a - 1;
+    return true;
   };
+  flamerHooks.kick = k => { addTrauma(k); kickRecoil(k * 1.5); };
 }
 
 export function setLoadout(ammo: Partial<Record<WeaponId, number>>, primary?: WeaponId): void {
@@ -260,8 +301,10 @@ function count(type: ProjType): number {
   return n;
 }
 
+const isDevice = (t: ProjType): boolean => t === 'charge' || t === 'cutter' || t === 'satchel';
+
 function armed(): Projectile[] {
-  return projectiles.filter(p => (p.type === 'charge' || p.type === 'cutter') && !p.dead && !detonations.some(d => d.p === p));
+  return projectiles.filter(p => isDevice(p.type) && !p.dead && !detonations.some(d => d.p === p));
 }
 
 /* Everything the detonate key will set off (charges and cutting charges). */
@@ -270,7 +313,7 @@ export function chargesPlaced(): number {
 }
 
 export function liveOrdnance(): number {
-  let n = sorties.length + detonations.length + patches.length;
+  let n = sorties.length + detonations.length + fuelInFlight() + fuelBurning() + busters.length + thermobaricPending() + penetratorPending();
   for (const p of projectiles) if (!p.dead && p.type !== 'ball') n++;
   if (wreckerBusy()) n++;
   return n;
@@ -352,6 +395,14 @@ export function tryFire(): boolean {
       workFrame = frame;
       hoseHold(_eye, _fwd);
       return true;
+    case 'flamer': {
+      workFrame = frame;
+      const pv: Vec3 = [0, 0, 0];
+      b3.b3Body_GetLinearVelocity(pv, player.e.body);
+      const err = flamerHold(_eye, _fwd, _muzzle, pv);
+      if (!err && fresh && flamerOn()) { viewmodel.fire(id); if (flamerLit()) audio.fire(id); }
+      return err ? deny(id, err, fresh) : true;
+    }
     case 'excavator': {
       workFrame = frame;
       const err = excavatorHold(_eye, _fwd, fresh);
@@ -452,6 +503,48 @@ function fire(id: WeaponId, pv: Vec3): string | null {
       spawn('bottle', _muzzle, [_fwd[0] * 17 + pv[0] * 0.5, _fwd[1] * 17 + 3.5, _fwd[2] * 17 + pv[2] * 0.5]);
       kickRecoil(0.3);
       return null;
+    case 'launcher': {
+      const p = spawn('grenade', _muzzle, [_fwd[0] * GRENADE.v0 + pv[0], _fwd[1] * GRENADE.v0 + pv[1], _fwd[2] * GRENADE.v0 + pv[2]]);
+      p.target = [..._muzzle];
+      p.width = airburst;
+      fx.muzzle(_muzzle, _fwd, 'cannon');
+      kickRecoil(1); addTrauma(0.1); kickFov(3);
+      return null;
+    }
+    case 'recoilless': {
+      const p = spawn('heat', _muzzle, [_fwd[0] * HEAT84.v0 + pv[0], _fwd[1] * HEAT84.v0 + pv[1], _fwd[2] * HEAT84.v0 + pv[2]]);
+      p.warhead = 'tandem';
+      fx.muzzle(_muzzle, _fwd, 'rocket');
+      const m = blowBack(_eye, _fwd, BB_RECOILLESS);
+      if (m) onDeny(m);
+      kickRecoil(1.1); addTrauma(0.25); kickFov(7);
+      return null;
+    }
+    case 'thermobaric': {
+      spawn('tbx', _muzzle, [_fwd[0] * TBX.v0 + pv[0], _fwd[1] * TBX.v0 + pv[1], _fwd[2] * TBX.v0 + pv[2]]);
+      fx.muzzle(_muzzle, _fwd, 'rocket');
+      const m = blowBack(_eye, _fwd, BB_THERMOBARIC);
+      if (m) onDeny(m);
+      kickRecoil(0.9); addTrauma(0.15);
+      return null;
+    }
+    case 'buster': {
+      if (busters.length) return 'One bomb already inbound — wait for it';
+      const hit = raycast(_eye, [_fwd[0] * 900, _fwd[1] * 900, _fwd[2] * 900], NO_HIT);
+      if (!hit) return 'Bunker buster: lase a target (nothing under the crosshair)';
+      const target: Vec3 = [hit.point[0], hit.point[1], hit.point[2]];
+      busters.push({ at: now + PEN.radio, target, from: [..._eye], voids, spawned: false });
+      onDeny(`Target lased at ${Math.round(hit.fraction * 900)} m · bomb inbound in ${PEN.radio} s · fuze: ${voids ? `${voids} void${voids === 1 ? '' : 's'}` : 'where it stops'}`);
+      return null;
+    }
+    case 'satchel': {
+      if (count('satchel') >= SATCHEL.max) return `${SATCHEL.max} satchels placed — detonate first`;
+      const p = plantOrThrow('satchel', pv, SATCHEL.throw, SATCHEL.lift);
+      p.kg = SATCHEL.kg;
+      p.delay = nextDelay(p);
+      if (p.stuck) onDeny('Satchel pressed on — its blocks\' adhesive holds it · G / Detonator Panel fires it');
+      return null;
+    }
     case 'megabomb': {
       if (count('megabomb')) return 'Megabomb already armed — clear the blast zone';
       const p = plantOrThrow('megabomb', pv, 8, 1.5);
@@ -466,36 +559,10 @@ function fire(id: WeaponId, pv: Vec3): string | null {
   }
 }
 
-/* Rocket backblast: the propellant gas and the counter-mass go out of the tube's back in a ~70° cone. Near a wall
-   it comes straight back at the firer; in the open it throws what is loose and scorches what burns. */
+/* Rocket backblast (ordnance/backblast.ts): the RPG-7-class cone, 2-3 m to keep clear behind. */
 function backblast(): void {
-  const back: Vec3 = [-_fwd[0], -_fwd[1], -_fwd[2]];
-  const rear: Vec3 = [_eye[0] + back[0] * 0.5, _eye[1] - 0.1 + back[1] * 0.5, _eye[2] + back[2] * 0.5];
-  fx.muzzle(rear, back, 'rocket');
-  fx.dust([rear[0] + back[0] * 2, rear[1] - 0.8, rear[2] + back[2] * 2], 2.2, 0xb8b0a0);
-  const wall = raycast(rear, [back[0] * BACKBLAST.wall, back[1] * BACKBLAST.wall, back[2] * BACKBLAST.wall], NO_HIT);
-  if (wall && wall.entity?.kind !== 'ground') {
-    const k = 1 - wall.fraction;
-    addTrauma(0.3 + 0.4 * k);
-    kickFov(8 + 10 * k);
-    knockback(0.25 + 0.3 * k);
-    onDeny('Backblast came straight back off the wall behind you');
-  }
-  const c: Vec3 = [rear[0] + back[0] * BACKBLAST.reach * 0.5, rear[1] + back[1] * BACKBLAST.reach * 0.5, rear[2] + back[2] * BACKBLAST.reach * 0.5];
-  for (const { p: q, cp } of piecesNear(c, BACKBLAST.reach * 0.5)) {
-    const v: Vec3 = [cp[0] - rear[0], cp[1] - rear[1], cp[2] - rear[2]];
-    const d = vec3.length(v);
-    if (d < 1e-3 || vec3.dot(v, back) / d < Math.cos(BACKBLAST.cone)) continue;
-    const f = clamp(1 - d / BACKBLAST.reach, 0, 1);
-    if (!q.welds.length && !q.hinged) {
-      const J = Math.min(q.mass * 12, 900 * f * f);
-      applyImpulseAt(q, [(v[0] / d) * J, (v[1] / d) * J + J * 0.2, (v[2] / d) * J], q.curPos);
-    }
-    if (d < 3) {
-      heat(q, 90 * f);
-      if (flammable(q.pm) && q.volume < 0.2 && Math.random() < 0.5 * f) ignite(q);
-    }
-  }
+  const m = blowBack(_eye, _fwd, BB_ROCKET);
+  if (m) onDeny(m);
 }
 
 function plantOrThrow(type: ProjType, pv: Vec3, speed: number, lift: number): Projectile {
@@ -648,7 +715,7 @@ function plannerClick(): void {
   if (p) {
     selected = p;
     audio.ui('click');
-    onDeny(`${p.type === 'cutter' ? 'Cutting charge' : `${p.kg} kg charge`} · fires at ${p.delay} ms — wheel to change`);
+    onDeny(`${p.type === 'cutter' ? 'Cutting charge' : p.type === 'satchel' ? 'Satchel charge' : `${p.kg} kg charge`} · fires at ${p.delay} ms — wheel to change`);
     return;
   }
   const hit = raycast(_eye, [_fwd[0] * 150, _fwd[1] * 150, _fwd[2] * 150], NO_HIT);
@@ -669,7 +736,7 @@ export function setDelay(p: Projectile, ms: number): void { p.delay = clamp(Math
 export function devices(): readonly Projectile[] { return armed(); }
 
 export function timelineView(): TimelineView | null {
-  const showing = loadout.current === 'planner' || loadout.current === 'charge' || loadout.current === 'cutter';
+  const showing = loadout.current === 'planner' || loadout.current === 'charge' || loadout.current === 'cutter' || loadout.current === 'satchel';
   const live = firing && (now - firing.t0) * 1000 < firing.span + 1200;
   const list = armed();
   if (!live && (!showing || !list.length)) return null;
@@ -715,6 +782,17 @@ export function toolWheel(dir: number): boolean {
       return true;
     case 'gravgun':
       return gravDistance(dir);
+    case 'launcher':
+      airburst = clamp(airburst + (dir > 0 ? (airburst ? 5 : GRENADE.airburst[0]) : -5), 0, GRENADE.airburst[1]);
+      if (airburst < GRENADE.airburst[0]) airburst = 0;
+      audio.ui('click');
+      onDeny(airburst ? `Fuze: airburst at ${airburst} m` : 'Fuze: point-detonating');
+      return true;
+    case 'buster':
+      voids = penClamp(voids + dir);
+      audio.ui('click');
+      onDeny(voids ? `Fuze counts ${voids} void${voids === 1 ? '' : 's'} (floors) and fires in the last` : 'Fuze: fires where the bomb stops');
+      return true;
     default:
       return false;
   }
@@ -740,6 +818,15 @@ export function toolSecondary(): boolean {
     case 'hose':
       audio.ui('click');
       onDeny(toggleFog() ? 'Fog pattern: wide, short, cools the gas' : 'Straight stream: reach and punch');
+      return true;
+    case 'launcher':
+      airburst = airburst ? 0 : 40;
+      audio.ui('click');
+      onDeny(airburst ? `Fuze: airburst at ${airburst} m (wheel sets the range)` : 'Fuze: point-detonating');
+      return true;
+    case 'flamer':
+      audio.ui('click');
+      onDeny(toggleIgniter() ? 'Igniter on: the stream leaves burning' : 'Igniter off: wet shot, soak it and light it after');
       return true;
     case 'gravgun': return gravRelease();
     case 'wiresaw': return removeRig();
@@ -851,6 +938,46 @@ function makeMesh(type: ProjType): THREE.Object3D {
       g.add(ledBox(0.07, 0.2, 0.1, 0.2));
       return g;
     }
+    case 'grenade': {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.05, 12), getProjectileMaterial('rocket'));
+      body.rotation.x = Math.PI / 2;
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.02, 12, 8), getProjectileMaterial('charge'));
+      nose.position.z = -0.025;
+      g.add(body, nose);
+      return g;
+    }
+    case 'heat': case 'tbx': case 'pen': {
+      const g = new THREE.Group();
+      const [r, L] = type === 'heat' ? [0.042, 0.5] : type === 'tbx' ? [0.0465, 0.6] : [0.095, 1.8];
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, L * 0.7, 14), getProjectileMaterial(type === 'tbx' ? 'charge' : 'rocket'));
+      body.rotation.x = Math.PI / 2;
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(r, L * 0.3, 14), getProjectileMaterial('iron'));
+      tip.rotation.x = -Math.PI / 2;
+      tip.position.z = -L * 0.5;
+      g.add(body, tip);
+      for (const a of [0, Math.PI / 2]) {
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(r * 3.2, 0.006, L * 0.18), getProjectileMaterial('iron'));
+        fin.rotation.z = a;
+        fin.position.z = L * 0.3;
+        g.add(fin);
+      }
+      if (type !== 'pen') {
+        const flame = new THREE.Mesh(new THREE.SphereGeometry(r * 1.1, 8, 6), glow());
+        flame.position.z = L * 0.4;
+        flame.name = 'flame';
+        g.add(flame);
+      }
+      return g;
+    }
+    case 'satchel': {
+      const g = new THREE.Group();
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.14), getProjectileMaterial('charge')));
+      const strap = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.008, 6, 16, Math.PI), getProjectileMaterial('iron'));
+      strap.position.y = 0.06;
+      g.add(strap, ledBox(0.03, 0.06, 0.065, 0.05));
+      return g;
+    }
   }
 }
 
@@ -883,11 +1010,13 @@ function spawn(type: ProjType, pos: Vec3, vel: Vec3, target?: Vec3): Projectile 
   bd.type = b3.b3BodyType.b3_dynamicBody;
   bd.position = [pos[0], pos[1], pos[2]];
   bd.linearVelocity = vel;
-  bd.isBullet = type === 'ball' || type === 'rocket' || type === 'bomb';
+  bd.isBullet = type === 'ball' || type === 'rocket' || type === 'bomb' || type === 'grenade' || type === 'heat' || type === 'tbx' || type === 'pen';
   if (type === 'ball' || type === 'beacon' || type === 'bottle') bd.angularVelocity = [Math.random() * 16 - 8, Math.random() * 16 - 8, Math.random() * 16 - 8];
+  const fast = FAST.has(type);
+  if (fast) { bd.type = b3.b3BodyType.b3_kinematicBody; bd.linearVelocity = [0, 0, 0]; bd.isBullet = false; }
   const body = b3.b3CreateBody(world, bd);
   const sd = b3.b3DefaultShapeDef();
-  sd.filter = filter(CAT.projectile, ALL & ~(CAT.player | CAT.projectile));
+  sd.filter = fast ? filter(CAT.projectile, 0n) : filter(CAT.projectile, ALL & ~(CAT.player | CAT.projectile));
   sd.enableContactEvents = false;
   sd.enableHitEvents = type === 'ball' || SWEPT[type] !== undefined;
   sd.baseMaterial.friction = 0.6;
@@ -906,6 +1035,15 @@ function spawn(type: ProjType, pos: Vec3, vel: Vec3, target?: Vec3): Projectile 
   } else if (type === 'megabomb') {
     sd.density = 700;
     shape = b3.b3CreateBoxShape(body, sd, 0.28, 0.2, 0.21);
+  } else if (type === 'satchel') {
+    sd.density = 9.5 / (0.2 * 0.12 * 0.14);
+    sd.baseMaterial.friction = 0.9;
+    sd.baseMaterial.restitution = 0.02;
+    shape = b3.b3CreateBoxShape(body, sd, 0.1, 0.06, 0.07);
+  } else if (type === 'grenade' || type === 'heat' || type === 'tbx' || type === 'pen') {
+    const [r, m] = type === 'grenade' ? [0.02, GRENADE.mass] : type === 'heat' ? [0.042, HEAT84.mass] : type === 'tbx' ? [0.0465, TBX.mass] : [0.095, PEN.mass];
+    sd.density = m / ((4 / 3) * Math.PI * r ** 3);
+    shape = b3.b3CreateSphereShape(body, sd, { center: [0, 0, 0], radius: r });
   } else {
     const r = type === 'ball' ? 0.15 : type === 'bomb' ? 0.14 : type === 'bottle' ? 0.07 : 0.08;
     sd.density = type === 'ball' ? 2120 : type === 'bomb' ? 4400 : type === 'bottle' ? 900 : 700;
@@ -924,6 +1062,7 @@ function spawn(type: ProjType, pos: Vec3, vel: Vec3, target?: Vec3): Projectile 
     host: null, armAt: -1, lit: false, tick: 0, beat: 0, chew: 0, width: 0.6, kg: 2.5, delay: 0,
     drag: ae ? (0.5 * 1.225 * ae[1] * Math.PI * ae[0] * ae[0]) / Math.max(mass, 0.1) : 0, warhead: 'he',
   };
+  if (fast) { p.fv = [...vel]; p.mass = type === 'heat' ? HEAT84.mass : PEN.mass; p.drag = type === 'heat' ? (0.5 * 1.225 * AERO.heat![1] * Math.PI * AERO.heat![0] ** 2) / HEAT84.mass : 0; }
   register(p);
   projectiles.push(p);
   orient(p, vel);
@@ -932,7 +1071,7 @@ function spawn(type: ProjType, pos: Vec3, vel: Vec3, target?: Vec3): Projectile 
 
 const _fwdAxis = new THREE.Vector3(0, 0, -1), _dir = new THREE.Vector3();
 function orient(p: Projectile, v: ArrayLike<number>): void {
-  if (p.type !== 'rocket' && p.type !== 'bomb') return;
+  if (p.type !== 'rocket' && p.type !== 'bomb' && p.type !== 'heat' && p.type !== 'tbx' && p.type !== 'pen' && p.type !== 'grenade') return;
   _dir.set(v[0], v[1], v[2]);
   if (_dir.lengthSq() < 1) return;
   p.mesh.quaternion.setFromUnitVectors(_fwdAxis, _dir.normalize());
@@ -951,13 +1090,16 @@ function removeProjectile(p: Projectile): void {
 function blowUp(p: Projectile, at: Vec3): void {
   if (p.type === 'cutter') { recordFire(p); cut(p); return; }
   if (p.type === 'megabomb') { megaBlast(p, at); return; }
-  if (p.type === 'charge') recordFire(p);
+  if (p.type === 'charge' || p.type === 'satchel') recordFire(p);
   removeProjectile(p);
   if (p.type === 'rocket') explode(at, ROCKET.radius, ROCKET.power, ROCKET.impulse);
   else if (p.type === 'bomb') explode(at, BOMB.radius, BOMB.power, BOMB.impulse, 1.2);
   else if (p.type === 'charge') {
     const b = blastOf(p.kg);
     explode(at, b.radius, b.power, b.impulse, CHARGE.weldReach);
+  } else if (p.type === 'satchel') {
+    const b = blastOf(p.kg);
+    explode(at, b.radius, b.power, b.impulse, CHARGE.weldReach, 30);
   }
 }
 
@@ -1168,49 +1310,44 @@ function burnOut(p: Projectile): void {
 
 /* ---------------- firebomb ---------------- */
 
+/* The bottle bursts: a quarter of the petrol goes up at once as a fireball of atomised fuel (the flash), the rest
+   is thrown out as a splash of burning globs that run down what they hit and gather in pools (fuel.ts). */
 function shatter(p: Projectile, at: Vec3, normal: Vec3): void {
+  const v: Vec3 = [0, 0, 0];
+  velOf(p, v);
   removeProjectile(p);
-  fx.firebomb(at, FIRE.radius);
+  fx.firebomb(at, FIRE.radius * 0.6);
   softHeat(at, FIRE.radius, 700);
   fx.shards(at, 10);
   audio.firebomb(at);
+  wrnd.at(at[0], at[1], at[2], stepCount);
   for (const { p: q, d } of piecesNear(at, FIRE.radius)) {
     const f = 1 - d / FIRE.radius;
     // the flash heats a surface skin, not the whole member: q·A·t over its heat capacity, a few hundred °C on a crate
     heat(q, (FIRE.flux * f * Math.min(4, surfaceArea(q)) * FIRE.flash) / heatCap(q));
-    if (flammable(q.pm) && (d < FIRE.radius * 0.6 || Math.random() < f)) ignite(q);
+    if (flammable(q.pm) && (d < FIRE.radius * 0.6 || wrnd() < f)) ignite(q);
   }
-  const o: Vec3 = [at[0] + normal[0] * 0.15, at[1] + normal[1] * 0.15 + 0.05, at[2] + normal[2] * 0.15];
-  const down = raycast(o, [0, -12, 0], NO_HIT);
-  const pool: Vec3 = down ? [down.point[0], down.point[1] + 0.03, down.point[2]] : [at[0], 0.03, at[2]];
-  fx.fire(pool, FIRE.poolTime, 2);
-  if (down?.entity?.kind === 'ground') fx.scorch([pool[0], pool[1] - 0.02, pool[2]], 2.2);
-  patches.push({ pos: pool, until: now + FIRE.poolTime, tick: 0 });
+  // the splash: out over the struck face and on along the throw, heaviest along the surface
+  const n = vec3.normalize([0, 0, 0], normal) as Vec3;
+  const vn = vec3.dot(v, n);
+  const along: Vec3 = [v[0] - n[0] * vn, v[1] - n[1] * vn, v[2] - n[2] * vn];
+  const kg = FIRE.litres * PETROL.rho / 1000 * (1 - FIRE.flashShare);
+  for (let i = 0; i < FIRE.globs; i++) {
+    const ang = (i / FIRE.globs) * Math.PI * 2 + wrnd() * 0.4;
+    const t: Vec3 = [Math.cos(ang), 0, Math.sin(ang)];
+    vec3.scaleAndAdd(t, t, n, -vec3.dot(t, n));
+    if (vec3.length(t) < 0.1) vec3.set(t, n[1], n[2], n[0]);
+    vec3.normalize(t, t);
+    const sp = 2 + wrnd() * 3.5;
+    const up = 0.8 + wrnd() * 1.8;
+    const gv: Vec3 = [t[0] * sp + n[0] * up + along[0] * 0.25, t[1] * sp + n[1] * up + along[1] * 0.25, t[2] * sp + n[2] * up + along[2] * 0.25];
+    launchFuel([at[0] + n[0] * 0.08, at[1] + n[1] * 0.08, at[2] + n[2] * 0.08], gv, kg / FIRE.globs, PETROL, true, 0.05);
+  }
+  if (at[1] < groundAt(at[0], at[2]) + 0.3) fx.scorch([at[0], at[1] + 0.01, at[2]], 2.2);
   // the flash is felt as much as seen: a whoomph of heat on the face when it goes up close by
   const near = player.e ? vec3.distance(player.e.curPos, at) : 99;
   if (near < 12) { addTrauma(0.1 + 0.15 * (1 - near / 12)); kickFov(3 * (1 - near / 12)); }
   if (near < 6) blastVignette(0.35 * (1 - near / 6));
-}
-
-/* The burning pool keeps cooking whatever stands in it, and pours its heat and smoke into the room. */
-function updatePatches(dt: number): void {
-  for (let i = patches.length - 1; i >= 0; i--) {
-    const f = patches[i];
-    if (now >= f.until) { patches.splice(i, 1); continue; }
-    f.tick -= dt;
-    if (f.tick > 0) continue;
-    f.tick += 0.25;
-    const above: Vec3 = [f.pos[0], f.pos[1] + 0.6, f.pos[2]];
-    addHeat(above, FIRE.hrr, 0.25);
-    addSmoke(above, 40, 0.9, 0.25);
-    for (const { p: q, d } of piecesNear(above, FIRE.pool)) {
-      const k = 1 - d / FIRE.pool;
-      if (flammable(q.pm)) {
-        heat(q, 45 * k);
-        if (d < 1.2 && Math.random() < 0.2) ignite(q);
-      } else heat(q, 12 * k);
-    }
-  }
 }
 
 /* ---------------- megabomb ---------------- */
@@ -1303,6 +1440,12 @@ function updateSorties(): void {
 }
 
 const _v: Vec3 = [0, 0, 0];
+/** a round's velocity, wherever it is kept */
+function velOf(p: Projectile, out: Vec3): Vec3 {
+  if (p.fv) return copy3(out, p.fv);
+  b3.b3Body_GetLinearVelocity(out, p.body);
+  return out;
+}
 
 /* Swept collision for ordnance that acts on contact (goes off, shatters or sticks). A rocket covers 2 m a step, several
    times a half-brick wall or a flue's side, so a contact the solver finds at the end of a step can already be past the
@@ -1310,7 +1453,10 @@ const _v: Vec3 = [0, 0, 0];
    for a step). So: before the step the round's own sphere is swept along where it is going, from where the solver
    really has it; a contact the solver reports anyway sets it off; and after the step the path it actually travelled is
    swept again (a blast's shove, a step it was not steered on). The first solid surface on the path is where it acts. */
-const SWEPT: Partial<Record<ProjType, number>> = { rocket: 0.08, bomb: 0.14, bottle: 0.07, charge: 0.1, thermite: 0.085, megabomb: 0.22 };
+const SWEPT: Partial<Record<ProjType, number>> = {
+  rocket: 0.08, bomb: 0.14, bottle: 0.07, charge: 0.1, thermite: 0.085, megabomb: 0.22,
+  grenade: 0.02, heat: 0.042, tbx: 0.0465, pen: 0.095, satchel: 0.12,
+};
 const HIT_Q = queryFilter(NO_HIT);
 const _sp: Vec3 = [0, 0, 0], _sn: Vec3 = [0, 0, 0], PT = [0, 0, 0];
 
@@ -1332,17 +1478,83 @@ function sweep(from: Vec3, d: Vec3, r: number): RayHit | null {
 
 function impact(p: Projectile, hit: RayHit, v: Vec3): void {
   const point = hit.point as Vec3, n = hit.normal as Vec3;
-  const back: Vec3 = [point[0] - v[0] * 0.002, point[1] - v[1] * 0.002, point[2] - v[2] * 0.002];
+  // just short of the face: ~2 ms of flight back, but never more than a hand's breadth for the fast rounds
+  const sb = p.fv ? 0.25 / Math.max(1, vec3.length(v)) : 0.002;
+  const back: Vec3 = [point[0] - v[0] * sb, point[1] - v[1] * sb, point[2] - v[2] * sb];
   if (STICKY.has(p.type)) stick(p, point, n, hit.entity, plantRot(pieceOf(hit.entity), n));
   else if (p.type === 'bottle') shatter(p, back, n);
+  else if (p.type === 'grenade') grenadeHit(p, back, v);
+  else if (p.type === 'heat') {
+    const sp = vec3.length(v) || 1;
+    removeProjectile(p);
+    const r = heatImpact(point, [v[0] / sp, v[1] / sp, v[2] / sp], hit.entity, back);
+    if (r.perforated) hitmarker(clamp(0.5 + 0.25 * r.perforated, 0, 1));
+  } else if (p.type === 'tbx') {
+    // the capsule goes through window glass (it is meant to be fired into rooms) and opens on what stops it
+    const q = pieceOf(hit.entity);
+    if (q && isFragile(q)) { if (!q.queued) damagePiece(q, point, q.hp * 1.5, true); return; }
+    removeProjectile(p);
+    thermobaricBurst(back, n);
+  }
+  else if (p.type === 'pen') {
+    const sp = vec3.length(v) || 1;
+    removeProjectile(p);
+    penetrate(point, [v[0] / sp, v[1] / sp, v[2] / sp], sp, hit.entity, p.beat);
+  } else if (p.type === 'satchel') satchelLands(p, point, n, hit, v);
   else if (p.type === 'rocket') rocketImpact(p, point, hit.entity, back, v);
   else blowUp(p, back);
+}
+
+/* A grenade that struck inside its arming distance is a dud, and a satchel bouncing off a wall is only a bag: neither
+   acts on contact until it lies still (a dud never does). */
+const unfused = (p: Projectile): boolean => (p.type === 'grenade' && p.lit) || (p.type === 'satchel' && p.tick > now);
+
+function grenadeHit(p: Projectile, back: Vec3, v: Vec3): void {
+  const flown = p.target ? vec3.distance(p.target, back) : 99;
+  if (flown < GRENADE.arm) {
+    // spun up too little to arm: it thuds and lies there
+    p.lit = true;
+    audio.impact(back, 'steel', 0.25);
+    onDeny(`Dud — the grenade flew ${Math.round(flown)} m, it arms after ${GRENADE.arm} m`);
+    return;
+  }
+  removeProjectile(p);
+  const hits = grenadeBurst(back, v, false);
+  if (hits) hitmarker(0.4);
+}
+
+/* The bag lands: on something it can lie on it stays; off a wall or a slope it drops and slides on. */
+function satchelLands(p: Projectile, point: Vec3, n: Vec3, hit: RayHit, v: Vec3): void {
+  if (n[1] > 0.6) { stick(p, point, n, hit.entity, plantRot(pieceOf(hit.entity), n)); return; }
+  const vn = vec3.dot(v, n);
+  const out: Vec3 = [(v[0] - 1.1 * vn * n[0]) * 0.25, (v[1] - 1.1 * vn * n[1]) * 0.25, (v[2] - 1.1 * vn * n[2]) * 0.25];
+  b3.b3Body_SetLinearVelocity(p.body, out);
+  p.tick = now + 0.25;
+  audio.chargeStick(point);
+}
+
+/* One step of a fast round's own flight: drag and gravity, the swept path to the first surface, then on. */
+function flyFast(p: Projectile): void {
+  const v = p.fv!, s = vec3.length(v);
+  v[0] -= p.drag * s * v[0] * FIXED_DT;
+  v[1] -= (p.drag * s * v[1] + 9.81) * FIXED_DT;
+  v[2] -= p.drag * s * v[2] * FIXED_DT;
+  const from = p.from ??= [0, 0, 0];
+  copy3(from, p.curPos);
+  copy3(p.fromV ??= [0, 0, 0], v);
+  p.fromStep = stepCount;
+  const d: Vec3 = [v[0] * FIXED_DT, v[1] * FIXED_DT, v[2] * FIXED_DT];
+  const hit = sweep(from, d, SWEPT[p.type]!);
+  if (hit) { impact(p, hit, v); if (p.dead) return; }
+  const to = p.to ??= [0, 0, 0];
+  vec3.add(to, from, d);
+  b3.b3Body_SetTransform(p.body, to, p.curRot);
 }
 
 /* After the step: what the round passed through on its way from where the step began to where it is now. */
 function sweptPath(p: Projectile): void {
   const r = SWEPT[p.type];
-  if (r === undefined || !p.from || p.dead || p.stuck || p.fromStep !== stepCount - 1) return;
+  if (r === undefined || !p.from || p.dead || p.stuck || p.fromStep !== stepCount - 1 || unfused(p) || p.fv) return;
   b3.b3Body_GetPosition(_v, p.body);
   const d: Vec3 = [_v[0] - p.from[0], _v[1] - p.from[1], _v[2] - p.from[2]];
   if (vec3.squaredLength(d) < 1e-6) return;
@@ -1356,8 +1568,9 @@ export function weaponsPreStep(): void {
   const held = heldEntity();
   for (const p of projectiles) {
     if (p.dead || p.stuck || p === held) continue;
+    if (p.fv) { flyFast(p); continue; }
     if (p.drag > 0 || p.type === 'rocket') {
-      b3.b3Body_GetLinearVelocity(_v, p.body);
+      velOf(p, _v);
       const age = now - p.born;
       const s = vec3.length(_v);
       if (p.type === 'rocket' && age > MOTOR.ignite && age < MOTOR.burn && s > 1 && s < MOTOR.max) {
@@ -1369,10 +1582,10 @@ export function weaponsPreStep(): void {
       b3.b3Body_SetLinearVelocity(p.body, _v);
     }
     const r = SWEPT[p.type];
-    if (r === undefined) continue;
+    if (r === undefined || unfused(p)) continue;
     const from = p.from ??= [0, 0, 0], v = p.fromV ??= [0, 0, 0];
     b3.b3Body_GetPosition(from, p.body);
-    b3.b3Body_GetLinearVelocity(v, p.body);
+    velOf(p, v);
     p.fromStep = stepCount;
     const k = FIXED_DT * 1.25;
     const hit = sweep(from, [v[0] * k, v[1] * k, v[2] * k], r);
@@ -1428,6 +1641,7 @@ export function weaponsAfterStep(dt: number): void {
         }
       }
     }
+    if (p.fv && p.to && p.from && p.fromStep === stepCount - 1) { copy3(p.prevPos, p.from); copy3(p.curPos, p.to); p.movedStep = stepCount; }
     if (p !== held) sweptPath(p);
     if (p.dead) continue;
     switch (p.type) {
@@ -1443,7 +1657,7 @@ export function weaponsAfterStep(dt: number): void {
       case 'beacon':
         if (p.landedAt < 0) {
           if (p === held) break;
-          b3.b3Body_GetLinearVelocity(_v, p.body);
+          velOf(p, _v);
           if ((age > 0.5 && vec3.length(_v) < 1) || age > 3) callStrike(p);
         } else if (now - p.landedAt > 14) {
           removeProjectile(p);
@@ -1454,7 +1668,7 @@ export function weaponsAfterStep(dt: number): void {
         break;
       case 'bottle':
         if (p === held) break;
-        b3.b3Body_GetLinearVelocity(_v, p.body);
+        velOf(p, _v);
         if ((age > 0.3 && vec3.length(_v) < 1.5) || age > 8) shatter(p, [...p.curPos], [0, 1, 0]);
         break;
       case 'megabomb': {
@@ -1471,17 +1685,62 @@ export function weaponsAfterStep(dt: number): void {
       case 'charge':
       case 'cutter':
         break;
+      case 'grenade': {
+        if (p === held) break;
+        if (p.lit) { if (age > 10) removeProjectile(p); break; }
+        const flown = p.target ? vec3.distance(p.target, p.curPos) : 0;
+        if (p.width > 0 && flown >= p.width && flown >= GRENADE.arm) {
+          velOf(p, _v);
+          removeProjectile(p);
+          grenadeBurst([...p.curPos], [_v[0], _v[1], _v[2]], true);
+        } else if (age > 12) removeProjectile(p);
+        break;
+      }
+      case 'heat':
+        if (age > 6) removeProjectile(p);
+        break;
+      case 'tbx':
+        // past its range the capsule opens where it is
+        if (age > 8) { removeProjectile(p); thermobaricBurst([...p.curPos], [0, 1, 0]); }
+        break;
+      case 'pen':
+        if (age > 10) removeProjectile(p);
+        break;
+      case 'satchel':
+        if (!p.stuck && p.tick <= now && age > 0.5) {
+          velOf(p, _v);
+          // come to rest on whatever it slid onto: it lies there, held by its weight
+          if (vec3.length(_v) < 0.4) {
+            const down = raycast(p.curPos, [0, -0.4, 0], NO_HIT);
+            if (down) stick(p, down.point as Vec3, down.normal as Vec3, down.entity, plantRot(pieceOf(down.entity), down.normal as Vec3));
+          }
+        }
+        break;
     }
     if (!p.dead && p.curPos[1] < -20) removeProjectile(p);
     // the next step's path starts here, whether or not the pre-step runs (it does not while the player drives)
-    if (!p.dead && !p.stuck && SWEPT[p.type] !== undefined) {
+    if (!p.dead && !p.stuck && !p.fv && (SWEPT[p.type] !== undefined || p.type === 'ball')) {
       b3.b3Body_GetPosition(p.from ??= [0, 0, 0], p.body);
       b3.b3Body_GetLinearVelocity(p.fromV ??= [0, 0, 0], p.body);
       p.fromStep = stepCount;
     }
   }
 
-  updatePatches(dt);
+  fuelStep(dt);
+  flamerStep(dt);
+  thermobaricStep(dt);
+  penetratorStep(dt);
+  for (let i = busters.length - 1; i >= 0; i--) {
+    const b = busters[i];
+    if (!b.spawned && now >= b.at - 1.25) {
+      b.spawned = true;
+      const a = approach(b.target, b.from);
+      const pen = spawn('pen', a.start, a.vel);
+      pen.beat = b.voids;
+      audio.incoming(b.target);
+    }
+    if (now >= b.at + 3) busters.splice(i, 1);
+  }
   winchAfterStep(dt);
   wreckerAfterStep(dt);
   const cur = loadout.current;
@@ -1497,7 +1756,7 @@ export function weaponsAfterStep(dt: number): void {
 export function onProjectileHit(a: PhysEntity | undefined, b: PhysEntity | undefined, point: Vec3, speed: number, normal?: Vec3): void {
   if (wreckerHit(a, b, point, speed)) return;
   const ball = a?.kind === 'projectile' ? (a as Projectile) : b?.kind === 'projectile' ? (b as Projectile) : null;
-  if (ball && !ball.dead && !ball.stuck && SWEPT[ball.type] !== undefined && ball !== heldEntity()) {
+  if (ball && !ball.dead && !ball.stuck && SWEPT[ball.type] !== undefined && ball !== heldEntity() && !unfused(ball)) {
     // the contact normal points A→B: turn it to face the round
     const s = ball === a ? -1 : 1, other = ball === a ? b : a;
     const n: Vec3 = normal ? [normal[0] * s, normal[1] * s, normal[2] * s] : [0, 1, 0];
@@ -1509,6 +1768,23 @@ export function onProjectileHit(a: PhysEntity | undefined, b: PhysEntity | undef
   if (!ball || ball.type !== 'ball' || speed < 10) return;
   const other = ball === a ? b : a;
   const struck = pieceOf(other);
+  if (struck && ball.fromV && ball.fromStep === stepCount - 1 && ball.host !== struck) {
+    // the shot's own penetration: how deep, whether it goes through, what it throws off the back
+    const V = vec3.length(ball.fromV);
+    if (V > 20) {
+      const dir: Vec3 = [ball.fromV[0] / V, ball.fromV[1] / V, ball.fromV[2] / V];
+      const r = shotStrike(struck, point, dir, V, ball.mass, 0.3);
+      ball.host = struck;
+      if (r.outcome === 'perforated' && r.exit) {
+        const out: Vec3 = [r.exit[0] + dir[0] * 0.2, r.exit[1] + dir[1] * 0.2, r.exit[2] + dir[2] * 0.2];
+        b3.b3Body_SetTransform(ball.body, out, [0, 0, 0, 1]);
+        b3.b3Body_SetLinearVelocity(ball.body, [dir[0] * r.v, dir[1] * r.v, dir[2] * r.v]);
+        copy3(ball.curPos, out);
+        hitmarker(1);
+        hitstop(0.05);
+      }
+    }
+  }
   if (struck) {
     hitmarker(clamp(speed / 60, 0.3, 1));
     if (normal) {
@@ -1522,7 +1798,7 @@ export function onProjectileHit(a: PhysEntity | undefined, b: PhysEntity | undef
 
 function canGrab(e: PhysEntity): boolean {
   const p = e as Projectile;
-  return projectiles.includes(p) && !p.dead && !p.stuck && p.type !== 'rocket' && p.type !== 'bomb';
+  return projectiles.includes(p) && !p.dead && !p.stuck && p.type !== 'rocket' && p.type !== 'bomb' && p.type !== 'heat' && p.type !== 'tbx' && p.type !== 'pen';
 }
 
 /* ---------------- aim assist ---------------- */
@@ -1540,7 +1816,8 @@ const arcPts: number[] = [];
 function predict(type: ProjType, pos: Vec3, vel: Vec3, s: AimState): Vec3 | null {
   const ae = AERO[type];
   const r = ae ? ae[0] : 0.1;
-  const mass = type === 'ball' ? 2120 * (4 / 3) * Math.PI * 0.15 ** 3 : type === 'rocket' ? 700 * (4 / 3) * Math.PI * 0.08 ** 3 : 900 * (4 / 3) * Math.PI * 0.07 ** 3;
+  const mass = type === 'ball' ? 2120 * (4 / 3) * Math.PI * 0.15 ** 3 : type === 'rocket' ? 700 * (4 / 3) * Math.PI * 0.08 ** 3
+    : type === 'grenade' ? GRENADE.mass : type === 'heat' ? HEAT84.mass : type === 'tbx' ? TBX.mass : 900 * (4 / 3) * Math.PI * 0.07 ** 3;
   const drag = ae ? (0.5 * 1.225 * ae[1] * Math.PI * r * r) / mass : 0;
   const p: Vec3 = [...pos], v: Vec3 = [...vel];
   const h = 1 / 30;
@@ -1579,20 +1856,20 @@ function reachPreview(R: number, what: (p: Piece | null) => AimState): void {
   if (p && !far) outline(p, s, 0.4);
 }
 
-function plantPreview(type: 'charge' | 'thermite' | 'megabomb'): void {
+function plantPreview(type: 'charge' | 'thermite' | 'megabomb' | 'satchel'): void {
   const hit = raycast(_eye, [_fwd[0] * PLANT_REACH, _fwd[1] * PLANT_REACH, _fwd[2] * PLANT_REACH], NO_HIT);
   if (!hit) {
     aim();
-    const sp = type === 'thermite' ? 12 : type === 'megabomb' ? 8 : 11;
+    const sp = type === 'thermite' ? 12 : type === 'megabomb' ? 8 : type === 'satchel' ? SATCHEL.throw : 11;
     predict('bottle', _muzzle, [_fwd[0] * sp, _fwd[1] * sp + 1.6, _fwd[2] * sp], 'far');
     return;
   }
   const p = pieceOf(hit.entity);
   const n = hit.normal as Vec3;
   const rot = plantRot(p, n) ?? (quat.rotationTo([0, 0, 0, 1], [0, 1, 0], n) as Quat);
-  const kg = type === 'charge' ? chargeKg : type === 'megabomb' ? MEGA.kg : 1;
+  const kg = type === 'charge' ? chargeKg : type === 'megabomb' ? MEGA.kg : type === 'satchel' ? SATCHEL.kg : 1;
   const k = type === 'charge' ? Math.cbrt(kg / 2.5) : 1;
-  const size: Vec3 = type === 'charge' ? [0.28 * k, 0.1 * k, 0.2 * k] : type === 'megabomb' ? [0.56, 0.4, 0.42] : [0.17, 0.16, 0.17];
+  const size: Vec3 = type === 'charge' ? [0.28 * k, 0.1 * k, 0.2 * k] : type === 'megabomb' ? [0.56, 0.4, 0.42] : type === 'satchel' ? [0.2, 0.12, 0.14] : [0.17, 0.16, 0.17];
   const off = (STICK_OFFSET[type] ?? 0.05);
   marks.box([hit.point[0] + n[0] * off, hit.point[1] + n[1] * off, hit.point[2] + n[2] * off], rot, size, 'ok', 0.9);
   const r = type === 'thermite' ? THERMITE.reach : blastOf(kg).radius * 0.25;
@@ -1628,6 +1905,9 @@ function cutterPreview(): void {
 }
 
 const jetPreview: JetPath = { pts: [], n: 0, hit: null };
+let flameLanding: ReturnType<typeof traceFlame> = null;
+let burstAt: Vec3 | null = null;
+let lased = -1;
 
 function preview(): void {
   marks.begin();
@@ -1645,6 +1925,40 @@ function preview(): void {
       if (h) marks.sphere(h, warhead === 'tandem' ? blastOf(TANDEM.follow).radius : ROCKET.radius, 'far', 0.25);
       break;
     }
+    case 'launcher': {
+      const h = predict('grenade', _muzzle, [_fwd[0] * GRENADE.v0, _fwd[1] * GRENADE.v0, _fwd[2] * GRENADE.v0], airburst ? 'sel' : 'ok');
+      if (airburst > 0) {
+        // the burst point: the programmed range along the arc
+        let acc = 0;
+        for (let i = 3; i < arcPts.length; i += 3) {
+          const d = Math.hypot(arcPts[i] - arcPts[i - 3], arcPts[i + 1] - arcPts[i - 2], arcPts[i + 2] - arcPts[i - 1]);
+          if (acc + d >= airburst) { const at: Vec3 = [arcPts[i], arcPts[i + 1], arcPts[i + 2]]; marks.sphere(at, 5, 'bad', 0.25); burstAt = at; break; }
+          acc += d;
+        }
+      } else if (h) marks.sphere(h, 5, 'far', 0.2);
+      break;
+    }
+    case 'recoilless': {
+      const h = predict('heat', _muzzle, [_fwd[0] * HEAT84.v0, _fwd[1] * HEAT84.v0, _fwd[2] * HEAT84.v0], 'ok');
+      if (h) marks.marker(h, [-_fwd[0], -_fwd[1], -_fwd[2]], 0.12, 'ok');
+      break;
+    }
+    case 'thermobaric': {
+      const h = predict('tbx', _muzzle, [_fwd[0] * TBX.v0, _fwd[1] * TBX.v0, _fwd[2] * TBX.v0], 'ok');
+      if (h) marks.sphere(h, TBX.reach * 0.55, 'bad', 0.2);
+      break;
+    }
+    case 'buster': {
+      const hit = raycast(_eye, [_fwd[0] * 900, _fwd[1] * 900, _fwd[2] * 900], NO_HIT);
+      if (hit) {
+        marks.marker(hit.point as Vec3, hit.normal as Vec3, 0.6, 'bad');
+        marks.sphere(hit.point as Vec3, 3.1 * Math.cbrt(PEN.tnt), 'far', 0.12);
+        lased = hit.fraction * 900;
+      } else lased = -1;
+      for (const b of busters) marks.marker(b.target, [0, 1, 0], 1.2, 'bad');
+      break;
+    }
+    case 'satchel': plantPreview('satchel'); break;
     case 'incendiary': case 'airstrike': {
       const h = predict('bottle', _muzzle, [_fwd[0] * 17, _fwd[1] * 17 + 3.5, _fwd[2] * 17], 'ok');
       if (h) marks.sphere(h, cur === 'incendiary' ? FIRE.radius : BOMB.radius, cur === 'incendiary' ? 'far' : 'bad', 0.25);
@@ -1670,7 +1984,7 @@ function preview(): void {
       const pick = pickDevice();
       for (const p of armed()) {
         const s: AimState = p === selected ? 'sel' : p === pick ? 'ok' : 'far';
-        marks.box(p.curPos, p.curRot, p.type === 'cutter' ? [p.width, 0.08, 0.1] : [0.35, 0.18, 0.28], s, 0.9);
+        marks.box(p.curPos, p.curRot, p.type === 'cutter' ? [p.width, 0.08, 0.1] : p.type === 'satchel' ? [0.3, 0.2, 0.24] : [0.35, 0.18, 0.28], s, 0.9);
       }
       if (!pick) {
         const hit = raycast(_eye, [_fwd[0] * 150, _fwd[1] * 150, _fwd[2] * 150], NO_HIT);
@@ -1709,6 +2023,12 @@ function preview(): void {
       break;
     }
     case 'wiresaw': reachPreview(WIRE.reach, p => (p ? 'ok' : 'bad')); break;
+    case 'flamer': {
+      flameLanding = traceFlame(_muzzle, _fwd, arcPts);
+      if (!flamerOn()) marks.arc(arcPts, arcPts.length / 3, flamerLit() ? 'ok' : 'sel');
+      if (flameLanding) marks.marker(flameLanding.point, flameLanding.normal, 0.5, flamerLit() ? 'ok' : 'sel');
+      break;
+    }
   }
   marks.end();
   tags.end();
@@ -1719,7 +2039,7 @@ function preview(): void {
 const _tp: Vec3 = [0, 0, 0];
 function deviceTags(cur: WeaponId): void {
   const pending = detonations.length > 0;
-  if (!pending && cur !== 'charge' && cur !== 'cutter' && cur !== 'planner') return;
+  if (!pending && cur !== 'charge' && cur !== 'cutter' && cur !== 'planner' && cur !== 'satchel') return;
   const list = armed().sort((a, b) => a.delay - b.delay || a.born - b.born);
   const firing = detonations.filter(d => !d.p.dead).sort((a, b) => a.t - b.t);
   let rank = 0, last = -1;
@@ -1740,7 +2060,7 @@ function deviceTags(cur: WeaponId): void {
 /* ---------------- per-frame sync ---------------- */
 
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
-const FLYBY: Partial<Record<ProjType, number>> = { ball: 0.3, rocket: 0.3, bomb: 0.5, bottle: 0.15, charge: 0.2, thermite: 0.2, megabomb: 0.5 };
+const FLYBY: Partial<Record<ProjType, number>> = { ball: 0.3, rocket: 0.3, bomb: 0.5, bottle: 0.15, charge: 0.2, thermite: 0.2, megabomb: 0.5, grenade: 0.12, heat: 0.3, tbx: 0.3, pen: 1.2, satchel: 0.3 };
 
 function syncCord(): void {
   const list = armed().sort((a, b) => a.delay - b.delay || a.born - b.born);
@@ -1770,11 +2090,21 @@ export function syncProjectiles(alpha: number, dt: number): void {
     );
     const whoosh = p.stuck ? undefined : FLYBY[p.type];
     if (whoosh !== undefined) {
-      b3.b3Body_GetLinearVelocity(_v, p.body);
+      velOf(p, _v);
       audio.flyby(p.curPos, _v, whoosh);
     }
+    if (p.type === 'heat' || p.type === 'tbx' || p.type === 'pen' || p.type === 'grenade') {
+      velOf(p, _v);
+      orient(p, _v);
+      const f = p.mesh.getObjectByName('flame');
+      if (f) f.visible = now - p.born < 0.25;
+      p.trail += dt;
+      const every = p.type === 'grenade' ? 0.12 : p.type === 'pen' ? 0.03 : now - p.born < 0.25 ? 0.015 : 0.06;
+      while (p.trail > every) { p.trail -= every; fx.smokeTrail([p.mesh.position.x, p.mesh.position.y, p.mesh.position.z]); }
+      continue;
+    }
     if (p.type === 'rocket' || p.type === 'bomb') {
-      b3.b3Body_GetLinearVelocity(_v, p.body);
+      velOf(p, _v);
       orient(p, _v);
       const burning = p.type === 'rocket' && now - p.born < MOTOR.burn;
       const f = p.mesh.getObjectByName('flame');
@@ -1786,7 +2116,7 @@ export function syncProjectiles(alpha: number, dt: number): void {
     }
     _qa.fromArray(p.prevRot); _qb.fromArray(p.curRot);
     p.mesh.quaternion.slerpQuaternions(_qa, _qb, a);
-    if (p.type === 'charge' || p.type === 'cutter') {
+    if (p.type === 'charge' || p.type === 'cutter' || p.type === 'satchel') {
       const l = p.mesh.getObjectByName('led');
       if (l) l.visible = Math.sin(now * (detonations.some(d => d.p === p) ? 60 : p === selected ? 30 : 9)) > 0;
     } else if (p.type === 'megabomb') {
@@ -1819,6 +2149,9 @@ export function syncProjectiles(alpha: number, dt: number): void {
   syncMachining(alpha, dt);
   const cur = loadout.current;
   if (cur === 'breaker' || cur === 'hose' || cur === 'excavator') viewmodel.hold(workFrame >= frame - 1, cur === 'hose' ? (hoseFog() ? 0.5 : 1) : 0.8);
+  if (cur === 'flamer') viewmodel.arsenal(flamerOn(), 1, flamerLit());
+  else if (cur === 'buster') viewmodel.arsenal(busters.length > 0 && now < (busters[0]?.at ?? 0), 1, false);
+  syncFuel(dt);
   preview();
   cables.flush();
   frame++;
@@ -1859,7 +2192,7 @@ export function toolReadout(): ToolReadout | null {
     case 'cutter': return { title: 'Linear cutting charge', progress: null, detail: 'the line shows the cut · severs the member along it · RMB/G detonate', warn: false };
     case 'thermite': return { title: 'Thermite pot', progress: null, detail: '2500 °C: melts through steel, cast iron, aluminium · chars timber · only spalls masonry', warn: false };
     case 'airstrike': return reloading('airstrike', { title: 'Airstrike marker', progress: null, detail: `${PLANE.bombs} × 4 kg bombs onto the smoke${sorties.length ? ` · ${sorties.length} inbound` : ''}`, warn: sorties.length > 0 });
-    case 'incendiary': return reloading('incendiary', { title: 'Firebomb', progress: null, detail: `0.75 L petrol · ${FIRE.radius} m splash · pool burns ${FIRE.poolTime} s at ${FIRE.hrr / 1e6} MW`, warn: false });
+    case 'incendiary': return reloading('incendiary', { title: 'Firebomb', progress: null, detail: `${FIRE.litres} L petrol · ${FIRE.radius} m flash · the rest splashes, runs down and pools (~13 s at 2.4 MW/m²)`, warn: false });
     case 'megabomb': return { title: `Megabomb · ${MEGA.kg} kg`, progress: null, detail: `${MEGA.fuse} s fuse · lethal radius ${blastOf(MEGA.kg).radius.toFixed(0)} m · run`, warn: true };
     case 'wrecker': return wreckerStatus();
     case 'winch': return winchStatus();
@@ -1885,6 +2218,27 @@ export function toolReadout(): ToolReadout | null {
     case 'hose': return hoseStatus();
     case 'splitter': return splitterStatus() ?? { title: 'Rock splitter', progress: null, detail: `LMB in a drilled bore · ${Math.round(SPLITTER.force / 9810)} t spreading force`, warn: false };
     case 'wiresaw': return wireStatus();
+    case 'flamer': return flamerStatus(flameLanding, loadout.ammo.flamer ?? 0);
+    case 'launcher': return reloading('launcher', {
+      title: `Grenade launcher · 40 mm HE · ${airburst ? `airburst ${airburst} m` : 'impact fuze'}`, progress: null,
+      detail: `${landsOn()} · 76 m/s, arms after ${GRENADE.arm} m · 32 g Comp B, 300 fragments, lethal ~5 m · wheel/RMB fuze`, warn: !!predicted && vec3.distance(predicted, _eye) < GRENADE.arm,
+    });
+    case 'recoilless': return reloading('recoilless', {
+      title: 'Recoilless rifle · 84 mm HEAT', progress: null,
+      detail: `${landsOn()} · jet perforates ~${mm(HEAT84.jet * Math.sqrt(HEAT84.rhoJet / 7850))} steel / ${mm(HEAT84.jet * Math.sqrt(HEAT84.rhoJet / 2400))} concrete / ${mm(HEAT84.jet * Math.sqrt(HEAT84.rhoJet / 1900))} brick · 3-5 rounds to breach brick · keep 5 m clear behind`,
+      warn: false,
+    });
+    case 'thermobaric': return reloading('thermobaric', {
+      title: 'Thermobaric rocket · 93 mm', progress: null,
+      detail: `${landsOn()} · ${TBX.fuel} kg of fuel, cloud lit after ${Math.round(TBX.delay * 1000)} ms · ~5.5 kg TNT-eq · put it through a window: a room holds the cloud`,
+      warn: false,
+    });
+    case 'buster': return reloading('buster', {
+      title: `Bunker buster · fuze ${voids ? `${voids} void${voids === 1 ? '' : 's'}` : 'on stop'}${busters.length ? ' · INBOUND' : ''}`, progress: null,
+      detail: `${lased > 0 ? `lasing ${Math.round(lased)} m` : 'no spot'} · ${PEN.mass} kg at ${PEN.v} m/s: ~${(young(PEN.mass, Math.PI * (PEN.d / 2) ** 2, PEN.v, 0.8)).toFixed(1)} m of reinforced concrete · ${Math.round(PEN.tnt)} kg TNT-eq · wheel: voids`,
+      warn: busters.length > 0,
+    });
+    case 'satchel': return { title: `Satchel charge · ${SATCHEL.kg.toFixed(1)} kg TNT-eq`, progress: null, detail: `9.1 kg C-4 · lethal radius ${blastOf(SATCHEL.kg).radius.toFixed(1)} m · press on within ${PLANT_REACH} m, else thrown · RMB/G detonate · delays on the Detonator Panel`, warn: false };
   }
   return null;
 }
@@ -1928,7 +2282,11 @@ export function clearWeapons(): void {
   swings.length = 0;
   detonations.length = 0;
   sorties.length = 0;
-  patches.length = 0;
+  clearFuel();
+  clearFlamer();
+  clearThermobaric();
+  clearPenetrator();
+  busters.length = 0;
   fired.length = 0;
   selected = null;
   firing = null;
@@ -1962,7 +2320,7 @@ export function weaponsDebug(): { predicted: Vec3 | null; strikes: Vec3[]; flyin
     strikes: sorties.map(s => s.target),
     flying: projectiles.filter(p => !p.dead).map(p => {
       const v: Vec3 = [0, 0, 0], pos: Vec3 = [0, 0, 0];
-      b3.b3Body_GetLinearVelocity(v, p.body);
+      velOf(p, v);
       b3.b3Body_GetPosition(pos, p.body);
       return { type: p.type, pos, vel: v, stuck: p.stuck };
     }),
@@ -1970,9 +2328,12 @@ export function weaponsDebug(): { predicted: Vec3 | null; strikes: Vec3[]; flyin
 }
 
 /** Headless tests: a projectile in flight as if just fired (no player, no ammo spent). */
-export function launch(type: ProjType, pos: Vec3, vel: Vec3, head: Warhead = 'he'): void {
+export function launch(type: ProjType, pos: Vec3, vel: Vec3, head: Warhead = 'he', opt: { airburst?: number; voids?: number } = {}): void {
   const p = spawn(type, pos, vel);
   p.warhead = head;
+  if (type === 'grenade') { p.target = [...pos]; p.width = opt.airburst ?? 0; }
+  if (type === 'pen') p.beat = opt.voids ?? 2;
+  if (type === 'satchel') { p.kg = SATCHEL.kg; p.delay = nextDelay(p); }
   if (type === 'megabomb') { p.kg = MEGA.kg; p.armAt = now + MEGA.fuse; p.beat = Math.ceil(MEGA.fuse) + 1; }
 }
 

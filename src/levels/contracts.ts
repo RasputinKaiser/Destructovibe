@@ -34,6 +34,7 @@ const ALL_TOOLS: Record<WeaponId, number> = {
   thermite: -1, cutter: -1, wrecker: -1, winch: -1, gravgun: -1, incendiary: -1, megabomb: -1,
   grinder: -1, saw: -1, drill: -1, shears: -1, plasma: -1, torch: -1,
   planner: -1, excavator: -1, breaker: -1, hose: -1, splitter: -1, wiresaw: -1,
+  flamer: -1, launcher: -1, recoilless: -1, thermobaric: -1, buster: -1, satchel: -1,
 };
 
 const ODD_JOBS: Omit<Job, 'chapter'>[] = [
@@ -468,6 +469,25 @@ const DOWNTOWN_JOBS: Job[] = [
     protectedNote: 'PROTECTED: the department store south of the tower. It is listed; it is also full of glass.',
     goal: { groups: ['tower'], what: 'the tower' },
     build: () => scoped(downtown(), { clear: except(DT_BLOCKS, 'tower', 'store'), protect: ['store'], spawn: [-29, 0, -31.5, 0.8] }),
+  },
+  {
+    id: 'pay-and-display',
+    chapter: 'Downtown',
+    name: 'Pay and Display',
+    location: 'Level Street multi-storey, Downtown · 05:30',
+    brief: 'Three decks of flat-slab concrete car park, and asbestos board in every soffit: nobody goes inside, so nothing gets '
+      + 'placed. From the street you have two penetrating bombs on the laser (the fuze counts the decks it passes; fire it in '
+      + 'the middle one) and thermobaric rounds to put through the stair-core windows. The tower behind you is occupied, and '
+      + 'the recoilless rifle throws its backblast five metres.',
+    target: 0.55,
+    par: 300,
+    stars: [0, 0],
+    ammo: { hammer: -1, buster: 2, thermobaric: 3, recoilless: 4 },
+    env: 'dusk',
+    protectedNote: 'PROTECTED: the tower south of the car park, behind the firing point.',
+    goal: { groups: ['carpark'], what: 'the car park' },
+    tip: 'A penetrator that goes off under the roof only lifts it: count two voids and let it fire inside the decks.',
+    build: () => scoped(downtown(), { clear: except(DT_BLOCKS, 'carpark', 'skyscraper2'), protect: ['skyscraper2'], spawn: [-15, 0, -30, 0] }),
   },
 ];
 

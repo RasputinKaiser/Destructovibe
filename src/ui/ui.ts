@@ -33,7 +33,7 @@ const controls = (): KeyRow[] => [
   ['1–6', 'Select tool'],
   ['Wheel', 'Tool setting (charge size, delay, boom, blocks…), else next tool'],
   ['Shift + Wheel', 'Detonator panel: delay in 250 ms steps'],
-  [K('bank'), 'Switch tool bank (I–IV)'],
+  [K('bank'), 'Switch tool bank (I–VI)'],
   [K('xray'), 'Engineer’s x-ray (stress / thermal / services / fields)'],
   [K('bullet'), 'Bullet time (the world at 0.3×)'],
   [K('replay'), 'Replay the last 12 s: mouse orbit, wheel zoom, WASD/QE move, Space pause, 1–3 speed, ←/→ scrub, V exit'],
@@ -57,8 +57,10 @@ const BANKS: readonly (readonly WeaponId[])[] = [
   ['cutter', 'wrecker', 'winch', 'gravgun', 'incendiary', 'megabomb'],
   ['grinder', 'saw', 'drill', 'shears', 'plasma', 'torch'],
   ['planner', 'excavator', 'breaker', 'hose', 'splitter', 'wiresaw'],
+  [],
+  ['flamer', 'launcher', 'recoilless', 'thermobaric', 'buster', 'satchel'],
 ];
-const BANK_TAG = ['I', 'II', 'III', 'IV'];
+const BANK_TAG = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 const BANK_OF = new Map<WeaponId, { bank: number; pos: number }>(
   BANKS.flatMap((ids, bank) => ids.map((id, pos) => [id, { bank, pos }] as const)),
 );

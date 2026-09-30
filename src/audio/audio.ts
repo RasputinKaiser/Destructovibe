@@ -2476,6 +2476,76 @@ export const audio = {
         nburst(v, B.pink, t + 0.02, 'highpass', 2200, 0.7, 0.01, 0.3, 0.08);
         return;
       }
+      case 'flamer': {
+        // the igniter cartridge pops and the first of the stream catches with a soft whoomph
+        const v = voice({ level: 0.55, dur: 0.9, send: 0.2 });
+        if (!v) return;
+        const t = v.t0;
+        nburst(v, B.white, t, 'highpass', 2500, 0.7, 0.0008, 0.5, 0.012);
+        const w = nburst(v, B.pink, t + 0.03, 'lowpass', 260, 0.9, 0.06, 0.9, 0.6, 1, 0.08);
+        w.frequency.exponentialRampToValueAtTime(1500, t + 0.2);
+        w.frequency.exponentialRampToValueAtTime(380, t + 0.7);
+        tone(v, 'sine', 70, t + 0.03, 0.04, 0.5, 0.3, 42, 0.3);
+        return;
+      }
+      case 'launcher': {
+        // the 40 mm's hollow 'bloop': a low-pressure high-low system, far quieter than a rifle
+        const v = voice({ level: 0.6, dur: 0.8, send: 0.3 });
+        if (!v) return;
+        const t = v.t0;
+        tone(v, 'sine', 140, t, 0.002, 0.9, 0.16, 58, 0.14);
+        nburst(v, B.pink, t, 'bandpass', 420, 1.6, 0.003, 0.7, 0.18);
+        nburst(v, B.white, t, 'highpass', 1800, 0.7, 0.001, 0.25, 0.03);
+        strike(v, t + 0.01, 'steel', 0.15);
+        return;
+      }
+      case 'recoilless': {
+        // a recoilless rifle is brutally loud: the round and the whole propelling charge vent at once, both ends
+        const v = voice({ level: 1.1, dur: 2.8, send: 0.6 });
+        if (!v) return;
+        const t = v.t0;
+        nburst(v, B.white, t, 'highpass', 900, 0.7, 0.0004, 1, 0.06);
+        tone(v, 'sine', 80, t, 0.002, 1.3, 0.9, 28, 0.4, true);
+        const lp = nburst(v, B.pink, t, 'lowpass', 8000, 0.6, 0.002, 1, 1.1);
+        lp.frequency.exponentialRampToValueAtTime(180, t + 0.9);
+        nburst(v, B.brown, t + 0.02, 'lowpass', 380, 0.7, 0.03, 0.7, 2);
+        nburst(v, B.white, t + 0.05, 'highpass', 5000, 0.7, 0.02, 0.25, 0.7);
+        return;
+      }
+      case 'thermobaric': {
+        const v = voice({ level: 0.8, dur: 1.6, send: 0.4 });
+        if (!v) return;
+        const t = v.t0;
+        tone(v, 'sine', 160, t, 0.002, 0.8, 0.14, 50, 0.12);
+        nburst(v, B.white, t, 'highpass', 2000, 0.7, 0.001, 0.6, 0.04);
+        const bp = nburst(v, B.pink, t, 'bandpass', 600, 0.9, 0.02, 0.9, 0.9, 1, 0.1);
+        bp.frequency.exponentialRampToValueAtTime(2200, t + 0.12);
+        bp.frequency.exponentialRampToValueAtTime(400, t + 0.9);
+        return;
+      }
+      case 'buster': {
+        // the designator's laser fire and the controller's acknowledgement tones
+        const v = voice({ level: 0.35, dur: 0.6 });
+        if (!v) return;
+        const t = v.t0;
+        nburst(v, B.white, t, 'highpass', 3500, 0.7, 0.0005, 0.4, 0.006);
+        for (const [dt, f] of [[0.1, 1200], [0.24, 1600], [0.38, 1200]] as const) {
+          const l = amp(v, t + dt, 0.004, 0.18, 0.06, 0.03);
+          osc(v, 'sine', f, t + dt, l.end).connect(l.g);
+        }
+        return;
+      }
+      case 'satchel': {
+        // the pull ring and the fuse igniter's snap, then the bag leaves the hand
+        const v = voice({ level: 0.4, dur: 0.6 });
+        if (!v) return;
+        const t = v.t0;
+        nburst(v, B.white, t, 'bandpass', 2600, 2, 0.0005, 0.6, 0.01);
+        tone(v, 'sine', 900, t, 0.001, 0.2, 0.03);
+        const bp = nburst(v, B.pink, t + 0.15, 'bandpass', 500, 1.2, 0.08, 0.4, 0.2);
+        bp.frequency.exponentialRampToValueAtTime(1200, t + 0.35);
+        return;
+      }
       case 'airstrike': {
         const v = voice({ level: 0.45, dur: 0.7 });
         if (!v) return;
@@ -2895,6 +2965,41 @@ export const audio = {
     whoomph.frequency.exponentialRampToValueAtTime(420, t + 1.1);
     tone(v, 'sine', 75, t + 0.06, 0.05, 0.7, 0.45, 40, 0.4, true);
     nburst(v, B.brown, t + 0.15, 'lowpass', 400, 0.7, 0.2, 0.5, 1.2);
+  },
+
+  /** thermobaric: the burster's crack as the fuel goes out, then the cloud going up: a long, deep, rolling push
+      rather than a high explosive's sharp crack (the positive phase lasts several times longer) */
+  thermobaric(pos: Vec3, size: number, delay: number): void {
+    if (!live()) return;
+    const s = clamp(size, 0.5, 4);
+    const v = voice({ pos, level: 0.8 + 0.3 * s, dur: 4 + s, ref: 12 + 8 * s, send: 0.7 });
+    const T = blast(pos, 2 * s * s * s, ctx!.currentTime + delay + 0.006 + distTo(pos) / SOUND_SPEED);
+    groundShock(pos, 0.3 * s, 1 + 0.3 * s);
+    if (!v) return;
+    const t = v.t0;
+    nburst(v, B.white, t, 'highpass', 1500, 0.7, 0.0005, 0.6, 0.03);
+    tone(v, 'sine', 180, t, 0.002, 0.35, 0.08, 90, 0.08);
+    const d = t + delay;
+    nwave(v, d, T * 1.8, 1);
+    const whump = nburst(v, B.pink, d, 'lowpass', 180, 0.8, 0.05, 1.2, 1.8 + 0.4 * s, 1, 0.3);
+    whump.frequency.exponentialRampToValueAtTime(2400, d + 0.18);
+    whump.frequency.exponentialRampToValueAtTime(140, d + 1.6);
+    tone(v, 'sine', 48, d, 0.06, 1.3, 1.6 + 0.3 * s, 22, 1.2, true);
+    nburst(v, B.brown, d + 0.05, 'lowpass', 260, 0.8, 0.25, 0.9, 2.6 + 0.6 * s);
+    nburst(v, B.crackle, d + 0.3, 'bandpass', 900, 0.7, 0.4, 0.4, 2.2, 0.6);
+    wallEchoes(pos, v.dist, 3, (dt, g) => nburst(v, B.brown, d + dt, 'lowpass', 300, 0.8, 0.05, 1.1 * g, 1.4));
+  },
+
+  /** a heavy round punching through a slab: a dull crump and the crash of what it knocks out */
+  punch(pos: Vec3, strength: number): void {
+    if (!live()) return;
+    const s = clamp(strength, 0, 1);
+    const v = voice({ pos, level: 0.5 + 0.5 * s, dur: 1.2, ref: 8, send: 0.4 });
+    if (!v) return;
+    const t = v.t0;
+    tone(v, 'sine', 95, t, 0.002, 0.9, 0.25, 40, 0.2);
+    nburst(v, B.crackle, t, 'bandpass', 1800, 0.7, 0.004, 0.8 * s + 0.2, 0.35);
+    nburst(v, B.brown, t, 'lowpass', 400, 0.8, 0.01, 0.7, 0.6);
   },
 
   megabomb(pos: Vec3): void {
@@ -3475,6 +3580,8 @@ const TOOL_VOICE: Record<string, ToolVoice> = {
   // excavator: six-cylinder diesel and the hydraulic pump whine rising under load
   excavator: { motor: 38, whine: 480, lp: 500, body: 0.7, whineLvl: 0.08, grit: 0.05, gritF: 700, hiss: 0.02, roar: 0.25 },
   splitter: { motor: 90, whine: 640, lp: 900, body: 0.35, whineLvl: 0.14, grit: 0.05, gritF: 900, hiss: 0.04, roar: 0.05 },
+  // flamethrower: the fuel rushing out of the nozzle under 26 bar of air, and the rope of flame's low roar
+  flamer: { motor: 32, whine: 160, lp: 320, body: 0.06, whineLvl: 0, grit: 0.3, gritF: 1500, hiss: 0.5, roar: 0.95 },
 };
 const rigLoops = new Map<string, ToolLoop>();
 

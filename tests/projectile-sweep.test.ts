@@ -117,6 +117,36 @@ test('projectiles stop or go off at the first surface on their path', { timeout:
       if (!r.booms.some((b) => b[0] > -1.1 && b[0] < 0.45 && Math.abs(b[2] - dz) < 0.5)) fails.push(`tandem into the stack at dz ${dz}: never went off at the stack`);
       for (const b of r.booms) if (b[0] > 0.45) fails.push(`tandem into the stack at dz ${dz}: a charge went off at x ${b[0].toFixed(2)}, past the flue`);
     }
+    /* bank VI: the 40 mm grenade armed (fired from 30 m) goes off on the face and a dud (14 m) never gets behind the
+       wall; the HEAT round and the bunker buster, flown outside the solver's speed cap, start their work on the near
+       face; the thermobaric capsule opens on it; a satchel thrown at it drops and stays this side */
+    const pen = await L('/src/game/ordnance/penetrator.ts');
+    const heat = await L('/src/game/ordnance/heat.ts');
+    for (const ang of [0, 35]) {
+      const a = (ang * Math.PI) / 180, at = [face, 1.5, 0.3];
+      const far = (d: number) => [at[0] - d * Math.cos(a), 1.5, at[2] - d * Math.sin(a)];
+      const tag = (t: string) => `${t} at ${ang}°`;
+      let r = shoot(wall, 'grenade', far(30), at, 76, 'he', 150);
+      if (r.seen.some((f) => f.pos[0] > back + 0.02)) fails.push(`${tag('grenade')}: in flight behind the wall`);
+      if (!r.booms.length || r.booms.some((b) => b[0] > face + 0.02 || b[0] < face - 0.4)) fails.push(`${tag('grenade')}: went off at ${JSON.stringify(r.booms)}, not at the face`);
+      r = shoot(wall, 'grenade', far(10), at, 76, 'he', 150);
+      if (r.booms.length) fails.push(`${tag('grenade')} inside its arming distance went off`);
+      if (r.seen.some((f) => f.pos[0] > back + 0.02)) fails.push(`${tag('grenade')} dud: behind the wall`);
+      r = shoot(wall, 'heat', far(14), at, 255);
+      const j = heat.heatLog.at(-1);
+      if (!j || !r.booms.length || r.booms[0][0] > face + 0.02 || r.booms[0][0] < face - 0.4) fails.push(`${tag('heat')}: charge went off at ${JSON.stringify(r.booms)}, not at the face`);
+      if (!j || j.perforated < 1) fails.push(`${tag('heat')}: the jet did not perforate a half-brick wall`);
+      if (r.seen.some((f) => f.pos[0] > back + 0.02)) fails.push(`${tag('heat')}: the round flew on behind the wall`);
+      r = shoot(wall, 'tbx', far(14), at, 120);
+      if (!r.booms.length || r.booms[0][0] > face + 0.02 || r.booms[0][0] < face - 0.8) fails.push(`${tag('tbx')}: burster went off at ${JSON.stringify(r.booms)}, not at the face`);
+      if (r.seen.some((f) => f.pos[0] > back + 0.02)) fails.push(`${tag('tbx')}: in flight behind the wall`);
+      r = shoot(wall, 'satchel', far(6), at, 8.5, 'he', 150);
+      if (r.seen.some((f) => f.pos[0] > back + 0.02)) fails.push(`${tag('satchel')}: behind the wall`);
+    }
+    const r = shoot(wall, 'pen', [-14, 1.5, 0.3], [face, 1.5, 0.3], 260);
+    const lg = pen.penLog.at(-1);
+    if (!lg || Math.abs(lg.layers[0]?.entry[0] - face) > 0.05) fails.push(`bunker buster: began at ${JSON.stringify(lg?.layers[0]?.entry)}, not on the face`);
+    if (r.seen.some((f) => f.type === 'pen' && f.pos[0] > back + 0.02)) fails.push('bunker buster: its body flew on behind the wall');
     assert.deepEqual(fails, []);
   } finally {
     await server.close();

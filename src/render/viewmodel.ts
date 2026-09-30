@@ -8,6 +8,7 @@ import { easing, spring, spring3 } from 'math/time';
 import type { WeaponId } from '../types';
 import { flameTex, flashTex, hazardTex, texSet, type SetId } from './textures';
 import { flashAtCamera, lighting } from './shared';
+import { buildArsenalModels, animateArsenal, ARSENAL_KICK, type ArsenalId } from './arsenal-models';
 
 interface Model {
   group: THREE.Group;
@@ -37,6 +38,9 @@ let planBtn: THREE.Mesh, planLed: THREE.MeshStandardMaterial, planScreen: THREE.
 let excStickL: THREE.Group, excStickR: THREE.Group, excLed: THREE.MeshStandardMaterial;
 let brkChisel: THREE.Group, hoseTip: THREE.Group, splitWedge: THREE.Group, wireBtn: THREE.Mesh, wireLed: THREE.MeshStandardMaterial;
 const work = { on: false, load: 0, heat: 0, close: 0, lit: false, spin: 0, chain: 0 };
+/** bank VI tools held on (flamer stream, designator laser) and the flamer's igniter */
+const arsenal = { on: false, k: 0, lit: true };
+const ARSENAL = new Set<WeaponId>(['flamer', 'launcher', 'recoilless', 'thermobaric', 'buster', 'satchel']);
 /** hammer wind-up 0..1 and the bank IV tools' running state */
 const hold = { wind: 0, on: false, k: 0, run: 0, released: 1 };
 /** contact jolt: a struck tool jumps in the hands, a steel face rings it for a moment */
@@ -641,6 +645,7 @@ function buildModels(): Record<WeaponId, Model> {
     hose: mk(hose, [0.26, -0.21, -0.52], [0.03, -0.05, 0], null),
     splitter: mk(splitter, [0.26, -0.21, -0.48], [0.05, -0.05, 0], null),
     wiresaw: mk(wiresaw, [0.23, -0.19, -0.48], [0.8, -0.3, 0.06], null, 0.85),
+    ...buildArsenalModels(),
   };
 }
 
@@ -754,12 +759,15 @@ export const viewmodel = {
       kickP.velocity[2] -= 0.8; kickR.velocity[0] -= 1.2;
     } else if (id === 'breaker') {
       kickP.velocity[2] -= 0.6;
+    } else if (ARSENAL.has(id)) {
+      const k = ARSENAL_KICK[id as ArsenalId];
+      kickP.velocity[2] += k[0]; kickP.velocity[1] += k[1]; kickR.velocity[0] += k[2];
     }
     const m = models[id];
     if (m.muzzle) {
       m.muzzle.add(flashFx);
       flashFx.rotation.z = Math.random() * Math.PI;
-      flashFx.scale.setScalar(id === 'rocket' ? 1.4 : 1);
+      flashFx.scale.setScalar(id === 'rocket' || id === 'recoilless' || id === 'thermobaric' ? 1.4 : id === 'flamer' ? 0.5 : 1);
       flashT = 0;
     }
   },
@@ -864,6 +872,9 @@ export const viewmodel = {
 
   /** breaker / water cannon / excavator remote in use this frame, with its intensity 0..1 */
   hold(on: boolean, k: number): void { hold.on = on; hold.k = k; },
+
+  /** bank VI: flamer streaming / designator lasing this frame (intensity 0..1), and whether the flamer's igniter is lit */
+  arsenal(on: boolean, k: number, lit: boolean): void { arsenal.on = on; arsenal.k = k; arsenal.lit = lit; },
 };
 
 /** dev: move a model live (position, rotation, scale) to tune its framing */
@@ -1044,6 +1055,8 @@ function animateWeapon(m: Model, dt: number): void {
     vmGlow.setRGB(0.05, 0.25, 0.5).multiplyScalar(0.1 + gk * 0.6 + burst * 3);
   } else if (current === 'grinder' || current === 'saw' || current === 'drill' || current === 'shears' || current === 'plasma' || current === 'torch') {
     animateMachine(g, dt);
+  } else if (ARSENAL.has(current)) {
+    animateArsenal(current as ArsenalId, g, firedWith === current ? fireT : 99, time, arsenal, vmGlow);
   } else if (current === 'megabomb') {
     const t = firedWith === 'megabomb' ? fireT : 99;
     const open = t < 0.18 ? easing.cubicOut(t / 0.18) : t < 0.75 ? 1 : t < 1.05 ? 1 - easing.cubicIn((t - 0.75) / 0.3) : 0;

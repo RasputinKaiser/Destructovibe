@@ -418,6 +418,7 @@ function finish(won: boolean): void {
     const worth: Record<WeaponId, number> = {
       hammer: 0, cannon: 1, rocket: 2, charge: 2, airstrike: 5, thermite: 2, cutter: 2, wrecker: 3, winch: 1, gravgun: 0, incendiary: 1, megabomb: 8,
       grinder: 1, saw: 1, drill: 1, shears: 1, plasma: 2, torch: 2, planner: 0, excavator: 1, breaker: 1, hose: 0, splitter: 1, wiresaw: 2,
+      flamer: 2, launcher: 1, recoilless: 2, thermobaric: 3, buster: 6, satchel: 3,
     };
     let spare = 0, issued = 0;
     for (const w of WEAPONS) {
@@ -807,7 +808,7 @@ function handleInput(): void {
   if (tapped('bank')) { bank = (bank + 1) % BANK_COUNT; audio.ui('click'); }
   for (let k = 1; k <= 6; k++) {
     if (!input.pressed.has(`Digit${k}`)) continue;
-    const w = WEAPONS[bank * 6 + k - 1];
+    const w = WEAPONS.find(x => x.bank === bank && x.key === String(k));
     if (w) { select(w.id); cancelSpawn(); }
   }
   if (!updatePlacement()) {

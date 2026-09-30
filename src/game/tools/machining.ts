@@ -686,6 +686,22 @@ function finishHole(c: Cut): void {
   }
 }
 
+/** A clean hole of diameter d through a member at `point`, bored from the face `normal` by something other than the
+ * drill (a shaped-charge jet): it takes d × depth out of the net section at its station as a drilled bore does. */
+export function punchHole(p: Piece, point: Vec3, normal: Vec3, d: number): void {
+  if (p.dead) return;
+  const axis: Vec3 = [0, 0, 0], across: Vec3 = [0, 0, 0];
+  memberAxis(p, normal, axis, across);
+  const la = toLocalDir([0, 0, 0], p, axis), ln = toLocalDir([0, 0, 0], p, normal);
+  const s = sectionAt(p, la, ln);
+  const lp: Vec3 = [0, 0, 0];
+  b3.b3Body_GetLocalPoint(lp, p.body, point);
+  const thick = s.solid ? s.thick : s.plate;
+  const c = { tool: 'drill', p, lp, ln, la, lx: toLocalDir([0, 0, 0], p, across), d, thick, A: d * thick, axisK: s.k, station: lp[s.k] } as unknown as Cut;
+  cuts.push(c);
+  finishHole(c);
+}
+
 /* ---------------- jaws ---------------- */
 
 function startBite(p: Piece, point: Vec3, normal: Vec3): string | null {
