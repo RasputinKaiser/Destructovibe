@@ -799,6 +799,9 @@ function endReplay(): void {
   if (state === 'playing' || state === 'paused') viewmodel.setVisible(true);
 }
 
+/** dev playtests: hold the fire button down without pointer lock */
+let devHold = false;
+
 function handleInput(): void {
   // Start on a pad pauses, like Esc (the lock goes and the pause menu comes up)
   if (pollPad()) { releaseLock(); return; }
@@ -817,9 +820,10 @@ function handleInput(): void {
   if (!updatePlacement()) {
     // the wheel sets the tool's own parameter where it has one (scroll up = more), else cycles tools
     if (input.wheel && !toolWheel(input.wheel > 0 ? -1 : 1)) cycle(input.wheel > 0 ? 1 : -1);
-    if ((input.buttons & 1) && !busy) tryFire();
+    const lmb = (input.buttons & 1) !== 0 || devHold;
+    if (lmb && !busy) tryFire();
     else if (fireHeld) releaseFire();
-    fireHeld = (input.buttons & 1) !== 0;
+    fireHeld = lmb;
     const rmb = (input.clicked & 4) !== 0 && !toolSecondary();
     if (rmb || tapped('detonate')) {
       if (detonate()) flashHint('Detonating', 1);
@@ -1242,6 +1246,7 @@ if (import.meta.env.DEV) window.__dv = {
   get objective() { return { ...scoring.objective, target: active.target, met: scoring.goalMet(active.target), id: active.id }; },
   look: (dx: number, dy: number) => applyLook(dx, dy),
   fire: () => { startClock(); return tryFire(); },
+  hold: (on: boolean) => { startClock(); devHold = on; },
   select: (id: WeaponId) => { startClock(); select(id); },
   detonate: () => detonate(),
   setPlaying: () => { if (state === 'paused') { state = 'playing'; ui.showScreen(null); } },
@@ -1273,7 +1278,7 @@ if (import.meta.env.DEV) window.__dv = {
     }
     return stepCount;
   },
-  rigEnv: { vehicles: vehicleMod, raycast, pieceOf, NO_HIT: CAT.structure | CAT.debris | CAT.prop | CAT.ground },
+  rigEnv: { vehicles: vehicleMod, raycast, pieceOf, explode, NO_HIT: CAT.structure | CAT.debris | CAT.prop | CAT.ground },
   replay: {
     start: () => { startReplay(); return replay.playing; },
     stop: () => endReplay(),

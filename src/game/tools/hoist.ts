@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { vec3, clamp } from 'math';
 import type { Vec3, ToolReadout } from '../../types';
 import { raycast } from '../../physics/physics';
+import { groundAt } from '../../terrain/terrain';
 import { pieceOf } from '../../destruction/structure';
 import { vehicleOf } from '../../vehicles/vehicle';
 import { getProjectileMaterial } from '../../render/materials';
@@ -11,7 +12,7 @@ import { viewmodel } from '../../render/viewmodel';
 import { player } from '../player';
 import { NO_HIT, interpPoint, toolHooks } from './common';
 import {
-  LINES, makeLine, makeStake, faceStake, anchorOn, anchorWorld, releaseLine, setRest, currentLength, lineBar, inSnapZone,
+  LINES, makeLine, makeStake, faceStake, anchorOn, hitchOn, anchorWorld, releaseLine, setRest, currentLength, lineBar, inSnapZone,
   type Anchor, type Line,
 } from './lines';
 
@@ -45,7 +46,7 @@ type Mode = 'up' | 'down' | 'free';
 const MODES: Mode[] = ['up', 'down', 'free'];
 let mode: Mode = 'up';
 let load: { anchor: Anchor; at: Vec3 } | null = null;
-interface Rig { line: Line; body: THREE.Group; lever: THREE.Object3D; wheel: THREE.Object3D; phase: number; strokes: number; stall: boolean; clickAt: number }
+interface Rig { line: Line; body: THREE.Group; lever: THREE.Object3D; wheel: THREE.Object3D; hook: THREE.Object3D; phase: number; strokes: number; stall: boolean; clickAt: number }
 let h: Rig | null = null;
 let scene: THREE.Scene;
 let working = false;
@@ -59,7 +60,7 @@ let hoistRed: THREE.MeshStandardMaterial | null = null;
 /* The hoist as it looks: a flat red housing with the big round gear cover on one side and the load-brake cover on the
    other, the flat stamped lever over the ratchet with its rubber grip, the top hook with its safety latch, and the load
    chain down to the bottom hook. */
-function makeBody(): { body: THREE.Group; lever: THREE.Object3D; wheel: THREE.Object3D } {
+function makeBody(): { body: THREE.Group; lever: THREE.Object3D; wheel: THREE.Object3D; hook: THREE.Object3D } {
   const body = new THREE.Group();
   const red = hoistRed ??= new THREE.MeshStandardMaterial({ color: 0xb3261a, roughness: 0.45, metalness: 0.3 }), iron = getProjectileMaterial('iron');
   const black = new THREE.MeshStandardMaterial({ color: 0x1b1b1d, roughness: 0.8 });
@@ -90,13 +91,32 @@ function makeBody(): { body: THREE.Group; lever: THREE.Object3D; wheel: THREE.Ob
   const latch = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.045, 0.012), iron);
   latch.position.set(0, 0.16, 0.03);
   latch.rotation.x = 0.5;
-  const bottom = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.01, 6, 14, Math.PI * 1.45), iron);
-  bottom.position.y = -0.2;
-  bottom.rotation.z = Math.PI;
-  body.add(housing, cover, brake, wheel, lever, hook, latch, bottom);
+  // the slack side of the load chain falls loose out of the housing beside the load side
+  const zinc = new THREE.MeshStandardMaterial({ color: 0xb9bdc1, roughness: 0.4, metalness: 0.7 });
+  for (let i = 0; i < 9; i++) {
+    const l = new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.0045, 5, 10), zinc);
+    l.scale.set(1, 1.6, 1);
+    l.position.set(0.02 + Math.sin(i * 0.7) * 0.01, -0.12 - i * 0.03, 0.03);
+    l.rotation.y = i % 2 ? Math.PI / 2 : 0;
+    body.add(l);
+  }
+  body.add(housing, cover, brake, wheel, lever, hook, latch);
   body.traverse(o => { o.castShadow = true; });
   scene.add(body);
-  return { body, lever, wheel };
+  // the bottom hook, on the load end of the chain: a swivel, the forged hook and its latch (local +y up the chain)
+  const bottom = new THREE.Group();
+  const bh = new THREE.Mesh(new THREE.TorusGeometry(0.032, 0.011, 6, 14, Math.PI * 1.45), red);
+  bh.position.y = -0.01;
+  bh.rotation.z = Math.PI * 0.8;
+  const sw = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.05, 8), iron);
+  sw.position.y = 0.055;
+  const bl = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.04, 0.01), iron);
+  bl.position.set(0.022, 0.0, 0);
+  bl.rotation.z = -0.5;
+  bottom.add(bh, sw, bl);
+  bottom.traverse(o => { o.castShadow = true; });
+  scene.add(bottom);
+  return { body, lever, wheel, hook: bottom };
 }
 
 function aimEnd(eye: Vec3, fwd: Vec3): { anchor: Anchor; at: Vec3 } | string {
@@ -105,7 +125,11 @@ function aimEnd(eye: Vec3, fwd: Vec3): { anchor: Anchor; at: Vec3 } | string {
   if (!hit) return `Lever hoist — hook onto a member, a vehicle or the ground within ${R} m`;
   const at = hit.point as Vec3;
   const piece = pieceOf(hit.entity);
-  if (piece) return { anchor: anchorOn(vehicleOf(piece)?.chassis ?? piece, at), at: [...at] };
+  if (piece) {
+    const h = hitchOn(piece);
+    if (!h.kind) return h.why;
+    return { anchor: anchorOn(vehicleOf(piece)?.chassis ?? piece, at), at: [...at] };
+  }
   return { anchor: anchorOn(null, [at[0], at[1] + 0.12, at[2]]), at: [at[0], at[1] + 0.12, at[2]] };
 }
 
@@ -129,7 +153,8 @@ export function hoistRig(eye: Vec3, fwd: Vec3): string | null {
   if (stake) faceStake(stake, load.at);
   const line = makeLine('chain10', 'hoist', e.anchor, load.anchor, len + 0.05, {
     stake,
-    onGone: () => { if (h && h.line === line) drop(); },
+    // let go under load (a break, the anchor ploughing out, a cut) the hoist drops where it hung; cast off, it is taken down
+    onGone: (why) => { if (h && h.line === line) drop(why !== 'off'); },
   });
   const m = makeBody();
   h = { line, ...m, phase: 0, strokes: 0, stall: false, clickAt: -9 };
@@ -140,10 +165,24 @@ export function hoistRig(eye: Vec3, fwd: Vec3): string | null {
   return null;
 }
 
-function drop(): void {
+const dropped: THREE.Object3D[] = [];
+function drop(fell = false): void {
   if (!h) return;
-  scene.remove(h.body);
-  h.body.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose(); });
+  if (fell) {
+    // it and its bottom hook fall to the ground, the hoist dragged a little toward the load as the anchor let go
+    const dx = h.hook.position.x - h.body.position.x, dz = h.hook.position.z - h.body.position.z, dl = Math.hypot(dx, dz) || 1;
+    h.body.position.x += (dx / dl) * 0.4;
+    h.body.position.z += (dz / dl) * 0.4;
+    for (const o of [h.body, h.hook]) {
+      o.position.y = groundAt(o.position.x, o.position.z) + 0.06;
+      o.rotation.set(Math.PI / 2, o.rotation.y, 0, 'YXZ');
+      dropped.push(o);
+    }
+    while (dropped.length > 8) { const o = dropped.shift()!; scene.remove(o); o.traverse(m => { if (m instanceof THREE.Mesh) m.geometry.dispose(); }); }
+  } else for (const o of [h.body, h.hook]) {
+    scene.remove(o);
+    o.traverse(m => { if (m instanceof THREE.Mesh) m.geometry.dispose(); });
+  }
   h = null;
   working = false;
 }
@@ -207,7 +246,8 @@ export function hoistPreStep(held: boolean, dt: number): void {
   if (h.phase >= 1) { h.phase -= 1; h.strokes++; }
 }
 
-const _q = new THREE.Quaternion();
+const _q = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0), _v = new THREE.Vector3();
+const _hb: Vec3 = [0, 0, 0];
 /** Once a frame: the hoist hangs at its anchor, the lever where the stroke has it, the ratchet wheel turned. */
 export function syncHoist(alpha: number): void {
   viewmodel.rig({ lever: h && working ? h.phase : 0, strokes: h ? h.strokes : 0 });
@@ -225,6 +265,12 @@ export function syncHoist(alpha: number): void {
     h.body.rotation.set(Math.PI / 2, Math.atan2(dx, dz), 0, 'YXZ');
   }
   h.lever.rotation.x = -0.4 + 0.9 * Math.sin(Math.PI * h.phase);
+  // the bottom hook on the load, hanging in line with the chain
+  const b = h.line.b;
+  if (b.piece) interpPoint(_hb, b.piece, b.local, alpha); else vec3.copy(_hb, b.local);
+  h.hook.position.set(_hb[0], _hb[1], _hb[2]);
+  _v.set(_hp[0] - _hb[0], _hp[1] - _hb[1], _hp[2] - _hb[2]).normalize();
+  h.hook.quaternion.setFromUnitVectors(_up, _v);
   h.wheel.rotation.z = -((h.strokes + h.phase) * Math.PI * 2) / 12 * HOIST.clicks / 5;
   void _q;
 }
@@ -238,7 +284,7 @@ export function hoistStatus(): ToolReadout {
   const hand = Math.round(HOIST.hand * (T / HOIST.wll));
   const zone = inSnapZone();
   const near = atHoist();
-  const lines = [lineBar(L, 'chain')];
+  const lines = [lineBar(L, '#1 chain')];
   const detail = !near ? `stand at the hoist, hand on the lever, to work it · ${(T / 1000).toFixed(1)} kN on the chain`
     : h.stall ? (mode === 'free' ? 'free chain only runs with no load on it — select PULL or LOWER' : `the lever won't move: ${hand} N on the handle, ${(T / 1000).toFixed(1)} kN on the chain — over what you can pull`)
     : `${m} · ${(T / 1000).toFixed(1)} kN (${Math.round((T / HOIST.wll) * 100)} % of rated${T > HOIST.wll ? ' — OVERLOAD' : ''}) · ${hand} N on the lever · ${h.strokes} strokes, ${(h.strokes * HOIST.travel * 100).toFixed(1)} cm${zone ? ' · in the chain\'s line: step aside' : ''}`;
@@ -250,4 +296,6 @@ export function hoistWorking(): boolean { return working; }
 export function clearHoist(): void {
   load = null;
   if (h) drop();
+  for (const o of dropped) { scene.remove(o); o.traverse(m => { if (m instanceof THREE.Mesh) m.geometry.dispose(); }); }
+  dropped.length = 0;
 }

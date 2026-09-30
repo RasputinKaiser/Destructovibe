@@ -80,6 +80,41 @@ function texMat(set: SetId, color: number, rep: [number, number], metal: boolean
   });
 }
 
+/* A rope's surface to wrap round a tube, one lay length a tile (u along the rope, v round it): six strands laid
+   diagonally for wire rope, a twelve-strand braid for fibre. Greyscale; the material colours it. */
+const lays: Partial<Record<'wire' | 'fibre', THREE.CanvasTexture>> = {};
+function layTexture(fibre: boolean): THREE.CanvasTexture {
+  const key = fibre ? 'fibre' : 'wire';
+  const have = lays[key];
+  if (have) return have;
+  const W = 64, H = 64;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const u = x / W, v = y / H;
+    let k: number;
+    if (fibre) {
+      const a = (v + u) * 6, b = (v - u + 1) * 6;
+      const over = (Math.floor(a) + Math.floor(b)) % 2;
+      k = 0.55 + 0.45 * (over ? Math.sin(Math.PI * (a % 1)) : Math.sin(Math.PI * (b % 1)));
+    } else {
+      const f = ((v - u + 1) * 6) % 1;
+      k = f < 0.12 || f > 0.88 ? 0.4 : 0.8 + 0.2 * Math.sin(Math.PI * f);
+    }
+    const i = (y * W + x) * 4;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(255 * k);
+    img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return (lays[key] = t);
+}
+
 const plain = (color: number, rough: number, metal = 0): THREE.MeshStandardMaterial =>
   new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 
@@ -631,12 +666,12 @@ function buildModels(): Record<WeaponId, Model> {
     grapHook.add(tine);
   }
   grapSpool = new THREE.Group();
-  grapSpool.position.set(0, -0.06, -0.11);
-  const spoolFl = new THREE.CylinderGeometry(0.058, 0.058, 0.006, 26).rotateZ(Math.PI / 2);
+  grapSpool.position.set(0, -0.1, -0.12);
+  const spoolFl = new THREE.CylinderGeometry(0.1, 0.1, 0.008, 28).rotateZ(Math.PI / 2);
   grapSpool.add(
-    mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.07, 26).rotateZ(Math.PI / 2), hmpe),
-    mesh(spoolFl, black, 0.038, 0, 0), mesh(spoolFl, black, -0.038, 0, 0),
-    mesh(new THREE.BoxGeometry(0.07, 0.006, 0.016), polished, 0, 0.05, 0),
+    mesh(new THREE.CylinderGeometry(0.092, 0.092, 0.19, 28).rotateZ(Math.PI / 2), hmpe),
+    mesh(spoolFl, black, 0.099, 0, 0), mesh(spoolFl, black, -0.099, 0, 0),
+    mesh(new THREE.BoxGeometry(0.19, 0.006, 0.016), polished, 0, 0.092, 0),
   );
   const gGrip = mesh(new RoundedBoxGeometry(0.034, 0.11, 0.05, 2, 0.01), rubber, 0, -0.1, 0.07);
   gGrip.rotation.x = -0.3;
@@ -646,10 +681,13 @@ function buildModels(): Record<WeaponId, Model> {
     mesh(alongZ(new THREE.CylinderGeometry(0.033, 0.033, 0.02, 20)), black, 0, 0.03, -0.3),
     mesh(alongZ(new THREE.CylinderGeometry(0.027, 0.027, 0.02, 20, 1, true)), bore, 0, 0.03, -0.305),
     mesh(alongZ(new THREE.CylinderGeometry(0.02, 0.02, 0.16, 18)), yellow, 0.045, 0.03, -0.06),
-    // canister cage round the spool, motor and battery pack behind it
-    mesh(new THREE.BoxGeometry(0.09, 0.012, 0.14), oliveDark, 0, -0.005, -0.11),
-    mesh(new THREE.BoxGeometry(0.09, 0.012, 0.14), oliveDark, 0, -0.118, -0.11),
-    mesh(alongZ(new THREE.CylinderGeometry(0.03, 0.03, 0.07, 16)), iron, 0, -0.06, -0.01),
+    // the line canister's cage round the spool (60 m of 10 mm line wound is ~6 L), its reel motor on the side, and the
+    // battery pack behind it
+    // an open cage: straps over the top so the wound line shows, a base plate under it
+    mesh(new THREE.BoxGeometry(0.012, 0.012, 0.22), oliveDark, 0.105, 0.0, -0.12),
+    mesh(new THREE.BoxGeometry(0.012, 0.012, 0.22), oliveDark, -0.105, 0.0, -0.12),
+    mesh(new THREE.BoxGeometry(0.22, 0.012, 0.22), oliveDark, 0, -0.2, -0.12),
+    mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.06, 16).rotateZ(Math.PI / 2), iron, 0.14, -0.1, -0.12),
     mesh(new RoundedBoxGeometry(0.07, 0.07, 0.09, 2, 0.008), black, 0, -0.06, 0.07),
     mesh(new THREE.BoxGeometry(0.016, 0.03, 0.03), iron, 0, 0.005, 0.02),
     mesh(new THREE.BoxGeometry(0.006, 0.018, 0.008), black, 0, -0.03, 0.012),
@@ -659,16 +697,34 @@ function buildModels(): Record<WeaponId, Model> {
   );
 
   // rigging lines: a coil of the chosen line (a coil of 16 mm wire is ~0.45 m across, 28 d), its eye and shackle hanging
-  coilMat = plain(0x9a9da0, 0.5, 0.5);
+  // (drawn ~0.3 m across, smaller than a real hand coil's 0.5-0.8 m, so it doesn't fill the view)
+  coilMat = plain(0xb4b7ba, 0.6, 0.3);
+  coilMat.map = layTexture(false);
   coilRope = new THREE.Group();
-  const helix = new THREE.CatmullRomCurve3(Array.from({ length: 97 }, (_, i) => {
-    const a = (i / 12) * Math.PI * 2;
-    return new THREE.Vector3(Math.cos(a) * 0.11, (i / 96) * 0.14 + Math.sin(a * 3) * 0.002, Math.sin(a) * 0.11);
+  const TURNS = 8;
+  const turnR = Array.from({ length: TURNS + 1 }, (_, k) => 0.17 * (1 + 0.1 * Math.sin(k * 2.7 + 0.4)));
+  const turnY = Array.from({ length: TURNS + 1 }, (_, k) => 0.012 * Math.sin(k * 1.9));
+  const helix = new THREE.CatmullRomCurve3(Array.from({ length: TURNS * 16 + 1 }, (_, i) => {
+    const a = (i / 16) * Math.PI * 2, k = Math.floor(i / 16), f = (i % 16) / 16;
+    const r = turnR[k] + (turnR[Math.min(TURNS, k + 1)] - turnR[k]) * f;
+    const y = (i / (TURNS * 16)) * 0.06 + turnY[k] + (turnY[Math.min(TURNS, k + 1)] - turnY[k]) * f;
+    // each loop sags a little where it hangs off the hand
+    return new THREE.Vector3(Math.cos(a) * r, y - 0.03 * Math.max(0, -Math.cos(a)), Math.sin(a) * r * 0.9);
   }));
-  coilRope.add(mesh(new THREE.TubeGeometry(helix, 400, 0.008, 8, false), coilMat));
-  const tail = mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.12, 8), coilMat, 0.112, -0.05, 0.01);
+  const tube = new THREE.TubeGeometry(helix, 700, 0.008, 8, false);
+  coilMat.map.repeat.set(Math.round(helix.getLength() / 0.1), 1);
+  coilRope.add(mesh(tube, coilMat));
+  const tape = plain(0x1c1c1c, 0.7);
+  for (const a of [0.5, 2.6, 4.7]) {
+    const r = 0.17;
+    const band = mesh(new THREE.TorusGeometry(0.032, 0.005, 5, 12), tape, Math.cos(a) * r, 0.03 - 0.03 * Math.max(0, -Math.cos(a)), Math.sin(a) * r * 0.9);
+    band.scale.set(1, 1.3, 1);
+    band.rotation.y = -a;
+    coilRope.add(band);
+  }
+  const tail = mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.12, 8), coilMat, 0.17, -0.05, 0.01);
   tail.rotation.z = 0.15;
-  const thimble = mesh(new THREE.TorusGeometry(0.016, 0.005, 6, 14), polished, 0.12, -0.12, 0.01);
+  const thimble = mesh(new THREE.TorusGeometry(0.016, 0.005, 6, 14), polished, 0.178, -0.12, 0.01);
   thimble.scale.set(1, 1.35, 1);
   coilRope.add(tail, thimble);
   coilLinks = new THREE.Group();
@@ -687,7 +743,7 @@ function buildModels(): Record<WeaponId, Model> {
     mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.03, 8), polished, -0.02, 0.005, 0),
     mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.056, 8).rotateZ(Math.PI / 2), brass, 0, -0.01, 0),
   );
-  shackle.position.set(0.12, -0.165, 0.01);
+  shackle.position.set(0.178, -0.165, 0.01);
   shackle.rotation.set(0, 0, Math.PI);
   const tether = new THREE.Group();
   tether.add(coilRope, coilLinks, shackle);
@@ -1162,8 +1218,10 @@ function animateWeapon(m: Model, dt: number): void {
     if (rigVm.reel > 0.1) { g.position.x += (Math.random() - 0.5) * 0.0015; g.position.y += (Math.random() - 0.5) * 0.0015; }
   } else if (current === 'tether') {
     coilMat.color.setHex(rigVm.coil);
-    coilMat.metalness = rigVm.fibre ? 0 : 0.5;
-    coilMat.roughness = rigVm.fibre ? 0.85 : 0.5;
+    coilMat.metalness = rigVm.fibre ? 0 : 0.3;
+    coilMat.roughness = rigVm.fibre ? 0.85 : 0.6;
+    const lay = layTexture(rigVm.fibre);
+    if (coilMat.map !== lay) { lay.repeat.copy(coilMat.map!.repeat); coilMat.map = lay; coilMat.needsUpdate = true; }
     coilLinks.visible = rigVm.chain;
     coilRope.visible = !rigVm.chain;
   } else if (current === 'hoist') {

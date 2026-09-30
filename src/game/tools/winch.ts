@@ -10,7 +10,7 @@ import { hitmarker } from '../../ui/ui';
 import { player } from '../player';
 import { NO_HIT, toolHooks } from './common';
 import {
-  LINES, makeLine, makeStake, faceStake, dropStake, anchorOn, releaseLine, reanchor, setRest, setParts, lineJointDef, currentLength,
+  LINES, makeLine, makeStake, faceStake, anchorOn, hitchOn, releaseLine, reanchor, setRest, setParts, lineJointDef, currentLength,
   breakLoad, inSnapZone, strainEnergy, lineBar, GROUND, type Line,
 } from './lines';
 
@@ -35,7 +35,10 @@ const WRAPS = 3;          // m kept on the drum (five wraps)
 const LAYERS = [0.21, 0.49, 0.81, 1].map(k => k * DRUM), LAYER_PULL = [1, 0.83, 0.71, 0.62];
 const SHEAVE = 0.95;
 const MIN_LEN = 1.2;
-const BEHIND = 3;
+/* the winch is set down beside the operator, not in front of or behind him: a metre back and 8 m to his right, so he
+   works it by the power pack's remote out of the line of pull and out of its snap-back path (which widens at ~20
+   degrees back past the winch) */
+const BEHIND = 1, ASIDE = 8;
 const KIND = 'wire13' as const;
 
 interface Tow {
@@ -100,8 +103,8 @@ export function rigWinch(piece: Piece, point: Vec3, fwd: Vec3): string | null {
   const feet = player.e ? player.e.curPos : point;
   let hx = -fwd[0], hz = -fwd[2], hl = Math.hypot(hx, hz);
   if (hl < 0.1) { hx = Math.sin(player.yaw); hz = Math.cos(player.yaw); hl = 1; }
-  // side by side: each extra stake goes a metre and a half to the side of the last
-  const side = (tows.length % 2 ? 1 : -1) * Math.ceil(tows.length / 2) * 1.5;
+  // each extra winch goes a metre and a half further out to the side
+  const side = ASIDE + tows.length * 1.5;
   const bx = feet[0] + (hx / hl) * BEHIND + (hz / hl) * side, bz = feet[2] + (hz / hl) * BEHIND - (hx / hl) * side;
   const down = raycast([bx, feet[1] + 1.5, bz], [0, -(feet[1] + 4), 0], NO_HIT);
   const anchor: Vec3 = [bx, (down ? down.point[1] : 0) + 0.3, bz];
@@ -109,6 +112,8 @@ export function rigWinch(piece: Piece, point: Vec3, fwd: Vec3): string | null {
   // the drum holds 50 m: reeved through blocks, each part takes its share of it
   const reach = (DRUM - WRAPS) / parts;
   if (len > reach) return `${Math.round(len)} m away: ${parts} part${parts > 1 ? 's' : ''} of line on a ${DRUM} m drum reach ${reach.toFixed(0)} m`;
+  const hitch = hitchOn(piece);
+  if (!hitch.kind) return hitch.why;
   const w: Tow = { line: null!, truck: false, reeling: false, audioT: -9 };
   const stake = makeStake(anchor, true);
   faceStake(stake, point);
@@ -131,8 +136,7 @@ export function hitchWinch(vp: Piece, point: Vec3): string | null {
   if (w.reeling) audio.winch(false, 0);
   w.reeling = false;
   w.truck = true;
-  dropStake(w.line.stake);
-  w.line.stake = null;
+  // the rope is run off the drum to the truck; the winch stays where it sits
   setParts(w.line, 1);
   // made fast with the slack pulled out by hand, then a metre of rope to take up before it bites
   const len = Math.max(MIN_LEN, vec3.distance(point, w.line.pb) + 1);
@@ -210,7 +214,7 @@ export function winchStatus(): ToolReadout {
       ? `in the snap-back path: ${Math.round((strainEnergy(zone.L, breakLoad(zone.L)) * zone.L.spec.recoil) / 1000)} kJ comes back down that line if it parts — get out of line with it`
       : tows.map(one).join(' · ') + ` · rope WLL ${Math.round(LINES[KIND].wll / 1000)} kN, break ${Math.round(LINES[KIND].mbl / 1000)} kN · RMB cast off`,
     warn: u > 0.6 || !!zone,
-    lines: tows.map(w => lineBar(w.line, w.truck ? 'truck' : `${w.line.parts}× line`)),
+    lines: tows.map((w, i) => lineBar(w.line, `#${i + 1} ${w.truck ? "truck" : `${w.line.parts}× line`}`)),
   };
 }
 

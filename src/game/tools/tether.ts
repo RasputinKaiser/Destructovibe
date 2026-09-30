@@ -9,7 +9,7 @@ import { hitmarker } from '../../ui/ui';
 import { viewmodel } from '../../render/viewmodel';
 import { NO_HIT, toolHooks } from './common';
 import {
-  LINES, makeLine, makeStake, faceStake, anchorOn, releaseLine, pickLine, linesOf, lineBar, inSnapZone, GROUND, type Anchor, type LineKind,
+  LINES, makeLine, makeStake, faceStake, anchorOn, hitchOn, releaseLine, pickLine, linesOf, lineBar, inSnapZone, GROUND, type Anchor, type LineKind,
 } from './lines';
 
 /* Rigging lines: tie any two things together — a member to a member, to a vehicle's towing eye, or to a ground anchor
@@ -45,7 +45,9 @@ function aimEnd(eye: Vec3, fwd: Vec3): { anchor: Anchor; at: Vec3; what: string 
   if (piece) {
     const v = vehicleOf(piece);
     if (v) return { anchor: anchorOn(v.chassis, at), at: [...at], what: 'the vehicle' };
-    return { anchor: anchorOn(piece, at), at: [...at], what: `the ${piece.mat}` };
+    const h = hitchOn(piece);
+    if (!h.kind) return h.why;
+    return { anchor: anchorOn(piece, at), at: [...at], what: `the ${piece.mat} with ${h.name}` };
   }
   if (hit.entity?.kind === 'ground' || !hit.entity) return { anchor: anchorOn(null, [at[0], at[1] + 0.12, at[2]]), at: [at[0], at[1] + 0.12, at[2]], what: 'a ground anchor' };
   return 'That will not take a line';
@@ -104,7 +106,8 @@ export function tetherStatus(): ToolReadout {
   const s = LINES[KINDS[pick]];
   const mine = [...linesOf('tether'), ...linesOf('grapple')];
   const zone = inSnapZone();
-  const lines = mine.map(L => lineBar(L, L.spec.name.replace(/ (wire rope|kinetic rope|chain|line)$/, '')));
+  // numbered as on their tags
+  const lines = mine.map(L => lineBar(L, `#${linesOf(L.owner).indexOf(L) + 1} ${L.owner === 'grapple' ? 'grapple' : L.spec.name.replace(/ (wire rope|kinetic rope|chain|line)$/, '')}`));
   if (first) return { title: `Rigging line · ${s.name}`, progress: null, detail: 'one end made fast — LMB the other end (a member, a vehicle, the ground) · RMB lets go', warn: false, lines };
   const worst = lines.reduce((m, l) => Math.max(m, l.util), 0);
   return {

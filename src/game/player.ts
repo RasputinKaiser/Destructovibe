@@ -764,7 +764,7 @@ const SKID: K.FootParams = { accel: 0, accelHigh: 0, brake: 5, brakeK: 0.6 };
  *  closer, but he can't get further than `len` from it, so under it he hangs and off to one side he swings. `pull` N of
  *  reel tension hauls him along it, up to `speed` m/s of line. The tool sets it before each step; `tension` reports
  *  what the line took from him that step (his weight hanging, the swing, the haul). */
-export const harness = { on: false, at: [0, 0, 0] as Vec3, len: 0, pull: 0, speed: 0, tension: 0, lift: false };
+export const harness = { on: false, at: [0, 0, 0] as Vec3, len: 0, pull: 0, speed: 0, tension: 0, lift: false, slip: 0, slipped: false };
 /** where the line meets him, above his feet */
 export const HARNESS_H = 1.25;
 
@@ -781,17 +781,26 @@ function hangOn(dt: number, g: number): void {
     vel[0] += ux * a * dt; vel[1] += uy * a * dt; vel[2] += uz * a * dt;
     harness.tension += MASS * a;
   }
-  // the rope's length: whatever velocity would take him beyond it goes
-  const need = (d - harness.len) / dt;
+  // the rope's length: whatever velocity would take him beyond it goes; past it (the reel winding in, or pushed out by
+  // what he hangs against) he is drawn back in gently, not in one step (that would read as kilonewtons of line pull)
+  const err = d - harness.len;
+  const need = err < 0 ? err / dt : Math.min((err * 0.3) / dt, 1.5);
   const c2 = vel[0] * ux + vel[1] * uy + vel[2] * uz;
   if (c2 < need) {
-    const dv = need - c2;
+    let dv = need - c2;
+    /* a slip clutch on the reel (`slip` N) is his energy absorber: brought up short falling away from the hook, the
+       line takes no more than the clutch slips at and pays out the rest (a static line held rigid would stop a fall in
+       one step, at forces set by the step, not the rope) */
+    const most = harness.slip > 0 && c2 < -0.2 ? (Math.max(0, harness.slip - harness.tension) / MASS) * dt : Infinity;
+    if (dv > most) { dv = most; harness.len = Math.max(harness.len, d); harness.slipped = true; }
     vel[0] += ux * dv; vel[1] += uy * dv; vel[2] += uz * dv;
     harness.tension += (MASS * dv) / dt;
   }
   // hauled up off his feet (the line's lift beats his weight): clear of the ground snap, or the next step would stand
   // him back down
-  harness.lift = uy * Math.max(harness.tension, harness.pull) > MASS * g * 0.9;
+  // (or dragged off his feet: more pull along the ground than his boots hold, friction ~0.6)
+  const Fh = Math.max(harness.tension, harness.pull);
+  harness.lift = uy * Fh > MASS * g * 0.9 || Math.hypot(ux, uz) * Fh > 0.6 * MASS * g;
   if (player.grounded && harness.lift) { player.grounded = false; vel[1] = Math.max(vel[1], 0.6); }
   // hanging on it, a jump reaches for the ledge the hook is on (or kicks off the wall)
   if (!player.grounded && harness.tension > MASS * g * 0.5) player.coyote = Math.max(player.coyote, 0.05);
