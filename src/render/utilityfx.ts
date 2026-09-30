@@ -246,25 +246,37 @@ export function clearWaterJets(): void {
 type TailSource = () => readonly { t: { x: Float32Array } }[];
 let tailSource: TailSource | null = null;
 let tailMesh: THREE.InstancedMesh | null = null;
-const TAIL_CAP = 32 * 12;
+const TAIL_CAP = 32 * 30, TAIL_R = 0.015;
 const _ta = new THREE.Vector3(), _tb = new THREE.Vector3(), _tq = new THREE.Quaternion(), _ts = new THREE.Vector3(), _tm = new THREE.Matrix4();
 const UP = new THREE.Vector3(0, 1, 0);
 
 export function setTailSource(f: TailSource): void { tailSource = f; }
 
+const _tp: THREE.Vector3[] = [];
+const _cr = new THREE.CatmullRomCurve3([], false, 'centripetal');
+/* each fallen half through its nodes as a smooth curve (two drawn links per simulated one): a slack conductor lies in
+   easy bends, not a polyline */
 function drawTails(): void {
   const m = tailMesh!, list = tailSource ? tailSource() : [];
   let k = 0;
   for (const { t } of list) {
-    const x = t.x;
-    for (let i = 3; i < x.length && k < TAIL_CAP; i += 3) {
-      _ta.set(x[i - 3], x[i - 2], x[i - 1]); _tb.set(x[i], x[i + 1], x[i + 2]);
+    const x = t.x, n = x.length / 3;
+    while (_tp.length < n) _tp.push(new THREE.Vector3());
+    const pts = _tp.slice(0, n);
+    for (let i = 0; i < n; i++) pts[i].set(x[i * 3], x[i * 3 + 1], x[i * 3 + 2]);
+    _cr.points = pts;
+    const segs = (n - 1) * 2;
+    _cr.getPoint(0, _ta);
+    for (let i = 1; i <= segs && k < TAIL_CAP; i++) {
+      _cr.getPoint(i / segs, _tb);
       _ts.subVectors(_tb, _ta);
       const l = _ts.length();
-      if (l < 1e-5) continue;
-      _tq.setFromUnitVectors(UP, _ts.multiplyScalar(1 / l));
-      _tm.compose(_ta, _tq, _ts.set(0.012, l + 0.012, 0.012));
-      m.setMatrixAt(k++, _tm);
+      if (l > 1e-5) {
+        _tq.setFromUnitVectors(UP, _ts.multiplyScalar(1 / l));
+        _tm.compose(_ta, _tq, _ts.set(TAIL_R, l + TAIL_R, TAIL_R));
+        m.setMatrixAt(k++, _tm);
+      }
+      _ta.copy(_tb);
     }
   }
   m.count = k;
@@ -277,7 +289,7 @@ export function updateTails(): void {
   if (!root || !tailSource) return;
   if (!tailMesh) {
     const geo = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true).translate(0, 0.5, 0);
-    tailMesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0x1c2226, roughness: 0.55, metalness: 0.4 }), TAIL_CAP);
+    tailMesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0x2a2f33, roughness: 0.4, metalness: 0.55 }), TAIL_CAP);
     tailMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     tailMesh.frustumCulled = false;
     tailMesh.castShadow = true;
@@ -341,4 +353,106 @@ export function waterPour(pos: Vec3, size: number): void {
     pColor(0xe6ecef); P.a = 0.18; P.fadeIn = 0.05; P.wind = 0.6;
     fxKit.emit();
   }
+}
+
+/* ---------------- arcs, flashes, oil fires ---------------- */
+
+/** One strike (~every 0.15-0.4 s) of a power arc at a live break: a compact blue-violet plasma ball at the conductor
+    sized by the current, the violet-white light it throws, and molten copper spattering out and falling in orange
+    arcs under gravity; a wisp of grey from burnt insulation. `strength` 0.25 (a sputtering earth fault of a few amps)
+    .. 1.4 (a bolted fault of kiloamps). */
+export function arcStrike(pos: Vec3, strength: number): void {
+  if (!fxKit.ready()) return;
+  const s = clamp(strength, 0.1, 1.6), [x, y, z] = pos, b = budget();
+  /* the plasma: a small blue-violet core flickering over a few frames, with short writhing filaments where it roots on
+     the metal (not a glowing ball: it is a few centimetres of arc column) */
+  for (let k = 0; k < 2; k++) {
+    pAt(x + rf(-0.03, 0.03), y + rf(-0.03, 0.03), z + rf(-0.03, 0.03));
+    P.delay = k * rf(0.02, 0.05); P.variant = 3; P.life = rf(0.04, 0.07); P.s0 = 0.05 + 0.14 * s; P.s1 = P.s0 * 1.2; P.a = 0;
+    pColor(0x8f86ff); P.heat = -(5 + 8 * s); P.heatDur = P.life; P.drag = 0; P.fadeIn = 0; P.spin = 0;
+    fxKit.emit();
+  }
+  for (let k = Math.round(1 + 2 * s); k > 0; k--) fxKit.bolt(x, y, z, rf(0.08, 0.25) * (0.5 + 0.5 * s), 3, rf(0, 0.06), 0.004 + 0.003 * s);
+  /* copper spatter: thrown mostly sideways and down, cooling from yellow-white to orange as it falls */
+  const n = Math.min(24, Math.round((1 + 16 * s * s) * (0.5 + 0.5 * b)));
+  for (let i = 0; i < n; i++) {
+    dirAround(0, -0.7, 0, 0.7);
+    const sp = rf(0.6, 2.6) * (0.6 + 0.5 * s);
+    S.x = x; S.y = y; S.z = z; S.vx = _v.x * sp; S.vy = _v.y * sp; S.vz = _v.z * sp;
+    S.life = rf(0.3, 0.8); S.r = 3.6; S.g = 2; S.b = 0.7; S.w = rf(0.003, 0.007); S.grav = 1; S.drag = 0.8; S.streak = 0.025; S.bounce = 0.1;
+    spark();
+  }
+  /* burnt insulation: a thin grey thread, now and then (a steady arc must not stack up a glowing ball of smoke) */
+  if (rf(0, 1) < 0.12 * s * b) {
+    pAt(x, y + 0.05, z); P.vy = rf(0.4, 0.8); P.life = rf(1, 1.8); P.s0 = 0.05; P.s1 = 0.2 + 0.2 * s; pColor(0x4a4744); P.a = 0.1; P.rise = 0.4; P.fadeIn = 0.05; P.wind = 1.2;
+    fxKit.emit();
+  }
+  fxKit.flash(x, y, z, 0xb8b0ff, 25 + 70 * s * s, 0.1, 5 + 7 * s, 1, 1);
+}
+
+/** The arc flash of a big fault or a wrecked transformer: a violet-white fireball of plasma that blinds for a tenth of
+    a second and lights everything round it, a shower of molten copper, then burnt-insulation smoke. `R` its radius. */
+export function arcFlashV(pos: Vec3, R: number): void {
+  if (!fxKit.ready()) return;
+  const r = clamp(R, 0.5, 8), [x, y, z] = pos, b = budget();
+  for (const [size, heat, life] of [[r * 1.7, 30, 0.14], [r * 0.9, 10, 0.4]] as const) {
+    pAt(x, y, z); P.variant = 3; P.life = life; P.s0 = size; P.s1 = size * 0.75; P.a = 0;
+    pColor(0x958aff); P.heat = -heat; P.heatDur = life; P.drag = 0; P.fadeIn = 0; P.spin = 0;
+    fxKit.emit();
+  }
+  const n = Math.min(110, Math.round((35 + 15 * r) * (0.5 + 0.5 * b)));
+  for (let i = 0; i < n; i++) {
+    dirAround(0, -0.35, 0, 0.8);
+    const sp = r * rf(1, 3.5);
+    S.x = x; S.y = y; S.z = z; S.vx = _v.x * sp; S.vy = _v.y * sp; S.vz = _v.z * sp;
+    S.life = rf(0.3, 0.9); S.r = 5.5; S.g = 3.2; S.b = 1.2; S.w = rf(0.007, 0.014); S.grav = 1; S.drag = 0.9; S.streak = 0.03; S.bounce = 0.2;
+    spark();
+  }
+  const np = Math.round((8 + r * 3) * b);
+  for (let i = 0; i < np; i++) {
+    const f = i / np;
+    pAt(x + rf(-0.3, 0.3) * r, y + r * (0.2 + f * 0.6), z + rf(-0.3, 0.3) * r);
+    P.delay = 0.1 + f * 0.6; P.vx = rf(-0.5, 0.5); P.vy = rf(1.2, 2.5); P.vz = rf(-0.5, 0.5); P.drag = 0.8;
+    P.life = rf(3, 5); P.s0 = r * 0.4; P.s1 = r * rf(1.6, 2.4); P.rise = 1; pColor(0x3a3734, rf(0.85, 1.1)); P.a = 0.45; P.fadeIn = 0.15; P.wind = 1;
+    fxKit.emit();
+  }
+  fxKit.flash(x, y, z, 0xa89cff, 450 * r * r + 300, 0.4, r * 12 + 8, 3);
+}
+
+/** One tick (~4×/s) of a mineral-oil pool fire of radius `r`: tall orange flames over the pool and the dense black
+    smoke a sooty oil fire pours out, billowing wider than the fire and climbing out of sight. */
+export function oilFireTick(pos: Vec3, r: number): void {
+  if (!fxKit.ready()) return;
+  const [x, y, z] = pos, b = budget(), Hf = clamp(1.8 * r * 1.6, 1.5, 9);
+  /* flames: luminous tongues up to Heskestad's L ≈ 0.235·Q^0.4 − 1.02·D (several metres for a bunded tank fire) */
+  /* tongues: many small fast flames from across the pool, not a few big glowing balls; half of them dimmer and redder
+     (a sooty flame is mostly dull orange) */
+  const nf = Math.max(3, Math.round((6 + 3 * r) * b));
+  for (let i = 0; i < nf; i++) {
+    const a = rf(0, 6.283), d = r * Math.sqrt(rf(0, 1));
+    pAt(x + Math.cos(a) * d, y + 0.15, z + Math.sin(a) * d);
+    P.vx = rf(-0.25, 0.25); P.vy = rf(3, 5.5) * Math.sqrt(Hf / 4); P.vz = rf(-0.25, 0.25); P.drag = 1; P.rise = 1.6;
+    P.life = rf(0.35, 0.8); P.s0 = 0.25 + 0.12 * r; P.s1 = 0.6 + 0.25 * r; P.a = 0; P.heat = rf(0, 1) < 0.5 ? rf(3, 5) : rf(7, 10); P.heatDur = P.life;
+    P.spin = rf(-2, 2); P.wind = 0.4; P.fadeIn = 0.03;
+    fxKit.emit();
+  }
+  /* soot through the flames themselves, right down to the pool: a mineral-oil fire is black-veined, not clean */
+  for (let i = rf(0, 1) < b ? 2 : 1; i > 0; i--) {
+    const a = rf(0, 6.283), d = r * Math.sqrt(rf(0, 1));
+    pAt(x + Math.cos(a) * d, y + rf(0.1, 0.6) * Hf, z + Math.sin(a) * d);
+    P.vx = rf(-0.3, 0.3); P.vy = rf(2, 3.5); P.vz = rf(-0.3, 0.3); P.drag = 0.4; P.rise = 1;
+    P.life = rf(2, 3.5); P.s0 = 0.6 + 0.3 * r; P.s1 = 2 + r; pColor(0x121110); P.a = 0.55; P.fadeIn = 0.1; P.wind = 1; P.curl = 0.5;
+    fxKit.emit();
+  }
+  /* soot: opaque black-grey billows from the flame tips upward */
+  const ns = Math.max(1, Math.round((1 + r) * b));
+  for (let i = 0; i < ns; i++) {
+    pAt(x + rf(-0.5, 0.5) * r, y + Hf * rf(0.6, 1), z + rf(-0.5, 0.5) * r);
+    P.vx = rf(-0.3, 0.3); P.vy = rf(2.5, 4); P.vz = rf(-0.3, 0.3); P.drag = 0.25; P.rise = 1.2;
+    P.vx = rf(-1.2, 1.2); P.vz = rf(-1.2, 1.2);
+    P.life = rf(9, 14); P.s0 = 1.2 + 0.6 * r; P.s1 = rf(8, 13) + 2 * r; pColor(0x1b1b1c, rf(0.8, 1.4)); P.a = 0.78;
+    P.fadeIn = 0.3; P.wind = 1.2; P.heat = 1.5; P.heatDur = 0.6; P.curl = 1;
+    fxKit.emit();
+  }
+  if (rf(0, 1) < 0.5) fxKit.flash(x, y + Hf * 0.4, z, 0xff8a3a, 120 + 60 * r, 0.4, 14 + 4 * r, 1, 2);
 }

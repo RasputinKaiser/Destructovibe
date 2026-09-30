@@ -2,6 +2,7 @@ import { vec3, clamp } from 'math';
 import type { MaterialId, Vec3 } from '../types';
 import { b3, CAT, overlapAABB, entityOfShape, randomStream } from '../physics/physics';
 import { fx } from '../render/fx';
+import { arcFlashV } from '../render/utilityfx';
 import { audio } from '../audio/audio';
 import { lighting } from '../render/shared';
 import { live, heat, ignite, damagePiece, explode, type Piece } from './structure';
@@ -134,7 +135,7 @@ export function arcEnergy(U: number, Ia: number, t: number): number {
 export function arcBlast(pos: Vec3, E: number, src: Piece | null): void {
   if (E < 3e4) return;
   const r = clamp(0.3 * Math.cbrt(E / 1000), 0.4, 6);
-  fx.arcBlast(pos, r);
+  arcFlashV(pos, r);
   audio.arcFlash(pos);
   // the arc's pressure wave: a big fault arc blows a cubicle apart, on the order of a transformer blowout
   if (E > 5e5) explode(pos, Math.min(r * 0.5, 2.5), Math.min(E * 0.02, 40e3), Math.min(Math.sqrt(E) * 1.5, 1500));

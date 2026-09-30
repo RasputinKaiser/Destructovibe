@@ -347,13 +347,21 @@ const GLASS_VERT = /* glsl */`
   vDvN = mat3( modelMatrix ) * dvNo;`;
 const GLASS_COLOR = /* glsl */`
   vec3 dvTint = vec3( 1.0 );
-  #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+  #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA ) || defined( USE_INSTANCING_COLOR )
     dvTint = vColor.rgb;
   #endif
   #ifdef DV_SMOKED
     float dvDark = 1.0 - dot( dvTint, vec3( 0.3, 0.55, 0.15 ) );
     diffuseColor.rgb *= mix( vec3( 1.0 ), dvTint, 0.5 ) * ( 1.0 - 0.8 * dvDark );
     diffuseColor.a = mix( diffuseColor.a, 0.9, dvDark );
+    #ifdef USE_COLOR_ALPHA
+      // a shop with its supply off after dark: the room behind goes black and the glass shows only what it reflects
+      if ( vColor.a < 0.999 ) {
+        float dvOff = ( 1.0 - smoothstep( 0.3, 0.9, vColor.a ) ) * uDvRoom.a;
+        diffuseColor.rgb *= 1.0 - 0.85 * dvOff;
+        diffuseColor.a = mix( diffuseColor.a, 0.92, dvOff );
+      }
+    #endif
   #else
     diffuseColor.rgb *= dvTint;
   #endif`;
@@ -406,6 +414,8 @@ const GLASS_ROOM = /* glsl */`
       diffuseColor.a = mix( diffuseColor.a, 1.0, dvFrame );
     }
     #endif
+    // a building without its supply: no lamps, and the rooms go dark enough that the glass reads black with the sky on it
+    dvIn *= mix( 0.35, 1.0, dvPwr );
     totalEmissiveRadiance += dvIn * mix( vec3( 1.0 ), dvTint, 0.6 ) * ( 1.0 - dvFr ) * dvVert * dvClear;
     diffuseColor.a = mix( diffuseColor.a, 0.93, dvVert * ( 1.0 - dvFr ) * dvClear );
   }

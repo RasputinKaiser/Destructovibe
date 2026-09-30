@@ -5,7 +5,7 @@ import type { Vec3 } from '../types';
    ground surface only: it moves no bodies and nothing it does depends on who watches. It stops being stepped once it
    lies still, until its insulator moves or an arc at its end kicks it. */
 
-export const TAIL_NODES = 11;
+export const TAIL_NODES = 16;
 const G = 9.81;
 const DAMP = 0.985;           // air drag and the strands' own damping: a swing dies in a few seconds
 const ITERS = 8;

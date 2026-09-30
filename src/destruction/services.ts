@@ -6,9 +6,13 @@ import { coverAt, groundAt, dig, mound } from '../terrain/terrain';
 import { fx } from '../render/fx';
 import { audio } from '../audio/audio';
 import { lampLights } from '../render/lights';
-import { waterColumn, setWaterJets, clearWaterJets, setTailSource, setIndicators, type JetSpec, type Indicator } from '../render/utilityfx';
+import { waterColumn, setWaterJets, clearWaterJets, setTailSource, setIndicators, arcStrike, arcFlashV, oilFireTick, type JetSpec, type Indicator } from '../render/utilityfx';
 import { makeTail, stepTail, kickTail, tailEnd, type Tail } from './conductors';
-import { setPieceHeat, setPiecePower } from './batches';
+import { setPieceHeat, setPiecePower, setPieceColor } from './batches';
+import { setDetailDim, hasDetail } from './detail';
+import { lighting } from '../render/shared';
+import { Color } from 'three';
+const _char = new Color(0x2b2724);
 import { flammable } from './materials';
 import { explode, heat, ignite, douse, burningPieces, live, releaseGround, windVector, type Piece } from './structure';
 import * as fields from '../sim/fields/index';
@@ -77,6 +81,7 @@ export interface Member {
   run: boolean;             // standby: started and on load
   startT: number;           // standby: seconds its bus has been dead (it starts at START_DELAY) or live again
   batt: number;             // emergency lamp: battery left, s (-1: none)
+  relight: number;          // sodium lamp: clock it can restrike after going out (0: burning or cold)
 }
 
 interface Lim { leakD: number; leakA: number; cutD: number; cutA: number }
@@ -277,7 +282,7 @@ const lamps = new Set<Piece>();
 const gates = new Set<Piece>();
 const sprinklers = new Set<Piece>();
 const breaks: Break[] = [];
-const blowouts: { pos: Vec3; fixture: FixtureKind; volume: number }[] = [];
+const blowouts: { pos: Vec3; fixture: FixtureKind; volume: number; p: Piece }[] = [];
 const flicker = new Map<Piece, number>();
 const mechs = new Map<number, Mech>();
 const svcLinks = new Set<SvcLink>();
@@ -337,7 +342,7 @@ export function memberFor(spec: PieceSpec, frag: boolean): Member | null {
     emit: 0, blown: false, vented: false, links: [],
     r: 0, ez: Infinity, par: null, pl: null, dev: null, ib: 0, mot: false, hv: false, wet: 0, track: 0,
     fp: null, standby: source && fixture === 'generator' && !!spec.standby, run: false, startT: 0,
-    batt: lamp && spec.emergency ? spec.emergency * 3600 : -1,
+    batt: lamp && spec.emergency ? spec.emergency * 3600 : -1, relight: 0,
   };
 }
 
@@ -535,7 +540,7 @@ export function svcLinkLost(a: Piece, b: Piece, pos: Vec3, n: Vec3, record: bool
   }
 }
 
-/* A span conductor parts somewhere along its length (where the tension found its weakest strand): each half swings
+/* A span conductor parts (usually near a clamp or tie, where the tension found its weakest strand): each half swings
    down from its insulator on its own (conductors.ts) and its free end is the open break, arcing where it lands if its
    side is still live. A live end on the ground is an earth fault of ~U0 / R_EARTH (15 A on LV): no fuse clears that,
    so a downed line lies there live and spitting; touching metal, water or the other conductor it is a bolted fault. */
@@ -543,7 +548,8 @@ interface Fallen { t: Tail; p: Piece }
 const fallen: Fallen[] = [];
 const MAX_FALLEN = 32;
 function snapWire(a: Piece, b: Piece, pa: Vec3, pb: Vec3): void {
-  const L = vec3.distance(pa, pb), f = 0.3 + 0.4 * rnd();
+  /* a conductor mostly fails where it is clamped or tied at an insulator, so one half is long and the other a stub */
+  const L = vec3.distance(pa, pb), e = 0.08 + 0.17 * rnd(), f = rnd() < 0.5 ? e : 1 - e;
   vec3.lerp(_c, pa, pb, f);
   for (const [p, at, len] of [[a, pa, f * L], [b, pb, (1 - f) * L]] as const) {
     if (fallen.length >= MAX_FALLEN) continue;
@@ -611,7 +617,7 @@ export function svcHarm(p: Piece, fatal: boolean): void {
   if (!m || !m.source || m.blown || (!fatal && p.damage < p.hp * 0.5)) return;
   m.blown = true;
   topoDirty = true;
-  blowouts.push({ pos: [p.curPos[0], p.curPos[1], p.curPos[2]], fixture: m.fixture!, volume: p.root.volume });
+  blowouts.push({ pos: [p.curPos[0], p.curPos[1], p.curPos[2]], fixture: m.fixture!, volume: p.root.volume, p });
 }
 
 function sourceLive(p: Piece): boolean {
@@ -685,7 +691,7 @@ function insulationFault(p: Piece, flash: boolean): void {
   b.contact = 2;
   b.arcT = 0;
   if (flash) tally.flashovers++; else tally.insulation++;
-  fx.arc(p.curPos, flash ? 1.2 : 0.6);
+  arcStrike(p.curPos, flash ? 1.2 : 0.6);
   audio.arc(p.curPos, flash ? 1 : 0.6);
 }
 
@@ -737,7 +743,9 @@ function recompute(): void {
   for (const p of lamps) {
     const m = p.svc!;
     if (m.batt > 0 && !m.on && !m.blown) { if (!flicker.has(p)) setEmit(p, EMERG); continue; }
-    if (m.on && !m.blown && m.emit !== 1 && !flicker.has(p)) setEmit(p, 1);
+    /* a sodium lamp that loses its supply, even mid-flicker, must cool before it can strike again */
+    if ((!m.on || m.blown) && sodium(p) && (m.emit > 0 || flicker.has(p)) && m.relight < clock) m.relight = clock + RESTRIKE;
+    if (m.on && !m.blown && m.emit !== lampLevel(m) && !flicker.has(p)) setEmit(p, lampLevel(m));
     else if ((!m.on || m.blown) && m.emit > 0 && !flicker.has(p)) {
       flicker.set(p, 0.25 + rnd() * 0.35);
       const d = vec3.squaredDistance(p.curPos, viewer);
@@ -764,7 +772,19 @@ function recompute(): void {
 
 /* An emergency luminaire on its battery runs its lamp at a fraction of its mains output (the inverter's rating). */
 const EMERG = 0.35;
-const lampLevel = (m: Member): number => m.blown ? 0 : m.on ? 1 : m.batt > 0 ? EMERG : 0;
+const lampLevel = (m: Member): number => m.blown ? 0 : m.on ? warmUp(m) : m.batt > 0 ? EMERG : 0;
+/* A high-pressure sodium lamp that goes out (its supply lost, or a deep dip from a fault on its network) cannot restrike
+   hot: the sodium must cool first (1-2 min), then it strikes dim and pink and takes minutes to come to full orange.
+   Compressed here to 30 s cold and 30 s warming. */
+const RESTRIKE = 30, WARM = 30, SODIUM = 0xffae55;
+const sodium = (p: Piece): boolean => p.root.spec.light?.color === SODIUM;
+function warmUp(m: Member): number {
+  if (m.relight <= 0) return 1;
+  if (clock < m.relight) return 0;
+  const k = Math.min(1, 0.12 + (0.88 * (clock - m.relight)) / WARM);
+  if (k >= 1) m.relight = 0;
+  return k;
+}
 
 function setEmit(p: Piece, k: number): void {
   const m = p.svc!;
@@ -781,6 +801,8 @@ const panes = new Map<string, Piece[]>();
 const paneNet = new Map<string, number>();
 const paneShown = new Map<string, number>();
 const paneFlick = new Map<string, number>();
+/* a building's own supply lit: just under 1, so a pane the services have seen (lit or dark) is told from one they never touched */
+const LIT = 0.99;
 let panesAt = -1e9;
 /* the windows' stutter draws on a stream of its own: what is only drawn must not shift the game's seeded randomness */
 let vs = 0x9e3779b9;
@@ -790,10 +812,12 @@ function buildingSupply(): void {
     panesAt = clock;
     panes.clear();
     const wired = new Set<string>();
-    for (const p of members) if (p.svc!.kind === 'power' && p.root.spec.group) wired.add(p.root.spec.group);
+    /* a building has its own consumer unit or fuses; a vehicle's wiring does not make its glass a lit room */
+    for (const p of members) { const m = p.svc!; if (m.kind === 'power' && p.root.spec.group && (m.part === 'breaker' || m.part === 'fuse' || m.source)) wired.add(p.root.spec.group); }
     for (const p of live) {
       const g = p.root.spec.group;
-      if (p.dead || !g || (p.mat !== 'glass' && p.mat !== 'tempered') || !wired.has(g)) continue;
+      /* its panes, and whatever carries glazing as detail (a shopfront's frame with its lites) */
+      if (p.dead || !g || !wired.has(g) || (p.mat !== 'glass' && p.mat !== 'tempered' && !hasDetail(p))) continue;
       (panes.get(g) ?? panes.set(g, []).get(g)!).push(p);
     }
   }
@@ -812,9 +836,9 @@ function buildingSupply(): void {
     if (want === was) continue;
     paneShown.set(g, want);
     /* first sight: as it stands, no stutter */
-    if (was === undefined) { if (!want) for (const p of list) if (!p.dead) setPiecePower(p.gfx, 0); continue; }
+    if (was === undefined) { for (const p of list) if (!p.dead) paneLevel(p, want ? LIT : 0); continue; }
     paneFlick.set(g, 0.25 + vrnd() * 0.4);
-    if (!want) for (const p of list) if (!p.dead) setPiecePower(p.gfx, 0.6);
+    if (!want) for (const p of list) if (!p.dead) paneLevel(p, 0.6);
   }
 }
 /** Buildings with wiring and windows: how many panes, whether their supply is shown on (tools, tests). */
@@ -822,13 +846,20 @@ export function serviceWindows(): { group: string; panes: number; lit: boolean }
   return [...panes].map(([group, l]) => ({ group, panes: l.length, lit: paneShown.get(group) !== 0 }));
 }
 
+/* a pane's supply as drawn: its own room-light channel, and its detail glazing darkened after dark (a dead shop's
+   window reads black with the street reflected in it; by day the daylight in the room hides a blackout) */
+function paneLevel(p: Piece, k: number): void {
+  if (p.mat === 'glass' || p.mat === 'tempered') setPiecePower(p.gfx, k);
+  setDetailDim(p, 1 - 0.95 * (1 - Math.min(1, k / LIT)) * Math.min(1, 1.4 * lighting.lamps));
+}
+
 /* the stutter of a dying (or struck) supply, stepped only while one runs */
 function stepPanes(dt: number): void {
   for (const [g, t] of paneFlick) {
     const list = panes.get(g), left = t - dt;
-    const k = left <= 0 ? paneShown.get(g) ?? 1 : vrnd() < 0.45 ? 0.05 : 0.4 + 0.6 * vrnd();
+    const k = left <= 0 ? (paneShown.get(g) ?? 1) * LIT : vrnd() < 0.45 ? 0.05 : (0.4 + 0.6 * vrnd()) * LIT;
     if (left <= 0) paneFlick.delete(g); else paneFlick.set(g, left);
-    if (list) for (const p of list) if (!p.dead) setPiecePower(p.gfx, k);
+    if (list) for (const p of list) if (!p.dead) paneLevel(p, k);
   }
 }
 
@@ -933,7 +964,7 @@ export function servicesStep(dt: number): void {
   const t0 = performance.now();
   clock += dt;
   if (!fieldHooked) { fieldHooked = true; fields.onDeflagration(roomDeflagrated); }
-  if (blowouts.length) for (const b of blowouts.splice(0)) blowout(b.pos, b.fixture, b.volume);
+  if (blowouts.length) for (const b of blowouts.splice(0)) blowout(b.pos, b.fixture, b.volume, b.p);
   tickT += dt;
   if (tickT >= TICK) { tickT -= TICK; tick(); }
   if (watch.length) stepLinks(dt);
@@ -950,7 +981,9 @@ export function servicesStep(dt: number): void {
         if (!p.dead) setEmit(p, lampLevel(p.svc!));
       } else {
         flicker.set(p, left);
-        setEmit(p, rnd() < 0.45 ? 0 : 0.35 + rnd() * 0.65);
+        /* a sodium lamp waiting to restrike stays dark through every later dip */
+        const out = clock < p.svc!.relight;
+        setEmit(p, rnd() < 0.45 || out ? 0 : 0.35 + rnd() * 0.65);
       }
     }
     lightT -= dt;
@@ -1001,6 +1034,7 @@ function tick(): void {
   if (sprinklers.size) sprinklerHeat();
   gasRooms();
   alarmsTick();
+  for (const p of lamps) { const m = p.svc!; if (m.relight > 0 && m.on && !flicker.has(p)) setEmit(p, lampLevel(m)); }
   pushLights();
   deviceLamps();
   updateMechs();
@@ -1116,7 +1150,9 @@ function pressureAt(p: Piece): number {
   }
   let worst = 0;
   for (const e of ends) worst = Math.max(worst, pathLoss(e, Q));
-  let P = worst > 0 ? 1 - ((1 - n.P) * pathLoss(p, Q)) / worst : n.P;
+  /* the head at the supply itself: full, or its reservoir's static head with its pumps stopped */
+  const P0 = n.kind === 'water' ? boost(n) : 1;
+  let P = worst > 0 ? P0 - ((P0 - n.P) * pathLoss(p, Q)) / worst : n.P;
   if (n.kind === 'water') P -= (p.curPos[1] - n.y) / HEAD;
   return clamp(P, 0, 1);
 }
@@ -1933,7 +1969,8 @@ function lookJets(): void {
 }
 
 function arc(b: Break, strength: number): void {
-  if (b.shown) { fx.arc(_v, strength); audio.arc(_v, strength); }
+  /* a live end on soil (a few amps) mostly lies quiet and only now and then spits: drawn for a third of its strikes */
+  if (b.shown && (strength >= 0.35 || vrnd() < 0.33)) { arcStrike(_v, strength); audio.arc(_v, strength); }
   fields.spark(_v, 0.3);
   /* molten copper spatter flies a metre or so every way (and the plasma plume climbs): either lights a flammable
      pocket beside the arc that the arc itself is not in */
@@ -1954,7 +1991,13 @@ function arc(b: Break, strength: number): void {
     }
   }
   const net = b.p.svc!.net;
-  for (const p of lamps) if (p.svc!.net === net && p.svc!.on && !flicker.has(p)) flicker.set(p, 0.08 + rnd() * 0.12);
+  for (const p of lamps) {
+    const m = p.svc!;
+    if (m.net !== net || !m.on || flicker.has(p)) continue;
+    flicker.set(p, 0.08 + rnd() * 0.12);
+    /* a bolted fault's dip puts a sodium lamp out */
+    if (strength >= 0.3 && sodium(p) && m.relight < clock && m.emit > 0) m.relight = clock + RESTRIKE;
+  }
   for (const [g, n] of paneNet) if (n === net && !paneFlick.has(g) && paneShown.get(g) !== 0) paneFlick.set(g, 0.08 + vrnd() * 0.12);
   const r = 0.8;
   const src = b.p;
@@ -2020,14 +2063,14 @@ function jetEffect(b: Break): void {
 
 /* ---------------- blowouts ---------------- */
 
-function blowout(pos: Vec3, fixture: FixtureKind, volume: number): void {
+function blowout(pos: Vec3, fixture: FixtureKind, volume: number, p?: Piece): void {
   switch (fixture) {
     case 'transformer':
     case 'generator': {
       /* The same fixture tag covers a wall-mounted consumer unit and a ground transformer: the
          fault energy (and so the flash) scales with the unit's size. */
       const k = clamp(Math.sqrt(volume / 0.6), 0.3, 1);
-      fx.arcFlash(pos, (fixture === 'generator' ? 5 : 4) * k);
+      arcFlashV(pos, (fixture === 'generator' ? 5 : 4) * k);
       audio.arcFlash(pos);
       explode(pos, 3 * k, 30e3 * k * k, 1200 * k);
       if (fixture === 'generator') { igniteAround(pos, 5 * k, 0.8); spill(pos, 400 * k, true); }
@@ -2036,7 +2079,8 @@ function blowout(pos: Vec3, fixture: FixtureKind, volume: number): void {
         /* an oil-filled distribution transformer (~250 L per 500 kVA) splits its tank: the mineral oil sprays out through
            the arc and burns as a pool round the plinth under a column of black smoke (a dry consumer unit holds none) */
         if (volume > 1.5) {
-          fx.fire([pos[0], pos[1] + 0.6, pos[2]], 2.5, 1.6 * k);
+          /* the tank is scorched black where the arc burst it and the oil burns round it */
+          if (p && !p.dead) setPieceColor(p.gfx, _char);
           oilFire([pos[0], groundAt(pos[0], pos[2]) + 0.05, pos[2]], clamp(120 * volume, 150, 900), 2.5 * volume);
         }
       }
@@ -2177,7 +2221,7 @@ const REFLECT_CAP = 20;      // geared rotor inertia at the output capped at thi
 
 const LOOSE_ROLLING = 0.02;   // what structure gives an intact piece
 const mechList: Mech[] = [];
-const pools: { pos: Vec3; t: number; r: number; lit: boolean }[] = [];
+const pools: { pos: Vec3; t: number; r: number; lit: boolean; T?: number; oil?: boolean }[] = [];
 
 function findHost(p: Piece, at: Vec3): Piece | null {
   let best: Piece | null = null, bd = 0.03, bv = 0;
@@ -2868,9 +2912,14 @@ function rupture(m: Mech): void {
 function oilFire(pos: Vec3, litres: number, bund: number): void {
   if (pools.length > 12) return;
   const area = clamp(Math.min(litres / 5, bund), 1, 50), r = Math.sqrt(area / Math.PI);
-  const t = clamp((litres * 0.84) / (0.045 * area) / 10, 12, 120);
-  pools.push({ pos: [pos[0], Math.max(0.05, pos[1]), pos[2]], t, r, lit: true });
-  fx.fire(pos, t, clamp(r * 0.8, 0.6, 3));
+  const t = clamp((litres * 0.84) / (0.039 * area) / 10, 12, 300);
+  /* a sooty oil pool fire radiates less than a diesel spill's: what stands in it reaches a dull red, not a glow */
+  pools.push({ pos: [pos[0], Math.max(0.05, pos[1]), pos[2]], t, r, lit: true, T: 480, oil: true });
+  /* what stands in the bund is scorched black */
+  overlapAABB([pos[0] - r, pos[1] - 0.5, pos[2] - r], [pos[0] + r, pos[1] + 3, pos[2] + r], CAT.structure | CAT.debris | CAT.prop, shape => {
+    const e = entityOfShape(shape);
+    if (e && e.kind === 'piece' && !(e as Piece).dead) setPieceColor((e as Piece).gfx, _char);
+  });
 }
 
 export function spill(pos: Vec3, litres: number, lit: boolean): void {
@@ -2890,13 +2939,14 @@ function updatePools(): void {
     f.t -= TICK;
     if (f.t <= 0) { pools.splice(i, 1); continue; }
     if (!f.lit) continue;
+    if (f.oil) oilFireTick(f.pos, f.r);
     const r = f.r + 1, h = f.r + 2.5;
     overlapAABB([f.pos[0] - r, f.pos[1] - 0.5, f.pos[2] - r], [f.pos[0] + r, f.pos[1] + h, f.pos[2] + r], CAT.structure | CAT.debris | CAT.prop, shape => {
       const e = entityOfShape(shape);
       if (!e || e.kind !== 'piece') return;
       const q = e as Piece;
       if (q.dead || q.burning) return;
-      q.temp += (800 - q.temp) * q.pm.thermal.absorb;
+      q.temp += ((f.T ?? 800) - q.temp) * q.pm.thermal.absorb;
       heat(q, 0.01);
       if (flammable(q.pm) && rnd() < 0.05) ignite(q);
     });
@@ -3187,7 +3237,7 @@ export function clearServices(): void {
   clearWaterJets();
   setIndicators([]);
   fallen.length = 0;
-  panes.clear(); paneNet.clear(); paneShown.clear(); paneFlick.clear(); panesAt = -1e9;
+  panes.clear(); paneNet.clear(); paneShown.clear(); paneFlick.clear(); panesAt = -1e9; vs = 0x9e3779b9;
   strikes.clear();
 }
 
