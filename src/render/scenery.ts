@@ -448,7 +448,7 @@ function crane(mats: Mats): THREE.Object3D[] {
 
 /* The town round an inner-city clearance site (render only, no pieces): its streets run on past the site fence
    between terraced rows (brick fronts, slate roofs, a stack on each party wall) out to the edge of the view. The
-   site's own streets continue: Mill Lane (x -22) north and south, Works Road (x 26) north, High Street (z 6) east,
+   site's own streets continue: Mill Lane (x -22) north and south, Works Road (x 26) north, High Street (z 6) and
    Terrace Row (z 38) east and west; further streets make up the blocks. One instanced mesh for the houses and one
    merged mesh for the carriageways and footways. */
 let townMat: THREE.MeshStandardMaterial | null = null;
@@ -520,7 +520,7 @@ function townscape(): THREE.Object3D[] {
     for (const [a, b] of ends) strip('z', x, a, b);
   }
   for (const z of zs) {
-    const ends = z === 6 ? [[FENCE, R]] : z === 38 ? [[-R, -FENCE], [FENCE, R]] : Math.abs(z) > E ? [[-R, R]] : [[-R, -E], [E, R]];
+    const ends = z === 6 || z === 38 ? [[-R, -FENCE], [FENCE, R]] : Math.abs(z) > E ? [[-R, R]] : [[-R, -E], [E, R]];
     for (const [a, b] of ends) strip('x', z, a, b);
   }
   const streets = new THREE.Mesh(merge(road), townMat);
