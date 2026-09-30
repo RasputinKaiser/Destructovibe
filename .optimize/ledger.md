@@ -145,3 +145,77 @@ claim (idle via --reps 3, blasts via --shifts 0,0.15,-0.15), CPU-time metrics, b
 Start with backlog #1 from the chapel at +20 s on HEAD: build per-island keeper lists (contact BFS from the rocking hot
 fragments), then try a jitter rule next to creep(). Before that, move runtime.py's idle window to t10-20 s (backlog #4).
 Dev/probe server port 5206 (free this run). Other agents share the scratchpad and load the machine (load 5-180).
+
+## Run 3 — 2026-09-29 (runtime focus, branch perf-3 from main ee1aac2, worktree, CPU-time A/B, 10k tok ≈ 60 s)
+
+Machine: load average 10-90 (other agents). Timing claims are interleaved concurrent pairs from `runtime.py --base
+<git archive ee1aac2> --concurrent`, buildMs ratio 0.92-1.05 on every pair. Raw tables: runs/20260929T-r3-ab.txt
+(+ -ab-blast/-ab-idle/-ab-terrace/-ab-chapel2 .json); realism probes: runs/r3-probe/.
+
+Harness:
+- runtime.py idle window moved to t 10-20 s (1200 steps) and idle rows print phys_cpu and awake_other (68f0a7c).
+- `.optimize/keepers.py <tree> <out.mjs>`: run 2's scratch mkcalls.py, promoted. Builds a sim.mjs copy that runs extra
+  tail steps and prints awake counts, a per-step event log (over-threshold bodies, creates, destroys, impulses, wakes),
+  KEEPERS (net vs path displacement per body) and, with MODE=calls, every b3 setter call with its stack; KNOCK=<regex>
+  no-ops matching calls, MODE=noafter skips afterStep. Run it from the tree's own directory.
+- `.optimize/realism-probe.mjs`: run 1's verifier probe, promoted (hover/no-contact sleepers, wake test, demo% timeline).
+
+Diagnosis (chapel blast, +19 s, tail 240-600 steps; scratchpad r3/):
+- Physics-only steps (MODE=noafter) DO sleep the chapel pile at HEAD (1046 → 49 awake in 200 steps; the 3 bodies left
+  are machine parts), so the keeper was in afterStep after all. Tracking the rocking hot fragments step by step showed
+  no afterStep call touches their velocity: the jitter came from the island being woken.
+- Wakers found with KNOCK: freezeRubble's b3Body_SetType (81 calls in one budget pass; Box3D's SetType wakes the whole
+  island and drops the body's contacts, so the heap re-settles on cold contacts, OVERAVG over-threshold bodies/step
+  29.6 → 17.0 when knocked) and updateFire/updateHeat's SetAwake on welded burning/softening members (1 every ~2 s).
+  Knocking either alone does not sleep the pile; both together does (then it is re-woken only by genuine events: a
+  burnt fragment destroyed, a gas deflagration). No jitter/creep rule was needed: the rocking stops once nothing wakes.
+
+Applied:
+- `optimize: freezing resting rubble no longer wakes its heap` (71ed5d2): a sleeping piece being frozen collects its
+  asleep neighbours (the onRubble AABB query) and puts them back to sleep after SetType.
+- `optimize: heat/fire wakes a sleeping member only when a joint is near capacity` (f1d2a50): heatWake() wakes a
+  sleeping member only if a weld's last solved force/torque or static demand is ≥ 0.6 of its (heat-reduced) cap.
+  Freeze-only (71ed5d2 alone) does not sleep the chapel (awake 945 at +29 s); both do.
+- A/B vs ee1aac2 (5 chapel shifts, 3 tower, 4 terrace, idle S/D × 2), medians:
+  chapel_S t10-20 s phys_cpu 14.6 → 12.5 ms (shifts 0/±0.15), 13.9 → 11.6 ms (±0.3); shift 0: 19.5 → 7.5 ms, awake at
+  30 s 981 → 50 (awakeOther 932 → 0); +0.3: 947 → 88 (awakeOther 859 → 0). ±0.15 and -0.3 stay awake (below).
+  tower_D, terrace_S: neutral (all timing within ±7 %, fp SAME on 2/3 tower pairs); both piles are still collapsing at
+  20 s (tower awake 3800, terrace 1850), so their sleep is not judged by these windows.
+  idle_S/idle_D: fingerprints SAME on 4/4 pairs, timings neutral.
+- Realism (probe, chapel shift 0, 30 s): wake test on all loose sleepers (180 steps at the default threshold) head
+  1489 sleepers, 0 moved > 2 cm, 0 dropped; base 899 sleepers, 9 moved > 2 cm, 1 dropped 21 cm. no-contact sleepers
+  18 (base 47). hoverN 348 vs 129 is ray geometry over 1.7x more sleepers (the wake test shows they are supported).
+  demo % per pair (base/head): chapel 3.76/3.48, 3.62/3.74, 3.75/3.35, 3.63/3.61, 8.82/9.25; terrace 3.69/3.27,
+  4.35/4.39, 4.39/4.42, 3.38/3.63: signed differences both ways, within the trajectory scatter. weldsLost similar.
+
+- Realism (probe, terrace shift 0, 61 s): demo 4.57 % base / 4.28 % head (the A/B terrace pairs span 3.3-4.4 %);
+  wake test base 770 sleepers, 2 dropped > 10 cm (0.15 m); head 704 sleepers, 1 dropped (brick 4918 at y 3.1, a
+  creep-raised sleeper that slid off when woken, 2.9 m). Neither pile sleeps by 60 s (awake 1720 / 1836; head was at
+  60 awake at 50 s and was woken again).
+
+Remaining awake piles are real motion, not wakers: on chapel +0.15 (x -60.35) at +29 s, pure physics (MODE=noafter)
+still has stones rolling away from the heap (3332/3334: 7 m in 5 s at y 0.1-0.3; 1586: 3.3 m), and the full run has a gas
+deflagration at +31 s (5 bodies made, 624 impulses). The pile then sleeps by +33 s in both (awake 1046 -> 126, of which
+95 machine). So "asleep within ~15 s of motion ending" holds on that trajectory; the 30 s window of chapel_S just ends
+before it. (Crates 553-556 riding the conveyor at (39, -41) and a crane/magnet group are separate machine islands.)
+The terrace at +29 s is still failing welds (15 in 5 s), carving detail and remaking terrain tiles. At +47-57 s
+(keepers.py, S 2880 + 600): pure physics sleeps it (awake 57 -> 15, machines only); the full run sleeps it to 47-60 awake
+and is re-woken by gas deflagrations every ~4.3 s (b3World_Explode from fields deflagrations, 614-674 impulses and
+13-27 bodies destroyed each, then detail shrink/carve of the damaged units) plus single destroys (fire disintegrate,
+fading rubble, terrain sweep freeing a buried body). All are real events; whether a leaking main should keep puffing
+(rather than settle into a jet flame) is a gas-model realism question, not a sleep bug.
+Risk to watch: heatWake has no dedicated fire-collapse scenario in the harness (the chapel's gas fire is the only one);
+a burning frame's joints now break when their load reaches 0.6 of the decaying cap instead of on a random nudge.
+
+End checks at f1d2a50: tsc exit 0; npm test exit 0, 35/35 (viewer-independence green); validate:grid, rigging, fractures,
+levels exit 0; idle sim 1800 S/H/D/R: weldsLost 0, awakeOther 0 on all four.
+
+Backlog top 3: #1 rolling rubble (stones rolling 7 m at +29 s) and late deflagrations on the chapel; #4 terrace late
+aftermath (gas deflagrations every ~4.3 s, a gas-model question); #2 collapse phase proper (Box3D step 50 % of tower).
+
+Next run: probes trusted. A/B with `runtime.py --base <git archive of the base rev> --concurrent`; realism with
+`.optimize/realism-probe.mjs` (wake test + demo% over shifts); wakers with `.optimize/keepers.py` (MODE=noafter first:
+if pure physics sleeps the pile, the keeper is a wake call, find it with MODE=calls/KNOCK). New scenario terrace_S60
+(3600 steps, t 45-60 s): A/B vs ee1aac2, 2 pairs: late phys_cpu 12.6 -> 11.1 ms, after_cpu 7.1 -> 6.7 ms, awake_min_late 60 / 52 (both piles do sleep between deflagrations; neither run changes the cadence). Start with backlog #1: why round stones roll 7 m on the
+chapel heap (rolling resistance of pieces over RUBBLE_VOL), then the gas deflagration cadence (#4) with the owner's
+view on realism. No fire-collapse scenario exists: add one before touching heat/fire rules again (heatWake, f1d2a50).

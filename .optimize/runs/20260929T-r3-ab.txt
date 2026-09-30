@@ -1,0 +1,110 @@
+A/B base export (<scratch>/r3/base) vs head f1d2a50; load 20.12 -> 10.22; concurrent=True
+
+chapel_S: 3 pairs
+  shift +0.00 base-head  buildMs 172061/169143 (x0.98)  fp CHANGED  weldsLost 383/379  awakeOther 932/0
+  shift +0.15 head-base  buildMs 11499/11874 (x1.03)  fp CHANGED  weldsLost 301/366  awakeOther 938/942
+  shift -0.15 base-head  buildMs 39622/39490 (x1.00)  fp CHANGED  weldsLost 341/325  awakeOther 0/0
+  metric                     base med   head med    d med med ratio  base range / head range
+  t10_20_phys_cpu              14.587      12.47     -15%     x0.88  13.763-19.531 / 7.517-12.803
+  t10_20_after_cpu              9.086       8.88      -2%     x0.97  7.649-13.275 / 7.405-9.442
+  collapse_total_ms             76.25     76.851      +1%     x1.01  59.717-304.623 / 57.58-311.395
+  settle_s                       None       None                     - / -
+  awake_end                      1026       1023      -0%     x0.97  981-1049 / 50-1030
+
+tower_D: 3 pairs
+  shift +0.00 base-head  buildMs 8748/8808 (x1.01)  fp SAME  weldsLost 4075/4075  awakeOther 11/11
+  shift +0.15 head-base  buildMs 13970/13944 (x1.00)  fp SAME  weldsLost 6083/6083  awakeOther 45/45
+  shift -0.15 base-head  buildMs 7585/7549 (x1.00)  fp CHANGED  weldsLost 6502/6016  awakeOther 350/14
+  metric                     base med   head med    d med med ratio  base range / head range
+  collapse_phys_cpu            48.425     48.254      -0%     x1.00  41.636-50.203 / 41.256-51.996
+  collapse_after_cpu           32.415     31.001      -4%     x0.98  29.659-32.544 / 28.97-32.665
+  aftermath_phys_cpu           39.855     39.134      -2%     x0.98  39.845-44.455 / 35.161-43.816
+  aftermath_after_cpu          14.746     14.411      -2%     x0.98  10.786-17.472 / 9.532-17.265
+  collapse_total_ms            79.747     78.668      -1%     x0.99  67.414-104.418 / 67.142-103.41
+  aftermath_total_ms           63.402     63.509      +0%     x1.00  55.074-65.893 / 50.142-66.417
+  awake_at_16s                   3802       3771      -1%     x1.00  3771-4131 / 3562-3802
+  awake_end                      3892       3824      -2%     x1.00  3824-4058 / 3591-3892
+  pieces_created                 1386       1317      -5%     x1.00  1317-1450 / 1182-1450
+  demo_pct                     56.245     56.245      +0%     x1.00  52.656-57.682 / 52.656-57.897
+A/B base export (<scratch>/r3/base) vs head f1d2a50; load 20.12 -> 71.43; concurrent=True
+
+idle_S: 2 pairs
+  shift +0.00 base-head  buildMs 168866/168604 (x1.00)  fp SAME  weldsLost 0/0  awakeOther 3/3
+  shift +0.00 head-base  buildMs 45218/41445 (x0.92)  fp SAME  weldsLost 0/0  awakeOther 3/3
+  metric                     base med   head med    d med med ratio  base range / head range
+  after_cpu                     2.705      2.564      -5%     x0.95  2.234-3.177 / 2.137-2.991
+  phys_cpu                       1.06      1.043      -2%     x0.99  0.991-1.129 / 1.018-1.068
+  after_ms                     19.223     18.541      -4%     x0.98  6.48-31.966 / 6.46-30.623
+  phys_ms                       6.873      5.951     -13%     x1.00  2.476-11.269 / 3.02-8.883
+  ter_ms                        1.853      1.448     -22%     x0.74  0.973-2.732 / 0.646-2.25
+  soft_ms                       1.684      1.994     +18%     x1.10  0.803-2.566 / 0.749-3.238
+  awake_end                      96.0       96.0      +0%     x1.00  96-96 / 96-96
+  awake_other                     3.0        3.0      +0%     x1.00  3-3 / 3-3
+
+idle_D: 2 pairs
+  shift +0.00 base-head  buildMs 39542/40940 (x1.04)  fp SAME  weldsLost 0/0  awakeOther 0/0
+  shift +0.00 head-base  buildMs 34986/35520 (x1.02)  fp SAME  weldsLost 0/0  awakeOther 0/0
+  metric                     base med   head med    d med med ratio  base range / head range
+  after_cpu                     1.445      1.426      -1%     x0.99  1.202-1.687 / 1.226-1.626
+  phys_cpu                       0.18      0.183      +2%     x1.03  0.134-0.226 / 0.147-0.219
+  after_ms                      2.644      2.564      -3%     x0.97  1.773-3.515 / 1.74-3.389
+  phys_ms                       0.338      0.317      -6%     x1.00  0.191-0.484 / 0.221-0.413
+  ter_ms                        0.093      0.081     -13%     x0.96  0.041-0.145 / 0.046-0.115
+  soft_ms                       1.459      1.304     -11%     x0.91  0.985-1.933 / 0.952-1.656
+  awake_end                      13.0       13.0      +0%     x1.00  13-13 / 13-13
+  awake_other                     0.0        0.0                     0-0 / 0-0
+
+terrace_S: 1 pairs
+  shift +0.00 base-head  buildMs 18716/17969 (x0.96)  fp CHANGED  weldsLost 1198/1112  awakeOther 1820/1826
+  metric                     base med   head med    d med med ratio  base range / head range
+  collapse_phys_cpu            31.845      31.43      -1%     x0.99  31.845-31.845 / 31.43-31.43
+  collapse_after_cpu           22.261     21.777      -2%     x0.98  22.261-22.261 / 21.777-21.777
+  aftermath_phys_cpu             25.4     25.108      -1%     x0.99  25.4-25.4 / 25.108-25.108
+  aftermath_after_cpu          14.703     13.008     -12%     x0.89  14.703-14.703 / 13.008-13.008
+  collapse_total_ms           195.291    191.038      -2%     x0.98  195.291-195.291 / 191.038-191.038
+  aftermath_total_ms          218.439    221.945      +2%     x1.02  218.439-218.439 / 221.945-221.945
+  awake_at_16s                   1951       1939      -1%     x0.99  1951-1951 / 1939-1939
+  awake_end                      1882       1888      +0%     x1.00  1882-1882 / 1888-1888
+  pieces_created                 2057       2088      +2%     x1.01  2057-2057 / 2088-2088
+  demo_pct                       3.69      3.271     -11%     x0.89  3.69-3.69 / 3.271-3.271
+A/B base export (<scratch>/r3/base) vs head f1d2a50; load 10.36 -> 30.02; concurrent=True
+
+chapel_S: 2 pairs
+  shift +0.30 base-head  buildMs 8709/8690 (x1.00)  fp CHANGED  weldsLost 366/359  awakeOther 859/0
+  shift -0.30 head-base  buildMs 8045/8448 (x1.05)  fp CHANGED  weldsLost 1103/1175  awakeOther 1531/1330
+  metric                     base med   head med    d med med ratio  base range / head range
+  t10_20_phys_cpu              13.948     11.617     -17%     x0.68  8.991-18.906 / 2.143-21.09
+  t10_20_after_cpu              7.177      7.038      -2%     x0.92  5.26-9.094 / 3.695-10.382
+  collapse_total_ms            32.044     35.023      +9%     x1.07  26.138-37.951 / 25.08-44.965
+  settle_s                       None       None                     - / -
+  awake_end                    1264.0      734.0     -42%     x0.48  947-1581 / 88-1380
+A/B base export (<scratch>/r3/base) vs head f1d2a50; load 10.36 -> 19.65; concurrent=True
+
+terrace_S: 3 pairs
+  shift +0.15 base-head  buildMs 8908/8472 (x0.95)  fp CHANGED  weldsLost 1226/1248  awakeOther 1777/1751
+  shift -0.15 head-base  buildMs 8559/8396 (x0.98)  fp CHANGED  weldsLost 1357/1500  awakeOther 1692/1820
+  shift +0.30 base-head  buildMs 5451/5540 (x1.02)  fp CHANGED  weldsLost 1215/1239  awakeOther 1777/1822
+  metric                     base med   head med    d med med ratio  base range / head range
+  collapse_phys_cpu            26.055     26.191      +1%     x1.01  21.274-26.159 / 21.441-27.455
+  collapse_after_cpu           16.872     16.716      -1%     x1.00  13.325-16.915 / 13.355-18.674
+  aftermath_phys_cpu           17.326     18.531      +7%     x1.07  15.806-18.338 / 16.069-20.743
+  aftermath_after_cpu           9.513      8.076     -15%     x1.05  7.709-9.618 / 7.927-10.844
+  collapse_total_ms              42.2     42.959      +2%     x1.02  29.188-60.508 / 29.735-60.499
+  aftermath_total_ms           30.154     31.607      +5%     x1.00  23.258-31.535 / 23.092-33.313
+  awake_at_16s                   1910       1900      -1%     x1.01  1823-1923 / 1855-1938
+  awake_end                      1859       1882      +1%     x1.02  1754-1870 / 1833-1904
+  pieces_created                 1995       2022      +1%     x1.01  1950-2004 / 1933-2088
+  demo_pct                      4.347      4.392      +1%     x1.01  3.379-4.387 / 3.634-4.42
+A/B base export (<scratch>/r3/base) vs head d26e530; load 5.24 -> 11.33; concurrent=True
+
+terrace_S60: 2 pairs
+  shift +0.00 base-head  buildMs 5389/5475 (x1.02)  fp CHANGED  weldsLost 1383/1239  awakeOther 1724/1788
+  shift +0.15 head-base  buildMs 6828/6883 (x1.01)  fp CHANGED  weldsLost 1379/1415  awakeOther 1593/1645
+  metric                     base med   head med    d med med ratio  base range / head range
+  late_phys_cpu                12.599     11.105     -12%     x0.90  11.16-14.039 / 10.215-11.995
+  late_after_cpu                7.078      6.739      -5%     x0.95  6.987-7.169 / 6.628-6.85
+  late_total_ms                 30.03     28.145      -6%     x0.96  19.208-40.853 / 19.722-36.567
+  awake_at_45s                 1694.0     1748.0      +3%     x1.03  1649-1739 / 1669-1827
+  awake_min_late                 60.0       51.5     -14%     x0.86  60-60 / 48-55
+  awake_end                    1706.5     1764.5      +3%     x1.03  1641-1772 / 1693-1836
+  demo_pct                       4.54      4.408      -3%     x0.97  4.522-4.559 / 4.279-4.537

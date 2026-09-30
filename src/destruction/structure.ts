@@ -3748,10 +3748,27 @@ function onRubble(p: Piece): boolean {
   return ok;
 }
 
+/* Box3D's SetType wakes the body's whole island and drops its contacts, so setting one resting brick in place used to
+   wake the resting heap it lies in (and the heap re-settled on cold contacts, jolting more of it). A brick asleep in
+   an asleep heap is at rest, and so is everything round it: after the swap, whatever lay asleep against it is put back
+   to sleep as it lay (a static brick in the same place bears the same). */
+const _frz: Piece[] = [];
 function freezeRubble(p: Piece): void {
   if (frozenSet.has(p)) return;
   frozenSet.add(p);
+  const resting = !b3.b3Body_IsAwake(p.body);
+  if (resting) {
+    b3.b3Body_ComputeAABB(_aabb2, p.body);
+    overlapAABB([_aabb2[0] - 0.05, _aabb2[1] - 0.05, _aabb2[2] - 0.05], [_aabb2[3] + 0.05, _aabb2[4] + 0.05, _aabb2[5] + 0.05], CAT.structure | CAT.debris | CAT.prop, shape => {
+      const e = entityOfShape(shape);
+      if (!e || e === p || e.kind !== 'piece') return;
+      const q = e as Piece;
+      if (!q.dead && !_frz.includes(q) && b3.b3Body_GetType(q.body) === b3.b3BodyType.b3_dynamicBody && !b3.b3Body_IsAwake(q.body)) _frz.push(q);
+    });
+  }
   b3.b3Body_SetType(p.body, b3.b3BodyType.b3_staticBody);
+  for (const q of _frz) b3.b3Body_SetAwake(q.body, false);
+  _frz.length = 0;
   if (p.debris) { p.debris = false; debrisCount--; }
   frozenList.push(p);
   counters.frozen++;
@@ -3942,11 +3959,29 @@ function updateFire(dt: number): void {
     for (const w of p.welds) scaleWeld(w, 0.985, false);
     // a burning member is nudged awake to find out whether its weakening joints still hold; loose burning rubble is
     // not, or it would keep its whole pile awake for as long as it burns
-    if (p.welds.length && chance() < 0.1) b3.b3Body_SetAwake(p.body, true);
+    if (p.welds.length && chance() < 0.1) heatWake(p);
     if (chance() < 0.18) audio.burn(p.curPos, size * flame);
     if (p.char >= 1) disintegrate(p);
   }
   fields.stepFields(dt);
+}
+
+/* Waking a sleeping member wakes its whole solver island: a burning beam under a rubble heap wakes the heap, every time.
+   The solver can only break a heat-weakened joint whose load comes near what the joint now holds, and a sleeping joint
+   still carries the load it last carried, so a member whose joints all sit well inside their reduced capacity holds as
+   it lies and stays asleep. Failure from the static load itself (settleFailures, creep rupture) runs on the analysis,
+   awake or not. */
+const HEAT_WAKE = 0.6;
+function heatWake(p: Piece): void {
+  if (b3.b3Body_IsAwake(p.body)) return;
+  for (const w of p.welds) {
+    if (!w.alive) continue;
+    b3.b3Joint_GetConstraintForce(_jf, w.joint);
+    let r = vec3.length(_jf) / w.cap.comp;
+    b3.b3Joint_GetConstraintTorque(_jf, w.joint);
+    r = Math.max(r, vec3.length(_jf) / w.cap.torque, staticRatio(w));
+    if (r >= HEAT_WAKE) { b3.b3Body_SetAwake(p.body, true); return; }
+  }
 }
 
 const INCANDESCENT = new Set<MaterialId>(['steel', 'castiron', 'aluminum', 'metal', 'copper', 'machine']);
@@ -4005,7 +4040,7 @@ function updateHeat(): void {
       if (Math.abs(k - p.heatK) > 0.03) {
         p.heatK = k;
         for (const w of p.welds) applyCaps(w);
-        if (p.welds.length) b3.b3Body_SetAwake(p.body, true);
+        if (p.welds.length) heatWake(p);
         /* softening sheds load to cooler members; a hot strut loses stiffness and buckles long before it yields */
         analysisTouch(p);
         supportDirty = true;
