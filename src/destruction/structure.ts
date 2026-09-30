@@ -3681,7 +3681,7 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
   /* The wave, not just the distance: in plain view in the open a piece takes the calibrated fall-off below; a wall
      between shadows it (the wave diffracts round, weaker); inside a room the gas pressure and the reflections load
      every surface that bounds it, however far from the charge. */
-  const bl = fields.survey(pos, radius, power, gasPower, cloud);
+  const bl = fields.survey(pos, radius, power, gasPower, cloud, stepCount / 60);
   /* the room's walls the gas blows out vent the rest of its blow-down: what its floors, columns and joints take */
   if (bl.confined) { const b = blownOut(bl, pos); fields.vent(bl, b.A, b.t); }
   const lo: Vec3 = [pos[0] - radius, pos[1] - radius, pos[2] - radius], hi: Vec3 = [pos[0] + radius, pos[1] + radius, pos[2] + radius];

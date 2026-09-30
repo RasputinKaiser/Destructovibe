@@ -97,6 +97,11 @@ export interface Survey {
   ms: number;
 }
 
+/* Charges fired together in one room share its air: what an earlier one left in the room's gas (its TNT-eq, blown down
+   with the room's time constant V / (A·a0) since) adds to the next one's. */
+const roomGas: { min: Vec3; max: Vec3; W: number; T: number; t: number }[] = [];
+export function clearRoomGas(): void { roomGas.length = 0; }
+
 const UNREACHED = 65535;
 let occ = new Uint8Array(0), occ0 = new Uint8Array(0), por = new Uint8Array(0), cov = new Uint8Array(0), steps = new Uint16Array(0), roofed = new Uint8Array(0);
 let queue = new Int32Array(0);
@@ -133,7 +138,7 @@ function airSide(pos: Vec3): Vec3 | null {
 /** gasPower: the energy that pressurises a room it fills, when it differs from the shock's (a fuel-air charge: a low,
  * long push from far more energy than its peak pressure shows; 0: none, e.g. a gas deflagration, whose point blast
  * already stands for the room's pressure). cloud: a fuel-air cloud, which holes nothing round itself. */
-export function survey(pos: Vec3, radius: number, power: number, gasPower = power, cloud = false): Survey {
+export function survey(pos: Vec3, radius: number, power: number, gasPower = power, cloud = false, now = 0): Survey {
   const t0 = performance.now();
   const W = Math.max(0.01, power / POWER_PER_KG) * (pos[1] < 2.5 ? 1.8 : 1);
   const Wg = Math.max(0, gasPower / POWER_PER_KG);
@@ -249,15 +254,25 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
   const held = heldBy(V, Av);
   const confined = tail > 0 && V > 1 && held > 0 && Wg > 0;
   let Pqs = 0, tg = 0, iGas0 = 0, iMulti = 0;
+  let Wroom = Wg;
   if (confined) {
-    Pqs = gasPressure(Wg, V);
+    const sx = x0 + (seed % n) + 0.5, sy = y0 + sy0 + 0.5, sz = z0 + ((seed / (n * n)) | 0) + 0.5;
+    for (let k = roomGas.length - 1; k >= 0; k--) {
+      const r = roomGas[k], dt = now - r.t;
+      if (dt < 0 || dt > 2) { roomGas.splice(k, 1); continue; }
+      if (sx > r.min[0] && sx < r.max[0] && sy > r.min[1] && sy < r.max[1] && sz > r.min[2] && sz < r.max[2]) Wroom += r.W * Math.exp(-2.13 * dt / r.T);
+    }
+  }
+  if (confined) {
+    Pqs = gasPressure(Wroom, V);
     tg = (V / (Math.max(LEAK, Av) * A0)) * Math.log((Pqs + P0) / P0) / 2.13;
     iGas0 = gasImpulse(Pqs, V, Av);
     const Zr = Math.max(1, 0.5 * Math.cbrt(V)) / cw;
     iMulti = 0.75 * cw * iso(Zr) * cr(pso(Zr));
   }
+  if (confined) roomGas.push({ min: [x0 + rmin[0], y0 + rmin[1], z0 + rmin[2]], max: [x0 + rmax[0] + 1, y0 + rmax[1] + 1, z0 + rmax[2] + 1], W: Wroom, T: V / (Math.max(LEAK, Av) * A0), t: now });
   const s: Survey = {
-    pos: [pos[0], pos[1], pos[2]], W, cw, radius, free, x0, y0, z0, n, occ, steps, roofed, confined, Wg, V, Av, held, Pqs, tg, iGas0, iGas: iGas0, iMulti,
+    pos: [pos[0], pos[1], pos[2]], W, cw, radius, free, x0, y0, z0, n, occ, steps, roofed, confined, Wg: Wroom, V, Av, held, Pqs, tg, iGas0, iGas: iGas0, iMulti,
     gas: 0,
     roomMin: [x0 + rmin[0], y0 + rmin[1], z0 + rmin[2]], roomMax: [x0 + rmax[0] + 1, y0 + rmax[1] + 1, z0 + rmax[2] + 1],
     ms: 0,

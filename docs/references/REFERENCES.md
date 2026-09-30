@@ -1251,6 +1251,8 @@ Sources fetched for this section:
 - Blow-down on the Baker curve through the room's vent area (openings, the charge's own breach, and, once they have
   moved hL/2(h + L) out, the wall panels the gas blows out); what a member takes is its first 50 ms.
 - Reverberations: 0.75 × the wall's own normal reflected impulse on top of the direct shock (the 1.75 × train).
+- Charges fired together in one room share its air: an earlier charge's TNT-eq, blown down with the room's time constant
+  V/(A·a0) since it went, adds to the next one's for P_QS (a sealed 108 m³ room keeps ~80 % of it over a 70 ms stagger [D]).
 - Share held: 1 below a vent ratio A/V^⅔ of 0.3, none past 1.5 (judgement, **not sourced**; UFC's charts were not read).
 - The gas load moves things: masonry panels by the SDOF P–I verdict, slabs and sheet walls bounding the room pushed out
   by (gas + reverberation impulse) × area.

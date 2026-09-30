@@ -79,6 +79,19 @@ test('a charge in a closed room demolishes more than in a vented one, and that m
     assert.ok(closed.site > vented.site + 0.3, `closed > vented${all}`);
     assert.ok(vented.walls > open.walls + 0.15, `vented > open${all}`);
     assert.ok(open.walls < 0.2, `in the open 2.5 kg 3 m off 9 in brick only scars it${all}`);
+
+    /* two charges fired 70 ms apart in one closed room share its air: the second finds the first's gas still there */
+    const fields = await L('/src/sim/fields/index.ts');
+    st.clearStructures();
+    phys.createWorld();
+    st.buildBlueprint({ pieces: [] });
+    st.spawnPieces(room(true, false));
+    for (let i = 0; i < 30; i++) { phys.step(handlers); st.afterStep(phys.FIXED_DT); }
+    const one = fields.survey([-1.5, 1.0, 0], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 1.0);
+    const two = fields.survey([1.5, 1.0, 0], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 1.07);
+    const late = fields.survey([1.5, 1.0, 0], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 3.5);
+    assert.ok(two.Pqs > 1.5 * one.Pqs && late.Pqs < 1.05 * one.Pqs,
+      `together ${(one.Pqs / 1e3).toFixed(0)} then ${(two.Pqs / 1e3).toFixed(0)} kPa; 2.5 s later ${(late.Pqs / 1e3).toFixed(0)} kPa`);
   } finally {
     await server.close();
   }

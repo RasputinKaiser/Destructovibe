@@ -9,7 +9,7 @@ import {
 import { stepBrick, spill, emitters, sparks, defl, setPour, gasStats, FIRE_CLOCK, CH4, C3H8, PYRO, FLAME_MEMORY } from './gas';
 import { convect, thermalTick, thermalStats, SOLID_CLOCK } from './thermal';
 import { addWaterAt, stepWater, clearWater, waterStats, tiles } from './water';
-import { survey as blastSurvey, pso, POWER_PER_KG, type Survey } from './blast';
+import { survey as blastSurvey, clearRoomGas, pso, POWER_PER_KG, type Survey } from './blast';
 
 export { thermalStrain, thermalStress, flameOf, charRate, recOf, surfaceArea } from './thermal';
 export { loadFactors, paneLoad, glassRange, glassBreaks, paneCapacity, inRoom, vent, pso, iso, cr, POWER_PER_KG, type Survey } from './blast';
@@ -149,8 +149,8 @@ export function fieldsHeatTick(dt: number, burning: ReadonlySet<Piece>, hot: Set
 }
 
 /** Blast survey round a charge (see blast.ts), timed. */
-export function survey(pos: Vec3, radius: number, power: number, gasPower = power, cloud = false): Survey {
-  const s = blastSurvey(pos, radius, power, gasPower, cloud);
+export function survey(pos: Vec3, radius: number, power: number, gasPower = power, cloud = false, now = 0): Survey {
+  const s = blastSurvey(pos, radius, power, gasPower, cloud, now);
   fieldCost.blastMs += s.ms;
   fieldCost.blasts++;
   return s;
@@ -502,6 +502,7 @@ export function fieldStats(): { bricks: number; voxels: number; water: number; w
 export const waterPours = (): number => waterStats.pours;
 
 export function clearFields(): void {
+  clearRoomGas();
   clearBricks();
   clearWater();
   emitters.clear();
