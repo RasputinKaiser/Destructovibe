@@ -187,18 +187,20 @@ export function initInput(el: HTMLElement, onLockChange: (locked: boolean) => vo
   target = el;
   lockChange = onLockChange;
   lockError = onLockError;
+  // a key being captured for a binding goes nowhere else (capture phase, ahead of the UI's and the game's handlers)
   addEventListener('keydown', e => {
-    if (capture) {
-      e.preventDefault(); e.stopImmediatePropagation();
-      const f = capture; capture = null; f(e.code);
-      return;
-    }
+    if (!capture) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const f = capture; capture = null; f(e.code);
+  }, true);
+  // bubble phase: an open overlay (the spawn palette's search box) stops keys before they get here
+  addEventListener('keydown', e => {
     if (e.repeat) return;
     input.down.add(e.code);
     input.pressed.add(e.code);
     // Alt would pull focus to the browser menu, Tab/Space/arrows scroll or move focus
     if (input.locked && (e.code === 'Space' || e.code === 'Tab' || e.code.startsWith('Arrow') || e.code.startsWith('Alt'))) e.preventDefault();
-  }, true);
+  });
   addEventListener('keyup', e => { input.down.delete(e.code); if (input.locked && e.code.startsWith('Alt')) e.preventDefault(); });
   addEventListener('blur', () => { input.down.clear(); mouseBits = 0; input.buttons = padBits; });
   addEventListener('mousedown', e => {
