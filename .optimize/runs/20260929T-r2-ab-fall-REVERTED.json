@@ -1,0 +1,954 @@
+{
+ "mode": "ab",
+ "base_root": "<scratch>/p2b771",
+ "head_root": "~/Desktop/dv-perf-2",
+ "shifts": [
+  0.0,
+  0.15
+ ],
+ "reps": 2,
+ "concurrent": true,
+ "loadavg_start": [
+  5.4,
+  7.79,
+  24.69
+ ],
+ "scenarios": {
+  "tower_D": {
+   "kind": "blast",
+   "pairs": [
+    {
+     "shift": 0.0,
+     "order": "base-head",
+     "loadavg": 8.1,
+     "base": {
+      "ok": true,
+      "wall_s": 121.1,
+      "args": [
+       "D",
+       "1200",
+       "-60,1.5,-55,5"
+      ],
+      "buildMs": 10552,
+      "result": {
+       "weldsLost": 4075,
+       "runaways": 36,
+       "awakeAtEnd": 3892,
+       "awakeMachine": 3881,
+       "awakeOther": 11,
+       "fingerprint": "9117d3e44165dfba"
+      },
+      "demo_pct": 52.656,
+      "machines": {
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "office": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "store": {
+        "awake": 3874,
+        "axes": 2,
+        "running": 2
+       }
+      },
+      "stderr": "WebSocket server error: Port 24678 is already in use\nTHREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "collapse_phys_ms": 49.083,
+      "collapse_after_ms": 26.868,
+      "collapse_total_ms": 80.235,
+      "collapse_worst_s_ms": 116.25,
+      "collapse_fields_ms": 2.629,
+      "collapse_analysis_ms": 5.723,
+      "collapse_joints_ms": 0.319,
+      "collapse_svc_ms": 1.288,
+      "aftermath_phys_ms": 60.958,
+      "aftermath_after_ms": 24.385,
+      "aftermath_total_ms": 94.399,
+      "collapse_phys_cpu": 53.295,
+      "collapse_after_cpu": 34.164,
+      "aftermath_phys_cpu": 46.495,
+      "aftermath_after_cpu": 20.188,
+      "awake_at_16s": 3802,
+      "awake_end": 3892,
+      "pieces_created": 1450
+     },
+     "head": {
+      "ok": true,
+      "wall_s": 121.0,
+      "args": [
+       "D",
+       "1200",
+       "-60,1.5,-55,5"
+      ],
+      "buildMs": 10508,
+      "result": {
+       "weldsLost": 4075,
+       "runaways": 36,
+       "awakeAtEnd": 3892,
+       "awakeMachine": 3881,
+       "awakeOther": 11,
+       "fingerprint": "9117d3e44165dfba"
+      },
+      "demo_pct": 52.656,
+      "machines": {
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "office": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "store": {
+        "awake": 3874,
+        "axes": 2,
+        "running": 2
+       }
+      },
+      "stderr": "THREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "collapse_phys_ms": 48.569,
+      "collapse_after_ms": 26.814,
+      "collapse_total_ms": 79.746,
+      "collapse_worst_s_ms": 115.64,
+      "collapse_fields_ms": 2.473,
+      "collapse_analysis_ms": 5.68,
+      "collapse_joints_ms": 0.324,
+      "collapse_svc_ms": 1.235,
+      "aftermath_phys_ms": 59.693,
+      "aftermath_after_ms": 25.416,
+      "aftermath_total_ms": 94.595,
+      "collapse_phys_cpu": 51.521,
+      "collapse_after_cpu": 33.618,
+      "aftermath_phys_cpu": 45.193,
+      "aftermath_after_cpu": 19.809,
+      "awake_at_16s": 3802,
+      "awake_end": 3892,
+      "pieces_created": 1450
+     }
+    },
+    {
+     "shift": 0.15,
+     "order": "head-base",
+     "loadavg": 13.7,
+     "head": {
+      "ok": true,
+      "wall_s": 110.9,
+      "args": [
+       "D",
+       "1200",
+       "-59.85,1.5,-55.0,5.0"
+      ],
+      "buildMs": 8803,
+      "result": {
+       "weldsLost": 6083,
+       "runaways": 14,
+       "awakeAtEnd": 3824,
+       "awakeMachine": 3779,
+       "awakeOther": 45,
+       "fingerprint": "4664af2585da4cdb"
+      },
+      "demo_pct": 56.245,
+      "machines": {
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "office": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "store": {
+        "awake": 3772,
+        "axes": 2,
+        "running": 0
+       }
+      },
+      "stderr": "THREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "collapse_phys_ms": 39.074,
+      "collapse_after_ms": 22.883,
+      "collapse_total_ms": 65.205,
+      "collapse_worst_s_ms": 117.2,
+      "collapse_fields_ms": 2.245,
+      "collapse_analysis_ms": 5.462,
+      "collapse_joints_ms": 0.303,
+      "collapse_svc_ms": 0.917,
+      "aftermath_phys_ms": 60.374,
+      "aftermath_after_ms": 17.57,
+      "aftermath_total_ms": 84.558,
+      "collapse_phys_cpu": 40.562,
+      "collapse_after_cpu": 28.562,
+      "aftermath_phys_cpu": 49.334,
+      "aftermath_after_cpu": 16.158,
+      "awake_at_16s": 3771,
+      "awake_end": 3824,
+      "pieces_created": 1317
+     },
+     "base": {
+      "ok": true,
+      "wall_s": 111.2,
+      "args": [
+       "D",
+       "1200",
+       "-59.85,1.5,-55.0,5.0"
+      ],
+      "buildMs": 8733,
+      "result": {
+       "weldsLost": 6083,
+       "runaways": 14,
+       "awakeAtEnd": 3824,
+       "awakeMachine": 3779,
+       "awakeOther": 45,
+       "fingerprint": "4664af2585da4cdb"
+      },
+      "demo_pct": 56.245,
+      "machines": {
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "office": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "store": {
+        "awake": 3772,
+        "axes": 2,
+        "running": 0
+       }
+      },
+      "stderr": "WebSocket server error: Port 24678 is already in use\nTHREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "collapse_phys_ms": 39.369,
+      "collapse_after_ms": 22.966,
+      "collapse_total_ms": 65.534,
+      "collapse_worst_s_ms": 117.14,
+      "collapse_fields_ms": 2.283,
+      "collapse_analysis_ms": 5.248,
+      "collapse_joints_ms": 0.321,
+      "collapse_svc_ms": 0.87,
+      "aftermath_phys_ms": 58.848,
+      "aftermath_after_ms": 18.934,
+      "aftermath_total_ms": 84.869,
+      "collapse_phys_cpu": 40.068,
+      "collapse_after_cpu": 28.473,
+      "aftermath_phys_cpu": 47.632,
+      "aftermath_after_cpu": 16.106,
+      "awake_at_16s": 3771,
+      "awake_end": 3824,
+      "pieces_created": 1317
+     }
+    }
+   ]
+  },
+  "terrace_S": {
+   "kind": "blast",
+   "pairs": [
+    {
+     "shift": 0.0,
+     "order": "base-head",
+     "loadavg": 14.8,
+     "base": {
+      "ok": true,
+      "wall_s": 59.3,
+      "args": [
+       "S",
+       "1200",
+       "-3.6,1.2,50.8,5"
+      ],
+      "buildMs": 8353,
+      "result": {
+       "weldsLost": 1200,
+       "runaways": 0,
+       "awakeAtEnd": 1761,
+       "awakeMachine": 62,
+       "awakeOther": 1699,
+       "fingerprint": "3e2e1e8f4b5d6688"
+      },
+      "demo_pct": 3.84,
+      "machines": {
+       "bulldozer": {
+        "awake": 3,
+        "axes": 3,
+        "running": 1
+       },
+       "compressor": {
+        "awake": 1,
+        "axes": 3,
+        "running": 1
+       },
+       "coolingfans": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "dumptruck": {
+        "awake": 0,
+        "axes": 2,
+        "running": 1
+       },
+       "excavator": {
+        "awake": 10,
+        "axes": 10,
+        "running": 4
+       },
+       "fanbank": {
+        "awake": 3,
+        "axes": 3,
+        "running": 0
+       },
+       "forklift": {
+        "awake": 21,
+        "axes": 4,
+        "running": 2
+       },
+       "generator": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "kiln": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "mobilecrane": {
+        "awake": 7,
+        "axes": 11,
+        "running": 2
+       },
+       "pumping": {
+        "awake": 2,
+        "axes": 2,
+        "running": 0
+       },
+       "scissorlift": {
+        "awake": 4,
+        "axes": 4,
+        "running": 2
+       },
+       "sewage": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "ventstack": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       }
+      },
+      "stderr": "WebSocket server error: Port 24678 is already in use\nTHREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "collapse_phys_ms": 24.2,
+      "collapse_after_ms": 14.158,
+      "collapse_total_ms": 40.795,
+      "collapse_worst_s_ms": 59.66,
+      "collapse_fields_ms": 2.631,
+      "collapse_analysis_ms": 1.625,
+      "collapse_joints_ms": 0.215,
+      "collapse_svc_ms": 0.691,
+      "aftermath_phys_ms": 20.457,
+      "aftermath_after_ms": 8.977,
+      "aftermath_total_ms": 31.624,
+      "collapse_phys_cpu": 23.111,
+      "collapse_after_cpu": 15.647,
+      "aftermath_phys_cpu": 17.147,
+      "aftermath_after_cpu": 7.955,
+      "awake_at_16s": 1815,
+      "awake_end": 1761,
+      "pieces_created": 2027
+     },
+     "head": {
+      "ok": true,
+      "wall_s": 59.2,
+      "args": [
+       "S",
+       "1200",
+       "-3.6,1.2,50.8,5"
+      ],
+      "buildMs": 8177,
+      "result": {
+       "weldsLost": 1200,
+       "runaways": 0,
+       "awakeAtEnd": 1761,
+       "awakeMachine": 62,
+       "awakeOther": 1699,
+       "fingerprint": "3e2e1e8f4b5d6688"
+      },
+      "demo_pct": 3.84,
+      "machines": {
+       "bulldozer": {
+        "awake": 3,
+        "axes": 3,
+        "running": 1
+       },
+       "compressor": {
+        "awake": 1,
+        "axes": 3,
+        "running": 1
+       },
+       "coolingfans": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "dumptruck": {
+        "awake": 0,
+        "axes": 2,
+        "running": 1
+       },
+       "excavator": {
+        "awake": 10,
+        "axes": 10,
+        "running": 4
+       },
+       "fanbank": {
+        "awake": 3,
+        "axes": 3,
+        "running": 0
+       },
+       "forklift": {
+        "awake": 21,
+        "axes": 4,
+        "running": 2
+       },
+       "generator": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "kiln": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "mobilecrane": {
+        "awake": 7,
+        "axes": 11,
+        "running": 2
+       },
+       "pumping": {
+        "awake": 2,
+        "axes": 2,
+        "running": 0
+       },
+       "scissorlift": {
+        "awake": 4,
+        "axes": 4,
+        "running": 2
+       },
+       "sewage": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "ventstack": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       }
+      },
+      "stderr": "THREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "collapse_phys_ms": 24.818,
+      "collapse_after_ms": 13.913,
+      "collapse_total_ms": 41.138,
+      "collapse_worst_s_ms": 59.59,
+      "collapse_fields_ms": 2.769,
+      "collapse_analysis_ms": 1.664,
+      "collapse_joints_ms": 0.21,
+      "collapse_svc_ms": 0.617,
+      "aftermath_phys_ms": 20.273,
+      "aftermath_after_ms": 8.899,
+      "aftermath_total_ms": 31.369,
+      "collapse_phys_cpu": 23.554,
+      "collapse_after_cpu": 15.914,
+      "aftermath_phys_cpu": 17.551,
+      "aftermath_after_cpu": 7.957,
+      "awake_at_16s": 1815,
+      "awake_end": 1761,
+      "pieces_created": 2027
+     }
+    },
+    {
+     "shift": 0.15,
+     "order": "head-base",
+     "loadavg": 12.6,
+     "head": {
+      "ok": true,
+      "wall_s": 70.1,
+      "args": [
+       "S",
+       "1200",
+       "-3.45,1.2,50.8,5.0"
+      ],
+      "buildMs": 7493,
+      "result": {
+       "weldsLost": 1156,
+       "runaways": 0,
+       "awakeAtEnd": 1844,
+       "awakeMachine": 62,
+       "awakeOther": 1782,
+       "fingerprint": "338c089b4fb073ce"
+      },
+      "demo_pct": 3.319,
+      "machines": {
+       "bulldozer": {
+        "awake": 3,
+        "axes": 3,
+        "running": 1
+       },
+       "compressor": {
+        "awake": 1,
+        "axes": 3,
+        "running": 1
+       },
+       "coolingfans": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "dumptruck": {
+        "awake": 0,
+        "axes": 2,
+        "running": 1
+       },
+       "excavator": {
+        "awake": 10,
+        "axes": 10,
+        "running": 4
+       },
+       "fanbank": {
+        "awake": 3,
+        "axes": 3,
+        "running": 0
+       },
+       "forklift": {
+        "awake": 21,
+        "axes": 4,
+        "running": 2
+       },
+       "generator": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "kiln": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "mobilecrane": {
+        "awake": 7,
+        "axes": 11,
+        "running": 2
+       },
+       "pumping": {
+        "awake": 2,
+        "axes": 2,
+        "running": 0
+       },
+       "scissorlift": {
+        "awake": 4,
+        "axes": 4,
+        "running": 2
+       },
+       "sewage": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "ventstack": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       }
+      },
+      "stderr": "THREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "collapse_phys_ms": 36.783,
+      "collapse_after_ms": 18.312,
+      "collapse_total_ms": 58.788,
+      "collapse_worst_s_ms": 73.1,
+      "collapse_fields_ms": 3.983,
+      "collapse_analysis_ms": 1.894,
+      "collapse_joints_ms": 0.247,
+      "collapse_svc_ms": 0.883,
+      "aftermath_phys_ms": 21.05,
+      "aftermath_after_ms": 9.376,
+      "aftermath_total_ms": 32.525,
+      "collapse_phys_cpu": 27.051,
+      "collapse_after_cpu": 16.444,
+      "aftermath_phys_cpu": 19.675,
+      "aftermath_after_cpu": 9.14,
+      "awake_at_16s": 1878,
+      "awake_end": 1844,
+      "pieces_created": 2060
+     },
+     "base": {
+      "ok": true,
+      "wall_s": 70.5,
+      "args": [
+       "S",
+       "1200",
+       "-3.45,1.2,50.8,5.0"
+      ],
+      "buildMs": 7610,
+      "result": {
+       "weldsLost": 1156,
+       "runaways": 0,
+       "awakeAtEnd": 1844,
+       "awakeMachine": 62,
+       "awakeOther": 1782,
+       "fingerprint": "338c089b4fb073ce"
+      },
+      "demo_pct": 3.319,
+      "machines": {
+       "bulldozer": {
+        "awake": 3,
+        "axes": 3,
+        "running": 1
+       },
+       "compressor": {
+        "awake": 1,
+        "axes": 3,
+        "running": 1
+       },
+       "coolingfans": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "dumptruck": {
+        "awake": 0,
+        "axes": 2,
+        "running": 1
+       },
+       "excavator": {
+        "awake": 10,
+        "axes": 10,
+        "running": 4
+       },
+       "fanbank": {
+        "awake": 3,
+        "axes": 3,
+        "running": 0
+       },
+       "forklift": {
+        "awake": 21,
+        "axes": 4,
+        "running": 2
+       },
+       "generator": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "kiln": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "mobilecrane": {
+        "awake": 7,
+        "axes": 11,
+        "running": 2
+       },
+       "pumping": {
+        "awake": 2,
+        "axes": 2,
+        "running": 0
+       },
+       "scissorlift": {
+        "awake": 4,
+        "axes": 4,
+        "running": 2
+       },
+       "sewage": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       },
+       "ventstack": {
+        "awake": 1,
+        "axes": 1,
+        "running": 0
+       }
+      },
+      "stderr": "WebSocket server error: Port 24678 is already in use\nTHREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "collapse_phys_ms": 37.611,
+      "collapse_after_ms": 18.281,
+      "collapse_total_ms": 59.553,
+      "collapse_worst_s_ms": 74.69,
+      "collapse_fields_ms": 4.225,
+      "collapse_analysis_ms": 1.869,
+      "collapse_joints_ms": 0.249,
+      "collapse_svc_ms": 0.798,
+      "aftermath_phys_ms": 21.351,
+      "aftermath_after_ms": 9.467,
+      "aftermath_total_ms": 32.949,
+      "collapse_phys_cpu": 27.415,
+      "collapse_after_cpu": 16.341,
+      "aftermath_phys_cpu": 19.56,
+      "aftermath_after_cpu": 9.465,
+      "awake_at_16s": 1878,
+      "awake_end": 1844,
+      "pieces_created": 2060
+     }
+    }
+   ]
+  },
+  "idle_D": {
+   "kind": "idle",
+   "pairs": [
+    {
+     "shift": 0.0,
+     "order": "base-head",
+     "loadavg": 13.3,
+     "base": {
+      "ok": true,
+      "wall_s": 16.6,
+      "args": [
+       "D",
+       "600"
+      ],
+      "buildMs": 9511,
+      "result": {
+       "weldsLost": 0,
+       "runaways": 0,
+       "awakeAtEnd": 13,
+       "awakeMachine": 13,
+       "awakeOther": 0,
+       "fingerprint": "fbee5137455ed698"
+      },
+      "demo_pct": 0,
+      "machines": {
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "office": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "store": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "tower": {
+        "awake": 4,
+        "axes": 5,
+        "running": 5
+       }
+      },
+      "stderr": "WebSocket server error: Port 24678 is already in use\nTHREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "after_ms": 1.594,
+      "phys_ms": 0.104,
+      "frame_ms": 0.174,
+      "soft_ms": 1.011,
+      "joints_ms": 0.168,
+      "svc_ms": 0.03,
+      "ter_ms": 0.042,
+      "after_cpu": 1.919,
+      "phys_cpu": 0.133,
+      "awake_end": 13
+     },
+     "head": {
+      "ok": true,
+      "wall_s": 16.6,
+      "args": [
+       "D",
+       "600"
+      ],
+      "buildMs": 9487,
+      "result": {
+       "weldsLost": 0,
+       "runaways": 0,
+       "awakeAtEnd": 13,
+       "awakeMachine": 13,
+       "awakeOther": 0,
+       "fingerprint": "fbee5137455ed698"
+      },
+      "demo_pct": 0,
+      "machines": {
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "office": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "store": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "tower": {
+        "awake": 4,
+        "axes": 5,
+        "running": 5
+       }
+      },
+      "stderr": "THREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "after_ms": 1.624,
+      "phys_ms": 0.105,
+      "frame_ms": 0.182,
+      "soft_ms": 0.954,
+      "joints_ms": 0.174,
+      "svc_ms": 0.047,
+      "ter_ms": 0.05,
+      "after_cpu": 1.959,
+      "phys_cpu": 0.143,
+      "awake_end": 13
+     }
+    },
+    {
+     "shift": 0.0,
+     "order": "head-base",
+     "loadavg": 12.8,
+     "head": {
+      "ok": true,
+      "wall_s": 16.3,
+      "args": [
+       "D",
+       "600"
+      ],
+      "buildMs": 9634,
+      "result": {
+       "weldsLost": 0,
+       "runaways": 0,
+       "awakeAtEnd": 13,
+       "awakeMachine": 13,
+       "awakeOther": 0,
+       "fingerprint": "fbee5137455ed698"
+      },
+      "demo_pct": 0,
+      "machines": {
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "office": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "store": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "tower": {
+        "awake": 4,
+        "axes": 5,
+        "running": 5
+       }
+      },
+      "stderr": "WebSocket server error: Port 24678 is already in use\nTHREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "after_ms": 2.262,
+      "phys_ms": 0.182,
+      "frame_ms": 0.267,
+      "soft_ms": 1.408,
+      "joints_ms": 0.203,
+      "svc_ms": 0.043,
+      "ter_ms": 0.057,
+      "after_cpu": 2.238,
+      "phys_cpu": 0.19,
+      "awake_end": 13
+     },
+     "base": {
+      "ok": true,
+      "wall_s": 16.2,
+      "args": [
+       "D",
+       "600"
+      ],
+      "buildMs": 9479,
+      "result": {
+       "weldsLost": 0,
+       "runaways": 0,
+       "awakeAtEnd": 13,
+       "awakeMachine": 13,
+       "awakeOther": 0,
+       "fingerprint": "fbee5137455ed698"
+      },
+      "demo_pct": 0,
+      "machines": {
+       "crane": {
+        "awake": 6,
+        "axes": 5,
+        "running": 2
+       },
+       "office": {
+        "awake": 1,
+        "axes": 1,
+        "running": 1
+       },
+       "store": {
+        "awake": 2,
+        "axes": 2,
+        "running": 2
+       },
+       "tower": {
+        "awake": 4,
+        "axes": 5,
+        "running": 5
+       }
+      },
+      "stderr": "THREE.WARNING: Multiple instances of Three.js being imported.\n",
+      "after_ms": 2.148,
+      "phys_ms": 0.152,
+      "frame_ms": 0.256,
+      "soft_ms": 1.286,
+      "joints_ms": 0.203,
+      "svc_ms": 0.041,
+      "ter_ms": 0.055,
+      "after_cpu": 2.253,
+      "phys_cpu": 0.164,
+      "awake_end": 13
+     }
+    }
+   ]
+  }
+ },
+ "base_rev": "export",
+ "head_rev": "771ef79",
+ "loadavg_end": [
+  12.76,
+  11.33,
+  20.07
+ ]
+}
