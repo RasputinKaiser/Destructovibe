@@ -10,7 +10,7 @@ import {
   initStructures, buildBlueprint, clearStructures, demolitionFraction, onHit, onJointBroken,
   afterStep, maintain, syncMeshes, setStructureHooks, stats, explode, ignite, live, specVolume, setXrayMode, xrayMode, updateXray,
   setJointStrength, setWind, setFireSpread, setDebrisLimit, startQuake, clearDebris, extinguish, setFrozen, quakeActive,
-  spawnPieces, removeConnected, pieceOf, setServiceViewer, setDetailQuality,
+  spawnPieces, removeConnected, pieceOf, setServiceViewer, setDetailQuality, kinetic,
 } from './destruction/structure';
 import { initXray } from './render/xray';
 import { lightningStrike, setStorm, stormOn } from './destruction/electrical';
@@ -124,15 +124,20 @@ async function loadLevel(c: Contract, label: string, backdrop = false): Promise<
   await nextFrame();
   if (seq !== loadSeq) return false;
   buildBlueprint(bp);
-  setGuards(guardsOf(bp));
+  guards = guardsOf(bp);
+  setGuards(guards);
   const goal = goalOf(c);
   scoring.setGoal(goal, bp.pieces, i => specVolume(bp.pieces[i]));
   markPlans(goal);
   ui.setLoading(1, 'Site secured');
+  siteValue = blueprintValue(bp, goal?.groups);
+  /* one account per protected structure: outlines of the same thing (a building split round a gap, two parked cars) share it */
+  const accounts = new Map<string, number>();
+  for (const g of guards) accounts.set(g.label, (accounts.get(g.label) ?? 0) + g.raw);
+  scoring.setLiabilities([...accounts].map(([label, raw]) => ({ key: label, label, raw, cap: Math.round(siteValue * scoring.LIABILITY) })));
   scoring.resetScore();
-  dmg.names.clear();
-  dmg.first = -1;
-  dmg.shown = 0;
+  dmg.clear();
+  toastAt = -1e9;
   setLoadout(c.ammo);
   replay.reset();
   resetTime();
@@ -140,7 +145,6 @@ async function loadLevel(c: Contract, label: string, backdrop = false): Promise<
   targetMetAt = -1;
   quietT = 0;
   lastDemo = 0;
-  siteValue = blueprintValue(bp, goal?.groups);
   [stars2, stars3] = starThresholds(c, siteValue);
   audio.setAmbience(c.env);
   return true;
@@ -399,7 +403,8 @@ function finish(won: boolean): void {
   const pct = scoring.objective.frac;
   const raw = scoring.score.points + scoring.score.penalty;
   const rows: ResultsView['rows'] = [{ label: `Demolition — ${Math.round(pct * 100)}%`, value: raw }];
-  if (scoring.score.penalty > 0) rows.push({ label: 'Property damage', value: -scoring.score.penalty });
+  const hurt = scoring.fines();
+  if (scoring.score.penalty > 0) rows.push({ label: `Property damage${hurt.length ? ` — ${hurt.map(f => f.label).join(', ')}` : ''}`, value: -scoring.score.penalty });
   let total = scoring.score.points;
   if (won) {
     /* bonuses scale with the site's value so stars mean the same thing on a shed and a tower block */
@@ -434,8 +439,12 @@ function finish(won: boolean): void {
   let stars = 0;
   let newBest = false;
   const firstClear = won && !(save.progress[c.id]?.stars);
+  /* protected property: any damage and the job cannot be a clean ★★★; a structure wrecked and it is a ★ job */
+  const severity = scoring.protectedSeverity();
+  const capStars = severity === 2 ? 1 : severity === 1 ? 2 : 3;
+  const wrecked = hurt.filter(f => f.level === 2).map(f => f.label);
   if (won) {
-    stars = total >= stars3 ? 3 : total >= stars2 ? 2 : 1;
+    stars = Math.min(capStars, total >= stars3 ? 3 : total >= stars2 ? 2 : 1);
     const pr = save.progress[c.id] ?? { stars: 0, best: 0 };
     newBest = total > pr.best;
     save.progress[c.id] = { stars: Math.max(pr.stars, stars), best: Math.max(pr.best, total) };
@@ -449,6 +458,7 @@ function finish(won: boolean): void {
     title: won ? 'Contract complete' : 'Contract failed',
     subtitle: won
       ? `${c.name} — ${Math.round(pct * 100)}% down in ${fmtTime(scoring.score.elapsed)} (par ${fmtTime(c.par)})\n★★ ${stars2.toLocaleString()} pts · ★★★ ${stars3.toLocaleString()} pts`
+        + (severity === 2 ? `\n★ at most: the ${wrecked.join(' and the ')} ${wrecked.length > 1 ? 'were' : 'was'} wrecked` : severity === 1 ? '\n★★ at most: protected property was damaged' : hurt.length ? '\nProtected property: minor damage only, no cap on the stars' : '')
       : `${c.name} — ${Math.round(pct * 100)}% of ${Math.round(c.target * 100)}% required · ${failReason(c)}${(c as Partial<Job>).tip ? `\nForeman: ${(c as Partial<Job>).tip}` : ''}`,
     rows, total, stars, newBest,
     hasNext: won && contractIdx < CONTRACTS.length - 1,
@@ -463,6 +473,7 @@ function failReason(c: Contract): string {
   if (scoring.goalExpired(c.target)) return 'out of time';
   if (g?.salvage && scoring.salvageLost()) return 'salvage lost';
   if (scoring.objective.frac >= c.target && scoring.salvageOwed() > 0) return 'salvage not carried out';
+  if (g?.fell && scoring.stillStanding()) return `${g.fell.what} still standing`;
   if (rangedAmmoLeft() === 0 && liveOrdnance() === 0) return 'ordnance spent';
   return 'called early';
 }
@@ -471,54 +482,128 @@ function failReason(c: Contract): string {
 
 const GUARD_LABEL: Record<string, string> = {
   office: 'site office', van: 'foreman’s van', car: 'parked car', cottages: 'cottage terrace', terrace: 'terrace',
-  shelter: 'bus shelter', chipshop: 'chip shop',
+  shelter: 'bus shelter', chipshop: 'chip shop', gatehouse: 'canal trust gatehouse',
   archbridge: 'listed arch bridge', millwheel: 'mill wheel', boilerhouse: 'boiler house', rotunda: 'rotunda', mill: 'mill',
   eastspan: 'east span', millworks: 'cotton mill', bookinghall: 'booking hall', flats: 'occupied flats',
   skyscraper2: 'Tower Street tower', store: 'department store',
 };
 
-/* One outline per protected structure: pieces of a group, split where they stand apart (two parked cars). */
-function guardsOf(bp: Blueprint): Guarded[] {
-  const boxes = new Map<string, { lo: Vec3; hi: Vec3 }[]>();
+/* One outline per protected structure: pieces of a group, split where they stand apart (two parked cars). `raw` is what
+   the structure's pieces would add up to at the per-piece fine structure.ts credits (its measure of the whole). */
+function guardsOf(bp: Blueprint): (Guarded & { raw: number })[] {
+  const boxes = new Map<string, { lo: Vec3; hi: Vec3; raw: number }[]>();
   for (const p of bp.pieces) {
     if (!p.protected) continue;
     const sx = p.size[0] / 2, sz = (p.shape === 'cylinder' || p.shape === 'prism' ? p.size[0] : p.size[2]) / 2;
     const cs = Math.abs(Math.cos(p.rotY ?? 0)), sn = Math.abs(Math.sin(p.rotY ?? 0));
     const hx = cs * sx + sn * sz, hz = sn * sx + cs * sz, hy = p.size[1] / 2;
-    const b = { lo: [p.pos[0] - hx, p.pos[1] - hy, p.pos[2] - hz] as Vec3, hi: [p.pos[0] + hx, p.pos[1] + hy, p.pos[2] + hz] as Vec3 };
+    const b = { lo: [p.pos[0] - hx, p.pos[1] - hy, p.pos[2] - hz] as Vec3, hi: [p.pos[0] + hx, p.pos[1] + hy, p.pos[2] + hz] as Vec3, raw: 400 + specVolume(p) * MATS[p.mat].value * 4 };
     const key = p.group ?? '';
     const list = boxes.get(key) ?? [];
     // merge with every cluster it comes within 1.5 m of
     const near = list.filter(c => [0, 1, 2].every(i => b.lo[i] - 1.5 <= c.hi[i] && c.lo[i] - 1.5 <= b.hi[i]));
-    for (const c of near) for (let i = 0; i < 3; i++) { b.lo[i] = Math.min(b.lo[i], c.lo[i]); b.hi[i] = Math.max(b.hi[i], c.hi[i]); }
+    for (const c of near) {
+      for (let i = 0; i < 3; i++) { b.lo[i] = Math.min(b.lo[i], c.lo[i]); b.hi[i] = Math.max(b.hi[i], c.hi[i]); }
+      b.raw += c.raw;
+    }
     boxes.set(key, [...list.filter(c => !near.includes(c)), b]);
   }
-  const out: Guarded[] = [];
-  for (const [key, list] of boxes) for (const b of list) out.push({ label: GUARD_LABEL[key] ?? (key || 'protected property'), lo: b.lo, hi: b.hi });
-  return out;
+  const out: (Guarded & { raw: number })[] = [];
+  for (const [key, list] of boxes) for (const b of list) out.push({ label: GUARD_LABEL[key] ?? (key || 'protected property'), lo: b.lo, hi: b.hi, raw: b.raw });
+  return declutter(out, bp.spawn?.pos ?? [0, 0, 26]);
 }
 
-/* Penalties arrive per damaged piece; the player hears about it once per structure hit, with the running cost. */
-const dmg = { names: new Set<string>(), first: -1, last: 0, shown: 0, toastAt: -1e9 };
-function protectedHit(pos: Vec3): void {
+/* Tags of structures standing close together print over each other from the spawn: the nearest keeps its height and
+   each one behind it is lifted until its tag clears the last on screen, on the outline's corner posts (they run up to
+   the tag, a leader line). Tag size follows render/guard.ts: s tall and 4s wide, s = 7.5 % of the range (1.6–9 m). */
+function declutter<T extends Guarded>(list: T[], eye: Vec3): T[] {
+  const EYE = 1.6, LIFT = 1.2;
+  const at = (g: Guarded) => {
+    const x = (g.lo[0] + g.hi[0]) / 2 - eye[0], z = (g.lo[2] + g.hi[2]) / 2 - eye[2], d = Math.max(1, Math.hypot(x, z));
+    return { d, bearing: Math.atan2(x, z), s: Math.min(9, Math.max(1.6, d * 0.075)) };
+  };
+  const placed: T[] = [];
+  for (const g of [...list].sort((a, b) => at(a).d - at(b).d)) {
+    const G = at(g);
+    for (const o of placed) {
+      const O = at(o);
+      let db = Math.abs(G.bearing - O.bearing);
+      if (db > Math.PI) db = 2 * Math.PI - db;
+      if (db > Math.atan(2 * G.s / G.d) + Math.atan(2 * O.s / O.d)) continue;
+      const top = o.hi[1] + LIFT + O.s * 1.05;
+      const need = EYE - LIFT + ((top - EYE) * G.d) / O.d;
+      if (g.hi[1] < need) g.hi[1] = need;
+    }
+    placed.push(g);
+  }
+  return list;
+}
+
+let guards: (Guarded & { raw: number })[] = [];
+
+/* Damage lands per piece: it is booked against the protected structure it came from (the nearest outline, however far
+   the piece flew) and the player hears about it once per incident, and once more if it went on growing. */
+const dmg = new Map<string, { label: string; shown: number; fine: number; lastT: number; openT: number; toasted: boolean; capped: boolean; level: 0 | 1 | 2; shownLevel: number }>();
+const LEVEL_TAG = ['MINOR, NO STAR CAP', '★★ MAX', 'WRECKED · ★ MAX'] as const;
+let toastAt = -1e9;
+
+function nearestGuard(pos: Vec3): number {
   const g = guardAt(pos);
-  if (g) flagGuard(g);
-  dmg.names.add(g ? g.label : 'protected property');
+  let best = g ? guards.indexOf(g as Guarded & { raw: number }) : -1, bd = Infinity;
+  if (best >= 0) return best;
+  guards.forEach((k, i) => {
+    const dx = Math.max(k.lo[0] - pos[0], 0, pos[0] - k.hi[0]), dz = Math.max(k.lo[2] - pos[2], 0, pos[2] - k.hi[2]);
+    const d = Math.hypot(dx, dz);
+    if (d < bd) { bd = d; best = i; }
+  });
+  return best;
+}
+
+function protectedHit(pos: Vec3): void {
+  const i = nearestGuard(pos);
+  scoring.chargePenalty(i >= 0 ? guards[i].label : null);
+}
+
+function onFine(f: scoring.Incident): void {
   const now = performance.now();
-  if (dmg.first < 0) dmg.first = now;
-  dmg.last = now;
+  // the outline turns red once the structure is past a ding (broken windows leave it amber)
+  if (f.level >= 1) for (const g of guards) if (g.label === f.label) flagGuard(g);
+  let e = dmg.get(f.key);
+  if (f.fine <= 0 && (!e || f.opened)) return;   // more of a structure already at full liability: nothing new to say
+  if (!e || f.opened) {
+    if (e?.toasted && e.fine > e.shown) settleToast(e);
+    e = { label: f.label, shown: 0, fine: 0, lastT: now, openT: now, toasted: false, capped: false, level: f.level, shownLevel: -1 };
+    dmg.set(f.key, e);
+  }
+  e.fine = f.fine;
+  e.capped = f.capped;
+  e.level = f.level;
+  e.lastT = now;
+}
+
+function settleToast(e: { label: string; shown: number; fine: number; capped: boolean; level: 0 | 1 | 2; shownLevel: number }): void {
+  ui.toast(`${e.label.toUpperCase()} — DAMAGE SETTLED AT −${e.fine.toLocaleString()}${e.capped ? ' (FULL LIABILITY)' : ''} · ${LEVEL_TAG[e.level]}`, 'bad', 3400);
+  e.shown = e.fine;
+  e.shownLevel = e.level;
+  toastAt = performance.now();
 }
 
 function flushDamage(): void {
-  if (dmg.first < 0) return;
   const now = performance.now();
-  if ((now - dmg.last < 450 && now - dmg.first < 1500) || now - dmg.toastAt < 3500) return;
-  const amount = scoring.score.penalty - dmg.shown;
-  dmg.shown = scoring.score.penalty;
-  dmg.toastAt = now;
-  ui.toast(`PROPERTY DAMAGE — ${[...dmg.names].join(', ').toUpperCase()} · −${amount.toLocaleString()}`, 'bad', 3400);
-  dmg.names.clear();
-  dmg.first = -1;
+  for (const [key, e] of dmg) {
+    if (!e.toasted) {
+      // the first burst of an incident arrives over a few hundred ms: say it once, with what it came to
+      if (now - e.openT < 450 || now - toastAt < 1200) continue;
+      ui.toast(`PROPERTY DAMAGE — ${e.label.toUpperCase()} · −${e.fine.toLocaleString()} · ${LEVEL_TAG[e.level]}`, 'bad', 3400);
+      e.toasted = true;
+      e.shown = e.fine;
+      e.shownLevel = e.level;
+      toastAt = now;
+    } else if (now - e.lastT > 4000) {
+      if ((e.fine > e.shown * 1.3 || e.level > e.shownLevel) && now - toastAt > 1200) settleToast(e);
+      if (now - e.lastT > scoring.INCIDENT_GAP * 1000) dmg.delete(key);
+    }
+  }
 }
 
 /* What the fee is reckoned on, counted the way demolition is credited (structure.ts credit): loose props and protected
@@ -551,12 +636,14 @@ function goalOf(c: Contract): scoring.Goal | undefined {
 /** The goal's conditions in the briefing's words. */
 function termsOf(c: Job): string[] {
   const g = c.goal;
-  if (!g) return [];
   const out: string[] = [];
+  if (c.protectedNote) out.push('Protected property: any damage is docked from the fee. Past broken windows the job can earn ★★ at most; wreck it and ★ is the best it can do.');
+  if (!g) return out;
   if (g.groups) out.push(`The ${Math.round(c.target * 100)}% target counts ${g.what ?? g.groups.join(', ')} only; the rest of the site is not on this order.`);
   if (g.footprint) out.push(`It comes down inside the marked footprint. Whatever of it lies outside at the end is fly-tipping, deducted from the fee.`);
   if (g.limit) out.push(`Hard limit ${fmtTime(g.limit)}: not met by then and the contract is forfeit.`);
   if (g.salvage) out.push(`Salvage first: ${Math.ceil(g.salvage.need * 100)}% of the ${g.salvage.what} carried into ${g.salvage.where} (marked) before the job is signed off.`);
+  if (g.fell) out.push(`${g.fell.what[0].toUpperCase()}${g.fell.what.slice(1)} must be on the ground, whatever the percentage says${g.fell.from ? ` (everything of it above ${g.fell.from} m brought down; the stump can stay)` : ''}: the job is not signed off while it stands.`);
   return out;
 }
 
@@ -727,10 +814,31 @@ function handleInput(): void {
   }
 }
 
+/* A structure settling under its own weight can take half a minute to let go, and the percentage only moves once it
+   does. Every 0.3 s: how many standing members have dropped since the last look. */
+const sagY = new WeakMap<object, number>();
+let sagT = 0, sagging = 0;
+function sagMeter(dt: number): void {
+  sagT += dt;
+  if (sagT < 0.3) return;
+  sagT = 0;
+  let n = 0;
+  for (const p of live) {
+    if (p.demolished || p.root.prop || p.root.protected) continue;
+    const y = p.curPos[1], was = sagY.get(p);
+    sagY.set(p, y);
+    if (was !== undefined && was - y > 0.015) n++;
+  }
+  sagging = n;
+}
+
 function checkContract(dt: number): void {
   if (mode !== 'campaign') return;
   scoring.trackGoal(live, demolitionFraction());
+  sagMeter(dt);
   const pct = scoring.objective.frac;
+  /* only once something has come down: a site settling onto its welds at the start moves too */
+  if (pct > 0.02 && pct < active.target && sagging >= 6 && quietT > 1.5) flashHint('It is going — the structure is sagging under its own weight. Give it a few seconds.', 0.5);
   if (pct > lastDemo + 0.002) { lastDemo = pct; quietT = 0; } else quietT += dt;
   const goal = goalOf(active);
   if (scoring.goalExpired(active.target)) {
@@ -750,6 +858,10 @@ function checkContract(dt: number): void {
       if (quietT > 2) flashHint(`Target met — ${owed} more ${goal!.salvage!.what} to carry into ${goal!.salvage!.where}`, 0.5);
       return;
     }
+    if (scoring.stillStanding()) {
+      if (quietT > 2) flashHint(`${Math.round(pct * 100)}% down — but ${goal!.fell!.what} is still standing, and it has to come down`, 0.5);
+      return;
+    }
     if (targetMetAt < 0) {
       targetMetAt = scoring.score.elapsed;
       audio.ui('target');
@@ -765,8 +877,8 @@ function checkContract(dt: number): void {
   }
   if (rangedAmmoLeft() === 0 && liveOrdnance() === 0) {
     if (loadout.ammo.hammer !== undefined) {
-      if (quietT > 3) flashHint('Out of ordnance — keep swinging or Enter to call it', 0.5);
-    } else if (quietT > 5) {
+      if (quietT > 3 && sagging < 6) flashHint('Out of ordnance — keep swinging or Enter to call it', 0.5);
+    } else if (quietT > 5 && sagging < 6) {
       finish(false);
     }
   }
@@ -796,6 +908,8 @@ function updateHudState(): void {
     if (free) aimService(); else svcHint = null;
   }
   hud.demolition = mode === 'campaign' ? scoring.objective.frac : demolitionFraction();
+  const fell = mode === 'campaign' ? goalOf(active)?.fell : undefined;
+  ui.setDemoCaveat(fell && scoring.stillStanding() ? `${fell.what.replace(/^the /, '')} still standing` : null);
   hud.target = mode === 'campaign' ? active.target : null;
   hud.score = scoring.score.points;
   hud.combo = scoring.comboMult();
@@ -981,6 +1095,7 @@ function wire(): void {
     (pts, label) => ui.scorePop(pts, label),
     () => {},
   );
+  scoring.setFineHook(onFine);
   setWeaponHooks(msg => flashHint(msg, 1.8));
 }
 
@@ -1095,6 +1210,8 @@ if (import.meta.env.DEV) window.__dv = {
   spawn: (specs: Parameters<typeof spawnPieces>[0]) => spawnPieces(specs),
   clearDebris: () => clearDebris(),
   release: () => releaseFire(),
+  secondary: () => toolSecondary(),
+  wheel: (d: number) => toolWheel(d),
   weaponsDebug: () => weaponsDebug(),
   replay: {
     start: () => { startReplay(); return replay.playing; },
@@ -1116,8 +1233,17 @@ if (import.meta.env.DEV) window.__dv = {
   get gfx() { return gfx; },
   get threads() { return { threads, isolated: globalThis.crossOriginIsolated }; },
   boom: (x: number, y: number, z: number, r = 5) => explode([x, y, z], r, 90e3, 3200),
+  kinetic: (x: number, y: number, z: number, dx: number, dy: number, dz: number, e: number, reach: number, perJ: number) => kinetic([x, y, z], [dx, dy, dz], e, reach, perJ),
   ignite: (x: number, y: number, z: number, r = 1.5) => { let n = 0; for (const p of live) if (Math.hypot(p.curPos[0] - x, p.curPos[1] - y, p.curPos[2] - z) < r) { ignite(p); n++; } return n; },
   finish: (won?: boolean) => finish(won ?? scoring.goalMet(active.target)),
+  pieces: (test?: (p: { group: string; mat: string; pos: number[] }) => boolean) => {
+    const out: { id: number; group: string; mat: string; pos: number[]; vol: number; hp: number; demolished: boolean; sleep: number; welds: number; protected: boolean }[] = [];
+    for (const p of live) {
+      const q = { id: p.id, group: p.root.spec.group ?? '', mat: p.mat, pos: [...p.curPos].map(v => +v.toFixed(2)), vol: +p.volume.toFixed(4), hp: +p.hp.toFixed(1), demolished: p.demolished, sleep: +p.sleepT.toFixed(2), welds: p.welds.length, protected: p.root.protected };
+      if (!test || test(q)) out.push(q);
+    }
+    return out;
+  },
   THREE,
   weaponName,
 };

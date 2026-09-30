@@ -4,19 +4,21 @@
 import { vec3, quat, clamp } from 'math';
 import type { Vec3, Quat, MaterialId, ToolReadout } from '../../types';
 import { raycast } from '../../physics/physics';
-import { damagePiece, applyImpulseAt, pieceOf, type Piece } from '../../destruction/structure';
+import { damagePiece, applyImpulseAt, pieceOf, live, type Piece } from '../../destruction/structure';
 import { fx } from '../../render/fx';
 import { audio } from '../../audio/audio';
 import { NO_HIT } from './common';
 import { SITE_TIME } from './machining';
 
-/* Energy (J) a flat sledge face must put into one spot before a fragment comes away: a pane goes at once, plaster
-   and board in a blow or two, a brick unit after three or four good blows, sound concrete after a dozen or more. */
+/* Energy (J) a flat sledge face must put into one spot before a fragment comes away. A full swing is ~390 J: a pane
+   or a sheet of plasterboard goes at once, a shiplap board or a brick in a lime-mortared garden wall after a blow or
+   two, sound concrete after a dozen or more (a sledge is how a hole is started in a stud or half-brick wall; it is not
+   how a slab is broken out). */
 const CHIP: Partial<Record<MaterialId, number>> = {
-  glass: 8, lamp: 3, tempered: 60, drywall: 60, insulation: 30, cardboard: 40, plaster: 150, adobe: 200,
-  ceramic: 250, roof: 300, terracotta: 350, tnt: 400, pvc: 500, crate: 500, cinderblock: 600, barrel: 800,
-  sandstone: 900, brick: 1100, propane: 1200, plywood: 1500, frp: 1500, wood: 2500, castiron: 2500,
-  marble: 2600, stone: 2800, oak: 3500, asphalt: 4000, concrete: 4500, rconcrete: 6500,
+  glass: 8, lamp: 3, tempered: 60, drywall: 40, insulation: 30, cardboard: 40, plaster: 110, adobe: 180,
+  ceramic: 220, roof: 180, terracotta: 250, tnt: 400, pvc: 400, crate: 250, cinderblock: 420, barrel: 600,
+  sandstone: 750, brick: 600, propane: 1200, plywood: 420, frp: 900, wood: 550, castiron: 2500,
+  marble: 2600, stone: 1800, oak: 1500, asphalt: 3000, concrete: 4500, rconcrete: 6500,
 };
 
 /* Breaker: energy per m³ broken out by a chisel (J/m³), from site rates of a 30 kg-class breaker (≈0.15 m³/h in
@@ -27,7 +29,8 @@ const BREAK_E: Partial<Record<MaterialId, number>> = {
   concrete: 30e6, marble: 35e6, rconcrete: 40e6, stone: 45e6, castiron: 60e6,
 };
 
-export const SLEDGE = { head: 6.4, vMin: 5.5, vMax: 11, reach: 2.4, wind: 0.55 };
+/* knock: m round the head that a breaking blow knocks out */
+export const SLEDGE = { head: 6.4, vMin: 5.5, vMax: 11, reach: 2.4, wind: 0.55, knock: 0.45 };
 /* 30 kg handheld breaker: 1.6 kW hydraulic in, ~55 J at 1500 blows/min on the steel, ~45 % of that breaks rock */
 export const BREAKER = { power: 1600, eff: 0.45, reach: 1.7, chunk: 0.003, blow: 55, rate: 25 };
 
@@ -36,6 +39,9 @@ export const percHooks = {
   kick: (_k: number): void => {},
   hit: (_k: number): void => {},
 };
+
+/* blows landing this close together (m, in the member's frame) work the same spot: a swing is not a laser */
+const SPOT = 0.3;
 
 interface Spot { p: Piece; lp: Vec3; e: number }
 const spots: Spot[] = [];
@@ -49,7 +55,7 @@ function toLocal(out: Vec3, p: Piece, w: Vec3): Vec3 {
 
 function spotAt(p: Piece, point: Vec3): Spot {
   toLocal(_l, p, point);
-  for (const s of spots) if (s.p === p && vec3.distance(s.lp, _l) < 0.18) return s;
+  for (const s of spots) if (s.p === p && vec3.distance(s.lp, _l) < SPOT) return s;
   for (let i = spots.length - 1; i >= 0; i--) if (spots[i].p.dead) spots.splice(i, 1);
   if (spots.length >= 64) spots.shift();
   const s: Spot = { p, lp: [..._l], e: 0 };
@@ -63,17 +69,38 @@ export function sledgeEnergy(k: number): number {
   return 0.5 * SLEDGE.head * v * v;
 }
 
-/* A fragment's worth of the spot comes away: the struck region of the member takes a third of its hit points per
-   fragment (a brick-built wall drops the units round the blow), so the member breaks up blow by blow. */
-function chip(p: Piece, point: Vec3, normal: Vec3, ratio: number): boolean {
+/* A fragment's worth of the spot comes away: the struck member takes half its hit points per fragment, so a sound
+   member breaks up on the second chip; what an earlier break left of it (a fragment) goes on the first. The breaker's
+   chisel takes a member apart a third at a time (`share`). */
+function chip(p: Piece, point: Vec3, normal: Vec3, ratio: number, share = p.depth > 0 ? 1.05 : 0.52): boolean {
   const was = p.queued;
-  damagePiece(p, point, p.hp * 0.34 * ratio, false);
+  damagePiece(p, point, p.hp * share * Math.min(ratio, 2), false);
   fx.debris(point, Math.round(3 + 3 * Math.min(ratio, 3)), p.pm.chips, 2.5, normal);
   fx.dust(point, 0.35 + 0.1 * Math.min(ratio, 4), p.pm.dust);
   return p.queued && !was;
 }
 
 export interface Blow { piece: Piece | null; mat: MaterialId | null; energy: number; point: Vec3; normal: Vec3; chipped: boolean; broke: boolean; progress: number }
+
+/* A sledge knocks out bricks and boards, not the metre-sized bodies the structure is carved into: a breaking blow
+   reduces what lies round the head (within `knock`) to the units it is made of, in passes a couple of steps apart so
+   each pass finds the fragments the last one carved. What is left standing round the hole stays bonded. */
+const KNOCK_PASSES = 3;
+const knocks: { point: Vec3; root: Piece['root']; steps: number; passes: number }[] = [];
+
+/** Per physics step: breaking blows whose fragments now exist knock them out. */
+export function sledgeStep(): void {
+  for (let i = knocks.length - 1; i >= 0; i--) {
+    const k = knocks[i];
+    if (--k.steps > 0) continue;
+    for (const p of live) {
+      if (p.dead || p.root !== k.root || p.queued || vec3.distance(p.curPos, k.point) > SLEDGE.knock + Math.cbrt(p.volume) * 0.5) continue;
+      damagePiece(p, k.point, p.hp * 2, true);
+    }
+    if (--k.passes > 0) k.steps = 2;
+    else knocks.splice(i, 1);
+  }
+}
 
 /** One sledge blow along the aim, wound up to k: the spot accumulates energy until a fragment comes away. */
 export function sledgeBlow(eye: Vec3, fwd: Vec3, k: number): Blow | null {
@@ -99,6 +126,8 @@ export function sledgeBlow(eye: Vec3, fwd: Vec3, k: number): Blow | null {
   if (s.e >= need) {
     out.chipped = true;
     out.broke = chip(piece, point, normal, s.e / need);
+    /* the blow that breaks a member knocks out the units round the head (sledgeStep) */
+    if (out.broke) knocks.push({ point, root: piece.root, steps: 2, passes: KNOCK_PASSES });
     s.e = 0;
   } else if (s.e > 0.4 * need) fx.debris(point, 1, piece.pm.chips, 1.5, normal);
   return out;
@@ -154,7 +183,7 @@ export function breakerStep(dt: number, held: boolean): void {
     w.removed -= BREAKER.chunk;
     broken++;
     percHooks.hit(0.35);
-    if (chip(p, [..._wp], [..._wn], 1)) percHooks.hit(0.8);
+    if (chip(p, [..._wp], [..._wn], 1, 0.34)) percHooks.hit(0.8);
   }
   fxT -= dt;
   if (fxT <= 0) {
@@ -184,6 +213,7 @@ export function breakerDebug(): { work: Work | null; broken: number; running: bo
 
 export function clearPercussive(): void {
   spots.length = 0;
+  knocks.length = 0;
   work = null;
   heldAt = -9;
   broken = 0;

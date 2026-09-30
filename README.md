@@ -57,7 +57,13 @@ node scripts/validate-levels.ts   # check every blueprint for overlaps / floatin
   gravity gun, megabomb. The par clock starts at your first move or shot; meeting the target does not
   end the job — keep going for score and sign off with `Enter` (it signs itself off once the ordnance
   is spent or the site goes quiet). A failed report says why and gives the foreman's tip. Progress in
-  localStorage.
+  localStorage. Star thresholds are set per job. A structure that must come down whatever the
+  percentage says (the Tall Order's chimney) holds the sign-off until it is on the ground.
+- **Protected property** — damage is docked per structure, per incident: a building that goes on
+  shedding pieces for a minute is one incident, not a toast per brick, and what it can cost is capped
+  at its liability (30 % of the job's value, so the same currency on a shed and a tower block). Broken
+  windows from a blast wave are a ding; past 4 % of a structure hurt the job can earn ★★ at most, past
+  15 % (wrecked) ★.
 - **Free play** — everything unlimited, four sites:
   - *Clearance Zone*: a plumbed-in quarter (high street, terraces, works yard, construction site, canal
     cut) on one site grid — a substation, gas governor and pump hall feed every building by buried
@@ -87,7 +93,10 @@ Every blow and shot reads back: heavy hits land with a beat of hitstop and a jol
 that break nothing leave a strike mark on the face (cracks on masonry and glass, a scuff on metal, a bruise on
 timber) that grows toward the chip, thrown and fired ordnance shows its arc plus a wire sphere of what the blast
 will reach, and armed charges and cutters carry their firing order and delay (`#1 · 0 ms`) over them, counting
-down once the sequence is fired. Launchers show their reload on the tool readout.
+down once the sequence is fired. Launchers show their reload on the tool readout, which sits over the hotbar,
+fades once read, and for the cannon and rockets says what the arc comes down on (`on target: steel at 12 m`).
+The sledge puts ~390 J into a full swing: glass goes at a tap, a board or a brick in a lime-mortared wall
+after a blow or two; the blow that breaks a member knocks out the units round the head.
 
 **Bullet time** (`T`) runs the world at 0.3×. **Collapse replay** (`V`) freezes the site and plays the last ~12 s
 back (every piece that moved, fragments riding their parent member until it broke, blasts re-fired) with a free
