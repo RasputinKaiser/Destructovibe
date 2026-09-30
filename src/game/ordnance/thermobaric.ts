@@ -9,7 +9,7 @@
 import { vec3, clamp } from 'math';
 import type { Vec3 } from '../../types';
 import { randomStream, stepCount } from '../../physics/physics';
-import { explode, ignite, type Piece } from '../../destruction/structure';
+import { explode, ignite, lastBlast, type Piece } from '../../destruction/structure';
 import { flammable } from '../../destruction/materials';
 import { disperseFuel, burnCloud, spark, type Cloud, type CloudBurn } from '../../sim/fields/index';
 import { fx } from '../../render/fx';
@@ -34,7 +34,7 @@ interface Pending { at: number; cloud: Cloud; pos: Vec3 }
 const pending: Pending[] = [];
 let now = 0;
 const rnd = randomStream(0x7b9a);
-export const tbxLog: { cloud: Cloud; burn: CloudBurn; W: number; radius: number }[] = [];
+export const tbxLog: { cloud: Cloud; burn: CloudBurn; W: number; radius: number; confined?: boolean; Pqs?: number; V?: number }[] = [];
 
 export function clearThermobaric(): void { pending.length = 0; now = 0; tbxLog.length = 0; }
 export function thermobaricPending(): number { return pending.length; }
@@ -68,13 +68,20 @@ function ignition(p: Pending): void {
   const c: Vec3 = E > 0 ? [b.x, b.y, b.z] : p.pos;
   const ext = Math.max(p.cloud.max[0] - p.cloud.min[0], p.cloud.max[1] - p.cloud.min[1], p.cloud.max[2] - p.cloud.min[2]);
   // the push comes from the whole cloud, not a point: reach the cloud's own extent past the charge's radius
-  const radius = Math.max(3.1 * Math.cbrt(Math.max(W, 0.05)), ext * 0.6 + 1);
+  /* the push reaches the cloud's own extent past the charge's radius; only a cloud held under cover (a room) keeps its
+     pressure up for the long push; in the open it vents as it burns and the shock is all there is */
+  const held = b.covered;
+  const radius = Math.max(3.1 * Math.cbrt(Math.max(W * (0.5 + 0.5 * held), 0.05)), ext * 0.6 + 1);
   tbxLog.push({ cloud: p.cloud, burn: b, W, radius });
   if (tbxLog.length > 8) tbxLog.shift();
   fx.fuelFireball(p.cloud.min, p.cloud.max, c);
   if (W > 0.01) {
     /* a longer positive phase than a point charge of the same energy: ~1.6× the impulse on what is free to move */
-    explode(c, radius, W * 60e3, 2150 * Math.sqrt(W) * 1.6, 1.3, 24);
+    /* a fuel-air burn peaks at ~20 bar, not a high explosive's 10⁵: little brisance, a crushing push. The shock is dealt at
+       half the TNT equivalent; a room it fills is pressurised by all of it (the survey's gas phase) */
+    explode(c, radius, W * 0.5 * 60e3, 2150 * Math.sqrt(W * 0.5) * (1 + 0.6 * held), 1.3, 24, W * 60e3);
+    const sv = lastBlast.survey, log = tbxLog[tbxLog.length - 1];
+    if (sv && log) { log.confined = sv.confined; log.Pqs = sv.Pqs; log.V = sv.V; }
   }
   // the fireball: every surface inside the cloud takes the flame for a fraction of a second
   rnd.at(c[0], c[1], c[2], stepCount);

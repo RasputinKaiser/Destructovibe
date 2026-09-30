@@ -13,6 +13,7 @@ import { groundAt } from '../../terrain/terrain';
 import { fx } from '../../render/fx';
 import { audio } from '../../audio/audio';
 import { NO_HIT, fillOf } from '../tools/common';
+import { punchHole } from '../tools/machining';
 import { young, youngSpeed, PEN_S, GROUND_S } from './penetration';
 
 export const PEN = {
@@ -74,12 +75,14 @@ export function penetrate(point: Vec3, dir: Vec3, V: number, entity: PhysEntity 
     const thick = vec3.distance(exit, entry) * fill;
     const S = PEN_S[piece.mat] ?? 1;
     // metres of reference concrete this layer costs: its NDRC perforation thickness at this calibre, not less than a third of it
-    const need = Math.max(thick / 3, (thick - 1.32 * PEN.d) / 1.24) * (S_REF / S);
+    const need = Math.max(thick * 0.6, (thick - 1.32 * PEN.d) / 1.24) * (S_REF / S);
     const layer: PenLayer = { mat: piece.mat, entry, exit: null, thick, left: 0 };
     res.layers.push(layer);
     t += vec3.distance(entry, pos) / Math.max(V, 1);
-    cutRebarNear(piece, entry, 0.25);
-    damagePiece(piece, entry, Math.max(piece.hp * 1.1, 5e4), true);
+    /* a punched hole a few calibres across, the bars in it cut, the slab cracked round it: not the whole slab shattered */
+    cutRebarNear(piece, entry, 0.3);
+    if (Number.isFinite(piece.pm.toughness)) punchHole(piece, entry, [-dir[0], -dir[1], -dir[2]], PEN.d * 2.5);
+    if (!piece.dead) damagePiece(piece, entry, Math.min(piece.hp * 0.35, 2e5), true);
     punches.push({ at: now + t, pos: entry, dir, chips: piece.pm.chips, dust: piece.pm.dust, up: true });
     if (need >= cap) {
       // it stops in this layer
@@ -134,8 +137,13 @@ export function penetratorStep(dt: number): void {
     const b = bursts[i];
     if (now < b.at) continue;
     bursts.splice(i, 1);
-    const W = PEN.tnt;
-    explode(b.pos, 3.1 * Math.cbrt(W), 60e3 * W, 2150 * Math.sqrt(W), 1.3, 60);
+    /* buried: the soil over it contains the burst (a camouflet past ~1.2 m/kg^⅓ of cover); what vents is the share its
+       scaled depth leaves (the crater the explosion digs is the terrain's own business) */
+    const W = PEN.tnt, gy = groundAt(b.pos[0], b.pos[2]);
+    const depth = Math.max(0, gy - b.pos[1]), lam = depth / Math.cbrt(W);
+    const k = lam <= 0 ? 1 : Math.max(0.05, 1 - lam / 1.2);
+    const at: Vec3 = depth > 0 ? [b.pos[0], gy + 0.2, b.pos[2]] : b.pos;
+    explode(at, 3.1 * Math.cbrt(W * k), 60e3 * W * k, 2150 * Math.sqrt(W * k), 1.3, 60);
   }
 }
 

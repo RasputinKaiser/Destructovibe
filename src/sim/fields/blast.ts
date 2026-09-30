@@ -49,9 +49,12 @@ let occ = new Uint8Array(0), por = new Uint8Array(0), cov = new Uint8Array(0), s
 let queue = new Int32Array(0);
 let inside = new Uint8Array(0);
 
-export function survey(pos: Vec3, radius: number, power: number): Survey {
+/** gasPower: the energy that pressurises a room it fills, when it differs from the shock's (a fuel-air charge: a low,
+ * long push from far more energy than its peak pressure shows) */
+export function survey(pos: Vec3, radius: number, power: number, gasPower = power): Survey {
   const t0 = performance.now();
   const W = Math.max(0.01, power / POWER_PER_KG) * (pos[1] < 2.5 ? 1.8 : 1);
+  const Wg = gasPower === power ? W : Math.max(0.01, gasPower / POWER_PER_KG) * (pos[1] < 2.5 ? 1.8 : 1);
   const H = Math.min(MAX_H, Math.max(8, Math.ceil(radius * 2) + 2));
   const n = 2 * H + 1, n3 = n * n * n;
   if (occ.length < n3) { occ = new Uint8Array(n3); por = new Uint8Array(n3); cov = new Uint8Array(n3); steps = new Uint16Array(n3); roofed = new Uint8Array(n3); queue = new Int32Array(n3); }
@@ -139,7 +142,7 @@ export function survey(pos: Vec3, radius: number, power: number): Survey {
   const confined = roofed[c0] === 1 && V > 1;
   let Pqs = 0, tg = 0, iGas = 0, iMulti = 0;
   if (confined) {
-    Pqs = 2.25e6 * Math.min(1, W / V) ** 0.72;
+    Pqs = 2.25e6 * Math.min(1, Wg / V) ** 0.72;
     tg = Math.min(0.05, Math.max(0.003, V / (Math.max(0.5, Av) * 0.6 * 340)));
     iGas = 0.5 * Pqs * tg;
     const Zr = Math.cbrt(V) / cw;

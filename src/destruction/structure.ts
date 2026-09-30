@@ -3663,7 +3663,8 @@ function detonateProp(p: Piece): void {
   fx.fire(pos, 6 + chance() * 4, ex.radius * 0.22);
 }
 
-export function explode(pos: Vec3, radius: number, power: number, impulse: number, weldReach = 1, maxFractures = BLAST_FRACTURES): void {
+/** gasPower: what a room it goes off in is pressurised by, when not the same as the shock's power (fuel-air charges) */
+export function explode(pos: Vec3, radius: number, power: number, impulse: number, weldReach = 1, maxFractures = BLAST_FRACTURES, gasPower = power): void {
   counters.explosions++;
   chance.at(pos[0], pos[1], pos[2], stepCount, 4);
   fx.explosion(pos, radius);
@@ -3678,7 +3679,7 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
   /* The wave, not just the distance: in plain view in the open a piece takes the calibrated fall-off below; a wall
      between shadows it (the wave diffracts round, weaker); inside a room the gas pressure and the reflections load
      every surface that bounds it, however far from the charge. */
-  const bl = fields.survey(pos, radius, power);
+  const bl = fields.survey(pos, radius, power, gasPower);
   const lo: Vec3 = [pos[0] - radius, pos[1] - radius, pos[2] - radius], hi: Vec3 = [pos[0] + radius, pos[1] + radius, pos[2] + radius];
   if (bl.confined) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], bl.roomMin[k] - 1); hi[k] = Math.max(hi[k], bl.roomMax[k] + 1); }
   const near = new Map<Piece, { p: Piece; d: number; cp: Vec3 }>();
@@ -3702,7 +3703,7 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
     const lf = fields.loadFactors(bl, h.cp, h.d);
     // the ground over a buried member takes most of the blow, and all of the fireball
     const sh = blastShield(h.cp, power / 60e3);
-    let e = (power * (f * f * lf.shadow + lf.gas)) / h.p.pm.blastResist * sh;
+    let e = (gasPower === power ? power * (f * f * lf.shadow + lf.gas) : power * f * f * lf.shadow + gasPower * lf.gas) / h.p.pm.blastResist * sh;
     if (broke >= maxFractures && !h.p.pm.explosive) e = Math.min(e, Math.max(0, h.p.hp - h.p.damage) * 0.9);
     const was = h.p.queued;
     damagePiece(h.p, h.cp, e, true);
@@ -3734,14 +3735,14 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
     if (hit > 1.1) { splitCompound(h.p, h.cp, hit, true); torn++; }
   }
   const wp: Vec3 = [0, 0, 0];
-  const kW = Math.sqrt(power / 60e3);
+  const kW = Math.sqrt(power / 60e3), kWg = Math.sqrt(gasPower / 60e3);
   for (const w of [...welds.values()]) {
     weldPos(w, wp);
     const d = vec3.distance(wp, pos);
     const inside = bl.confined && fields.inRoom(bl, wp);
     if (d > reach && !inside) continue;
     const lf = fields.loadFactors(bl, wp, d);
-    const hit = (Math.max(0, 1 - d / reach) * kW * Math.sqrt(lf.shadow) + Math.sqrt(lf.gas) * 0.9 * kW) * blastShield(w.b ? wp : w.a.curPos, power / 60e3);
+    const hit = (Math.max(0, 1 - d / reach) * kW * Math.sqrt(lf.shadow) + Math.sqrt(lf.gas) * 0.9 * kWg) * blastShield(w.b ? wp : w.a.curPos, power / 60e3);
     if (hit > 0.75) failWeld(w, w.ductile && hit < 1.1 ? 'overload' : 'blast');
     else if (hit > 0.1) scaleWeld(w, 1 - hit * 0.35);
   }

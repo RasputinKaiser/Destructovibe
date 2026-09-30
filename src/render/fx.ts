@@ -1944,7 +1944,7 @@ export const fx = {
 
   /** one frame of a flamethrower's fuel in flight: lit, a rolling tongue of flame along its path that swells and
       sheds soot as it goes; unlit (a wet shot), a glistening amber streak */
-  fuelGlob(pos: Vec3, vel: Vec3, lit: boolean, age: number): void {
+  fuelGlob(from: Vec3, pos: Vec3, vel: Vec3, lit: boolean, age: number): void {
     if (!ready) return;
     const [x, y, z] = pos, b = budget();
     if (!lit) {
@@ -1954,11 +1954,17 @@ export const fx = {
       return;
     }
     const grow = clamp(age / 0.6, 0, 1);
-    pAt(x + rf(-0.05, 0.05), y + rf(-0.05, 0.05), z + rf(-0.05, 0.05));
-    P.vx = vel[0] * 0.25 + rf(-0.4, 0.4); P.vy = vel[1] * 0.25 + rf(0, 0.6); P.vz = vel[2] * 0.25 + rf(-0.4, 0.4); P.drag = 5; P.rise = 0.9;
-    P.life = rf(0.12, 0.22); P.s0 = 0.16 + 0.55 * grow; P.s1 = P.s0 * rf(1.4, 1.9); P.a = 0; P.heat = rf(5, 8.5) * (1 - 0.3 * grow); P.heatDur = P.life;
-    P.spin = rf(-2, 2); P.wind = 0.3; P.fadeIn = 0.02;
-    emit();
+    // tongues laid along the path it flew since the last frame, so the rope reads as one stream whatever the frame rate
+    const dx = x - from[0], dy = y - from[1], dz = z - from[2];
+    const n = clamp(Math.ceil(Math.hypot(dx, dy, dz) / (0.28 + 0.3 * grow)), 1, 10);
+    for (let k = 0; k < n; k++) {
+      const u = (k + rng()) / n;
+      pAt(from[0] + dx * u + rf(-0.05, 0.05), from[1] + dy * u + rf(-0.05, 0.05), from[2] + dz * u + rf(-0.05, 0.05));
+      P.vx = vel[0] * 0.2 + rf(-0.4, 0.4); P.vy = vel[1] * 0.2 + rf(0, 0.7); P.vz = vel[2] * 0.2 + rf(-0.4, 0.4); P.drag = 6; P.rise = 1;
+      P.life = rf(0.1, 0.18); P.s0 = 0.14 + 0.45 * grow; P.s1 = P.s0 * rf(1.6, 2.2); P.a = 0; P.heat = rf(1.6, 2.8) * (1 - 0.35 * grow); P.heatDur = P.life;
+      P.spin = rf(-2, 2); P.wind = 0.3; P.fadeIn = 0.02;
+      emit();
+    }
     if (rng() < (0.05 + 0.2 * grow) * b) {
       // a fuel-rich flame: dense black soot rolls off the tail of the stream
       pAt(x + rf(-0.2, 0.2), y + 0.2, z + rf(-0.2, 0.2));
@@ -1978,12 +1984,14 @@ export const fx = {
       if (rng() < 0.3) { pAt(pos[0], pos[1] + 0.05, pos[2]); P.life = rf(1, 2); P.s0 = sz * 0.5; P.s1 = sz; pColor(0x8c7a55, 0.6); P.a = 0.08; P.rise = 0.2; P.drag = 1; emit(); }
       return;
     }
-    const n = Math.max(1, Math.round((3 + 5 * sz) * b));
+    const n = Math.max(3, Math.round((9 + 12 * sz + 3 * H) * b));
     for (let i = 0; i < n; i++) {
-      const r = rf(0, 0.45 * sz), ang = rf(0, 6.283);
-      pAt(pos[0] + Math.cos(ang) * r, pos[1] + rf(0, 0.15), pos[2] + Math.sin(ang) * r);
-      P.vx = rf(-0.3, 0.3); P.vy = H * rf(1.1, 2); P.vz = rf(-0.3, 0.3); P.drag = 1.1; P.rise = 0.6;
-      P.life = rf(0.45, 0.85); P.s0 = sz * rf(0.5, 0.85); P.s1 = sz * 0.25; P.a = 0; P.heat = rf(4, 7); P.heatDur = P.life;
+      // the flame's body stands the fire's own height: tongues born up the column, narrowing to the tip
+      const r = rf(0, 0.45 * sz), ang = rf(0, 6.283), h = rng() * rng() * H * 0.7;
+      const w = sz * (1 - 0.6 * h / H) + 0.15;
+      pAt(pos[0] + Math.cos(ang) * r, pos[1] + h + rf(0, 0.15), pos[2] + Math.sin(ang) * r);
+      P.vx = rf(-0.3, 0.3); P.vy = rf(1, 2) + H * 0.35; P.vz = rf(-0.3, 0.3); P.drag = 1.4; P.rise = 0.5;
+      P.life = rf(0.35, 0.7); P.s0 = w * rf(0.9, 1.4); P.s1 = w * 0.4; P.a = 0; P.heat = rf(2, 3.4); P.heatDur = P.life;
       P.spin = rf(-1.5, 1.5); P.wind = 0.6; P.fadeIn = 0.05;
       emit();
     }
@@ -2009,7 +2017,9 @@ export const fx = {
     for (let i = 0; i < n; i++) {
       dirAround(dir[0], dir[1] - 0.15, dir[2], 0.45);
       const sp = rf(0.3, 1) * reach * 1.6;
-      pAt(pos[0], pos[1] - 0.2, pos[2]);
+      // born well behind the firer: a puff this size started at the tube's end would swallow his own view
+      const o = rf(1.6, 2.4);
+      pAt(pos[0] + dir[0] * o, pos[1] - 0.2 + dir[1] * o, pos[2] + dir[2] * o);
       P.vx = _v.x * sp; P.vy = _v.y * sp * 0.4; P.vz = _v.z * sp; P.drag = 2.4;
       P.life = rf(1.5, 3.5); P.s0 = 0.4; P.s1 = rf(1.5, 3) * (0.7 + 0.3 * gas); pColor(0xb9ad98, rf(0.85, 1.1)); P.a = rf(0.3, 0.5);
       P.rise = 0.15; P.wind = 0.8; P.fadeIn = 0.04; P.heat = i < 3 ? 6 : 0; P.heatDur = 0.08;
@@ -2040,11 +2050,13 @@ export const fx = {
     if (!ready) return;
     const b = Math.max(0.6, budget());
     const ex = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
-    const n = Math.round(46 * b);
+    const n = Math.round(70 * b);
     for (let i = 0; i < n; i++) {
       pAt(rf(min[0], max[0]), rf(min[1], max[1]), rf(min[2], max[2]));
+      // the cloud burns for over a second as the flame runs through it and the rich core mixes: a slow, rolling ball
+      P.delay = rf(0, 0.5) * rng();
       P.vx = (P.x - c[0]) * rf(1.5, 3); P.vy = (P.y - c[1]) * rf(1.5, 3) + rf(0.5, 2); P.vz = (P.z - c[2]) * rf(1.5, 3); P.drag = 3;
-      P.life = rf(0.5, 1.1); P.s0 = rf(1, 1.8); P.s1 = rf(2, 3.2); P.a = 0; P.heat = rf(7, 12); P.heatDur = P.life * 0.9;
+      P.life = rf(0.9, 1.9); P.s0 = rf(1.2, 2); P.s1 = rf(2.4, 3.6); P.a = 0; P.heat = rf(4, 7); P.heatDur = P.life * 0.8;
       P.spin = rf(-1, 1); P.fadeIn = 0.01; P.rise = 1.2; P.wind = 0.3;
       emit();
     }
@@ -2055,7 +2067,7 @@ export const fx = {
       P.wind = 1; P.fadeIn = 0.3; P.heat = rf(1.5, 3); P.heatDur = 0.8; P.curl = 0.4;
       emit();
     }
-    flash(c[0], c[1] + 1, c[2], 0xffa24a, 260 + 60 * ex * ex, 0.9, 12 + ex * 5, 3);
+    flash(c[0], c[1] + 1, c[2], 0xffa24a, 260 + 60 * ex * ex, 1.8, 12 + ex * 5, 3);
   },
 
   /** a fragment's flight from a burst to where it lands: a fast hot streak, a spark where it strikes */
@@ -2081,7 +2093,7 @@ export const fx = {
   /** a fire's light, re-lit each call at the same spot (fuel fires, the flamer's stream): k ~ MW of flame */
   fireLight(pos: Vec3, k: number): void {
     if (!ready || k <= 0) return;
-    flash(pos[0], pos[1], pos[2], 0xff7c2a, clamp(40 + 55 * k, 20, 320), 0.35, clamp(10 + 6 * k, 10, 34), 1, 3.5);
+    flash(pos[0], pos[1], pos[2], 0xff7c2a, clamp(30 + 25 * k, 20, 150), 0.35, clamp(10 + 5 * k, 10, 28), 1, 3.5);
   },
 
   update(dt: number): void {

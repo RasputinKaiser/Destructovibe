@@ -149,8 +149,8 @@ export function fieldsHeatTick(dt: number, burning: ReadonlySet<Piece>, hot: Set
 }
 
 /** Blast survey round a charge (see blast.ts), timed. */
-export function survey(pos: Vec3, radius: number, power: number): Survey {
-  const s = blastSurvey(pos, radius, power);
+export function survey(pos: Vec3, radius: number, power: number, gasPower = power): Survey {
+  const s = blastSurvey(pos, radius, power, gasPower);
   fieldCost.blastMs += s.ms;
   fieldCost.blasts++;
   return s;

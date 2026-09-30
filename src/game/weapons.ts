@@ -57,7 +57,7 @@ import { tags, initTags } from '../render/tags';
 import { strikes, initStrikes } from '../render/strikes';
 import { fuelStep, syncFuel, clearFuel, douseFuel, launchFuel, fuelInFlight, fuelBurning, PETROL } from './ordnance/fuel';
 import {
-  flamerHold, flamerStep, flamerHooks, flamerOn, flamerLit, toggleIgniter, traceFlame, flamerStatus, clearFlamer,
+  flamerHold, flamerStep, flamerHooks, flamerOn, flamerLit, toggleIgniter, traceFlame, flamerStatus, clearFlamer, flamerRelease,
 } from './ordnance/flamer';
 import { GRENADE, grenadeBurst } from './ordnance/grenade';
 import { HEAT84, heatImpact } from './ordnance/heat';
@@ -634,6 +634,7 @@ export function releaseFire(): void {
   reelFrame = -9;
   workFrame = -9;
   releaseMachining();
+  flamerRelease();
   if (loadout.current === 'hammer') releaseHammer();
 }
 

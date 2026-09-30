@@ -31,7 +31,8 @@ export interface FuelKind {
 }
 
 /* Thickened flamethrower fuel (gasoline gelled with ~4-6 % M4 thickener): sticky, slow to burn, very sooty. */
-export const GEL: FuelKind = { name: 'thickened fuel', rho: 800, dHc: 42e6, burn: 0.04, film: 0.0015, stick: 0.75, soot: 0.1, evap: 1e-4, airBurn: 0.12 };
+/* Gel does not run out to a film: it lies in gobs a few mm thick and burns for minutes where it lands (TM 3-376A). */
+export const GEL: FuelKind = { name: 'thickened fuel', rho: 800, dHc: 42e6, burn: 0.04, film: 0.003, stick: 0.75, soot: 0.1, evap: 1e-4, airBurn: 0.12 };
 /* Petrol (a Molotov): runs off walls, spreads thin, burns hot and fast. SFPE: 0.055 kg/m²·s, 43.7 MJ/kg. */
 export const PETROL: FuelKind = { name: 'petrol', rho: 740, dHc: 43.7e6, burn: 0.055, film: 0.001, stick: 0.15, soot: 0.04, evap: 8e-4, airBurn: 0.25 };
 
@@ -42,7 +43,7 @@ const CONTACT = 70e3, CHI_R = 0.35;
 const POOL_MAX = 9;            // m²: one pool record; more fuel there thickens it or starts a neighbour
 const SPREAD = 1.4;            // m/s the flame runs across an unlit slick
 
-interface Glob { pos: Vec3; vel: Vec3; kg: number; kind: FuelKind; lit: boolean; age: number; drag: number }
+interface Glob { pos: Vec3; vel: Vec3; kg: number; kind: FuelKind; lit: boolean; age: number; drag: number; seen?: Vec3 }
 interface Patch {
   pos: Vec3; n: Vec3; kg: number; kind: FuelKind; lit: boolean; host: Piece | null; lp: Vec3 | null;
   pool: boolean; area: number; tick: number; burnt: number; litAt: number;
@@ -189,7 +190,9 @@ export function heatSkin(q: Piece, flux: number, A: number, dt: number): void {
   const delta = 2 * Math.sqrt(alpha * 10);
   const skin = Math.max(1, q.pm.density * th.c * A * delta);
   const C = Math.min(heatCap(q), skin);
-  heat(q, (flux * A * dt) / C);
+  // a surface heated by flux q'' cannot run hotter than the temperature at which it re-radiates all of it (ε 0.9)
+  const cap = Math.pow(flux / (0.9 * 5.67e-8), 0.25) - 273;
+  heat(q, Math.min((flux * A * dt) / C, Math.max(0, cap - q.temp)));
 }
 
 const _near: Vec3 = [0, 0, 0];
@@ -228,8 +231,14 @@ function tickPatch(p: Patch, dt: number): void {
   // Heskestad flame height, m (Q in kW)
   const Hf = Math.max(0.3, 0.235 * Math.pow(Q / 1e3, 0.4) - 1.02 * D);
   vec3.set(_near, p.pos[0] + p.n[0] * 0.2, p.pos[1] + Math.max(0.2, p.n[1] * Hf * 0.4), p.pos[2] + p.n[2] * 0.2);
-  addHeat(_near, Q * (1 - CHI_R), dt);
-  addSmoke(_near, (m / dt) * p.kind.soot * 1000, 0.95, dt);
+  // the plume's heat and soot go in up the flame's own height, not into one cell
+  const cells = Math.max(1, Math.min(4, Math.ceil(Hf)));
+  for (let c = 0; c < cells; c++) {
+    const h: Vec3 = [_near[0], _near[1] + c, _near[2]];
+    // a flame's gases run ~1000-1200 °C: past that the cell is already all flame and more heat goes up and away
+    if (sampleField(h, 'T') < 1050) addHeat(h, (Q * (1 - CHI_R)) / cells, dt);
+    addSmoke(h, ((m / dt) * p.kind.soot * 1000) / cells, 0.95, dt);
+  }
   spark(_near, dt * 1.5);
   const reach = R + Math.max(1.2, Hf * 0.6);
   for (const { p: q, d, cp } of piecesNear(_near, reach)) {
@@ -260,7 +269,11 @@ export function douseFuel(pos: Vec3, r: number): void {
 
 /** Once per rendered frame: flames on the stream and the fires, their light. */
 export function syncFuel(dt: number): void {
-  for (const g of globs) fx.fuelGlob(g.pos, g.vel, g.lit, g.age);
+  for (const g of globs) {
+    const from = g.seen ??= [g.pos[0] - g.vel[0] / 60, g.pos[1] - g.vel[1] / 60, g.pos[2] - g.vel[2] / 60];
+    fx.fuelGlob(from, g.pos, g.vel, g.lit, g.age);
+    vec3.copy(from, g.pos);
+  }
   fxT -= dt;
   if (fxT > 0) return;
   fxT = 0.2;
@@ -272,7 +285,7 @@ export function syncFuel(dt: number): void {
     fx.fuelFire(p.pos, Math.max(0.25, R * 1.6), Hf, p.lit);
     if (p.lit) { lx += p.pos[0] * Q; ly += (p.pos[1] + Hf * 0.5) * Q; lz += p.pos[2] * Q; lw += Q; audio.burn(p.pos, Math.min(1.5, Q / 1e6)); }
   }
-  for (const g of globs) if (g.lit) { const w = 3e5; lx += g.pos[0] * w; ly += g.pos[1] * w; lz += g.pos[2] * w; lw += w; }
+  for (const g of globs) if (g.lit) { const w = 5e4; lx += g.pos[0] * w; ly += g.pos[1] * w; lz += g.pos[2] * w; lw += w; }
   if (lw > 0) fx.fireLight([lx / lw, ly / lw, lz / lw], lw / 1e6);
 }
 

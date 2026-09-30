@@ -16,7 +16,7 @@ export const GRENADE = {
   arm: 18,              // m of flight before the fuze is armed (14-27 m)
   tnt: 0.032 * 1.35,    // kg TNT-eq: 32 g Comp B (RE ~1.35)
   frags: 300, fragMass: 0.00025, fragV: 1524,
-  rays: 28,             // fragment directions traced (each carries frags/rays)
+  rays: 100,            // fragment directions traced (each carries frags/rays)
   reach: 25,            // m a fragment is traced
   airburst: [10, 150],  // programmable burst range, m
 };
@@ -28,6 +28,9 @@ const blast = { radius: 3.1 * Math.cbrt(GRENADE.tnt), power: 60e3 * GRENADE.tnt,
  * fragments out sideways and forward; an airburst sprays the ground below). */
 export function grenadeBurst(pos: Vec3, vel: Vec3, airburst: boolean): number {
   explode(pos, blast.radius, blast.power, blast.impulse, 0.5, 2);
+  // Comp B: a grey-black puff and a scorch, not a fireball
+  fx.dust(pos, 0.9, 0x3e3a36);
+  fx.scorch(pos, 0.6);
   rnd.at(pos[0], pos[1], pos[2], stepCount);
   const s = vec3.length(vel) || 1;
   const ax: Vec3 = [vel[0] / s, vel[1] / s, vel[2] / s];

@@ -22,7 +22,7 @@ export const HEAT84 = {
   jet: 0.375,          // m of jet: 400 mm RHA = L·√(8960/7850)
   rhoJet: 8960,
   hole: 0.045,         // m: the tunnel a jet leaves in masonry and concrete (~½ calibre)
-  crater: 0.22,        // m across the cone on the struck face
+  crater: 0.28,        // m across the cone on the struck face
   tnt: 0.44 * 1.7,     // 440 g octol (RE ~1.7), most of it spent forming the jet
   bad: 14,             // behind-armour debris directions traced
   badReach: 8,
@@ -45,7 +45,8 @@ export const heatLog: JetResult[] = [];
 export function heatImpact(point: Vec3, dir: Vec3, entity: PhysEntity | undefined, back: Vec3): JetResult {
   const res: JetResult = { layers: 0, perforated: 0, spent: 0, exits: [] };
   // the charge's own blast at the face: most of its energy is in the jet, the rest a small blast and the case
-  explode(back, 0.9, HEAT84.tnt * 0.15 * 60e3, 600, 0.3, 1);
+  const w = HEAT84.tnt * 0.15;
+  explode(back, 3.1 * Math.cbrt(w), w * 60e3, 2150 * Math.sqrt(w), 0.3, 1);
   rnd.at(point[0], point[1], point[2], stepCount);
   let at = pieceOf(entity) ? raycast([point[0] - dir[0] * 0.3, point[1] - dir[1] * 0.3, point[2] - dir[2] * 0.3], [dir[0] * 0.6, dir[1] * 0.6, dir[2] * 0.6], NO_HIT) : null;
   let jet = HEAT84.jet;
@@ -65,7 +66,7 @@ export function heatImpact(point: Vec3, dir: Vec3, entity: PhysEntity | undefine
     // the cone on the face: a crater of chips a couple of calibres across
     if (isFragile(piece)) damagePiece(piece, pos, piece.hp * 1.5, true);
     else {
-      damagePiece(piece, pos, Math.min(piece.hp * 0.12, 30e3), true);
+      damagePiece(piece, pos, Math.min(piece.hp * 0.2, 40e3), true);
       if (!piece.dead) strikes.add(piece, pos, n, HEAT84.crater);
     }
     fx.debris(pos, 8, piece.pm.chips, 5, [-dir[0], -dir[1], -dir[2]]);
@@ -88,8 +89,8 @@ export function heatImpact(point: Vec3, dir: Vec3, entity: PhysEntity | undefine
       if (Number.isFinite(piece.pm.toughness)) punchHole(piece, pos, n, HEAT84.hole);
       // the exit face spalls out wider than the tunnel
       if (!piece.dead) {
-        damagePiece(piece, out, Math.min(piece.hp * 0.12, 30e3), true);
-        if (!piece.dead) strikes.add(piece, out, [dir[0], dir[1], dir[2]], HEAT84.crater * 1.4);
+        damagePiece(piece, out, Math.min(piece.hp * 0.15, 40e3), true);
+        if (!piece.dead) strikes.add(piece, out, [dir[0], dir[1], dir[2]], HEAT84.crater * 2);
       }
     }
     spall(out, dir, piece, need);

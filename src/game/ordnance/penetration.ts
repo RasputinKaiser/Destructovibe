@@ -16,8 +16,10 @@ import type { MaterialId } from '../../types';
 
 /** effective compressive strength for NDRC, MPa; absent: not penetrable this way (metals: they dent and ring) */
 export const PEN_FC: Partial<Record<MaterialId, number>> = {
-  concrete: 38, rconcrete: 38, brick: 11, cinderblock: 6, stone: 55, sandstone: 30, marble: 65, terracotta: 9, ceramic: 18,
-  asphalt: 6, adobe: 2, plaster: 3, drywall: 1.2, wood: 6, oak: 9, plywood: 5, crate: 2.5, cardboard: 0.3, insulation: 0.2,
+  // brick at ~8 MPa lets shot in ~1.8× as far as good stone (Metz 1834: brick ×1.76 over rubble masonry); hollow block and
+  // timber across the grain (fibres part, no brittle cone) go far easier than their crushing strength suggests
+  concrete: 38, rconcrete: 38, brick: 8, cinderblock: 3, stone: 55, sandstone: 30, marble: 65, terracotta: 7, ceramic: 18,
+  asphalt: 6, adobe: 2, plaster: 3, drywall: 1.2, wood: 2.5, oak: 4, plywood: 2.5, crate: 1.5, cardboard: 0.3, insulation: 0.2,
   frp: 25, pvc: 12, rubber: 1, glass: 1.5, tempered: 3, lamp: 0.8, roof: 8, tnt: 3,
 };
 

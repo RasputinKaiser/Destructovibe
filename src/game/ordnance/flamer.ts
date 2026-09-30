@@ -14,7 +14,7 @@ import { launchFuel, GEL, fuelStats, fuelBurning } from './fuel';
 export const FLAMER = {
   tank: 15.1,      // L of thickened fuel (M2-2: 4 US gal)
   flow: 1.8,       // L/s: a load in 8-9 s of trigger (TM 3-376A)
-  v0: 34,          // m/s leaving the nozzle
+  v0: 37,          // m/s leaving the nozzle: ~37 m at the best elevation (TM 3-376A: 40 yd thickened)
   drag: 0.03,      // 1/m: a coherent rope of gel, slowed and stretched by the air
   swap: 6,         // s to change the pack
 };
@@ -39,7 +39,9 @@ export function clearFlamer(): void {
 
 export function flamerLit(): boolean { return lit; }
 export function toggleIgniter(): boolean { lit = !lit; return lit; }
-export function flamerOn(): boolean { return now - heldAt < 0.05 && tank > 0 && swapUntil < 0; }
+/* held: the trigger was seen within the last frame or so (a slow frame runs several steps) */
+export function flamerOn(): boolean { return now - heldAt < 0.15 && tank > 0 && swapUntil < 0; }
+export function flamerRelease(): void { heldAt = -9; }
 export function flamerTank(): number { return tank; }
 
 /** Trigger held this frame: where the gun is and where it points (and the carrier's own velocity). */
@@ -55,7 +57,7 @@ export function flamerHold(eyePos: Vec3, fwd: Vec3, muzzle: Vec3, vel: ArrayLike
     audio.toolEvent('swap', eye);
     return null;
   }
-  if (now - heldAt > 0.1) { startedAt = now; burst++; }
+  if (now - heldAt > 0.2) { startedAt = now; burst++; }
   heldAt = now;
   return null;
 }
