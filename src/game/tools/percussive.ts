@@ -124,7 +124,7 @@ export function sledgeBlow(eye: Vec3, fwd: Vec3, k: number): Blow | null {
   const chipAt = CHIP[piece.mat];
   if (chipAt === undefined) return out;
   /* timber is rated as a stud or joist; a board (shiplap, a privy's sides) is a fraction of that section to split */
-  const need = TIMBER.has(piece.mat) && piece.depth === 0 ? chipAt * clamp(Math.min(...Array.from(piece.root.spec.size).filter(x => x > 0)) / BOARD_REF, 0.3, 1) : chipAt;
+  const need = TIMBER.has(piece.mat) ? chipAt * clamp(Math.min(...Array.from(piece.root.spec.size).filter(x => x > 0)) / BOARD_REF, 0.3, 1) : chipAt;
   const s = spotAt(piece, point);
   s.e += E;
   out.progress = clamp(s.e / need, 0, 1);

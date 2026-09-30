@@ -405,13 +405,12 @@ function finish(won: boolean): void {
   viewmodel.setVisible(false);
   const c = active;
   const pct = scoring.objective.frac;
-  const raw = scoring.score.points + scoring.score.penalty;
   const chain = Math.round(scoring.score.comboExtra);
-  const rows: ResultsView['rows'] = [{ label: `Demolition — ${Math.round(pct * 100)}%`, value: raw - chain }];
+  const rows: ResultsView['rows'] = [{ label: `Demolition — ${Math.round(pct * 100)}%`, value: Math.round(siteValue * pct) }];
   if (chain > 0) rows.push({ label: `Chain bonus (best ×${scoring.score.bestChain}, capped)`, value: chain });
   const hurt = scoring.fines();
   if (scoring.score.penalty > 0) rows.push({ label: `Property damage${hurt.length ? ` — ${hurt.map(f => f.label).join(', ')}` : ''}`, value: -scoring.score.penalty });
-  let total = scoring.score.points;
+  let total = reckoned();
   if (won) {
     /* bonuses scale with the site's value so stars mean the same thing on a shed and a tower block */
     const v = siteValue;
@@ -632,6 +631,11 @@ function blueprintValue(bp: Blueprint, groups?: string[]): number {
    efficiently: a little past the target, a quarter inside par, a little ordnance spare. ★★★ is expert: well past the
    target, done in about half of par. The first jobs of a chapter ask least past ★; the last ask most. */
 const COMBO_SHARE = 0.1;
+/* The fee as it stands: the share of the job down at the site's worth (what the meter shows, not how the fragments
+   were credited), the capped chain bonus, less the fines. The HUD counts it live and the report starts from it. */
+function reckoned(): number {
+  return Math.round(siteValue * scoring.objective.frac) + Math.round(scoring.score.comboExtra) - scoring.score.penalty;
+}
 function starThresholds(c: Contract, v: number): [number, number] {
   if (c.stars[0] > 0) return c.stars;
   const chapter = (c as Partial<Job>).chapter;
@@ -934,7 +938,7 @@ function updateHudState(): void {
   const fell = mode === 'campaign' ? goalOf(active)?.fell : undefined;
   ui.setDemoCaveat(fell && scoring.stillStanding() ? `${fell.what.replace(/^the /, '')} still standing` : null);
   hud.target = mode === 'campaign' ? active.target : null;
-  hud.score = scoring.score.points;
+  hud.score = mode === 'campaign' ? reckoned() : scoring.score.points;
   hud.combo = scoring.comboMult();
   hud.comboTime = scoring.comboFraction();
   hud.time = scoring.score.elapsed;
