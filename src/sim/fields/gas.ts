@@ -28,12 +28,12 @@ const FRONT_AGE = 0.5;               // s a newly lit cell counts as the passing
 /* s a burnt-out cell remembers its flame (F_BURN counts up from −FLAME_MEMORY to 0). Fuel that keeps arriving where a
    flame stood (a leak's jet, a pile's volatiles) relights as that standing flame, burning as fast as it comes: not a
    premixed front. A deflagration needs a mixture that gathered where nothing was burning. */
-const FLAME_MEMORY = 3;
+export const FLAME_MEMORY = 3;
 /* molar LHV (J/mol), O₂ demand (mol/mol), H₂O made, autoignition °C, LEL, UEL. The pyrolysate stands for timber
    volatiles (CO, CH₄, formaldehyde, tars): flammable roughly 7–70 %, igniting unaided near CO's 609 °C. */
-const CH4 = { lhv: 802e3, o2: 2, h2o: 2, ait: 537, lel: 0.05, uel: 0.15 };
-const C3H8 = { lhv: 2044e3, o2: 5, h2o: 4, ait: 470, lel: 0.021, uel: 0.095 };
-const PYRO = { lhv: 520e3, o2: 1, h2o: 1, ait: 600, lel: 0.07, uel: 0.7 };
+export const CH4 = { lhv: 802e3, o2: 2, h2o: 2, ait: 537, lel: 0.05, uel: 0.15 };
+export const C3H8 = { lhv: 2044e3, o2: 5, h2o: 4, ait: 470, lel: 0.021, uel: 0.095 };
+export const PYRO = { lhv: 520e3, o2: 1, h2o: 1, ait: 600, lel: 0.07, uel: 0.7 };
 
 export interface FireRec { phi: number; smoulder: boolean; moist: number; prevT: number; pyro: number; wet: number; q: number }
 

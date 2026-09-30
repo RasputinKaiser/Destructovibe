@@ -846,6 +846,398 @@ Tells a harsh critic should check
 
 ---
 
+# F. Weapons (bank VI ordnance and fire)
+
+Main sources fetched for this section (reused below):
+- TM 3-376A *Portable Flame Thrower M2-2* (1944), Gutenberg: https://www.gutenberg.org/files/53669/53669-h/53669-h.htm
+- FM 3-06.11 (urban operations) ch. 7: https://www.globalsecurity.org/military/library/policy/army/fm/3-06-11/ch7.htm, and ch. 8: https://www.globalsecurity.org/military/library/policy/army/fm/3-06-11/ch8.htm
+- FM 3-23.25 App. A (backblast safety): https://www.globalsecurity.org/military/library/policy/army/fm/3-23-25/appa.htm
+- IMAS TNMA 09.30/04, *Fuel Air Explosive (FAE) systems* (2013): https://www.mineactionstandards.org/fileadmin/uploads/imas/Standards/English/TNMA_09.30.04_Ed.1_Am.1.pdf
+- Review of empirical concrete impact formulae (IJSCET): https://journal.uthm.edu.my/index.php/IJSCET/article/download/53/12
+- Gsponer, *B61-based RNEP* (arXiv, includes an appendix on the Young/Sandia equation): https://arxiv.org/pdf/physics/0510052
+- Gibbon, *The Artillerist's Manual* (1860), OCR text: https://archive.org/details/artilleristsman00gibbgoog
+- *Ordnance Manual* (US, 1861), OCR text: https://archive.org/details/ordnancemanualfo00unit
+- Markova et al. 2020, *Fire Size of Gasoline Pool Fires*: https://pdfs.semanticscholar.org/d183/b7cad3d58312bf50fa48a3cfacd2e24bdcad.pdf
+
+---
+
+## weapon/flamethrower
+
+### Reference media
+- `refs/weapon-flamethrower/01.jpg`: https://commons.wikimedia.org/wiki/File:USm2flamethrower.jpg (Public domain, US Army/NARA). Luzon, 1945. A kneeling M2 operator; the backpack tanks and hose are clear. Fuel is burning low across dry vegetation in a wall of bright, ragged flame, with a large column of **black, sooty smoke** rising behind it.
+- `refs/weapon-flamethrower/02.jpg`: https://commons.wikimedia.org/wiki/File:Flamethrower-iwo-jima-194502.jpg (Public domain). Iwo Jima, Feb 1945. The operator is moving with the M2 backpack (two fuel tanks with a pressure bottle between them).
+- `refs/weapon-flamethrower/03.jpg`: https://commons.wikimedia.org/wiki/File:M9E1-7_flamethrower_tank_group.jpg (Public domain, HQDA). Diagram of the M9E1-7 tank group: one fuel tank with a nitrogen sphere.
+- YouTube [Q]: War Dept FB 178 "Flame Thrower Fuels" (1944), which shows thickened and unthickened fuel fired side by side: https://www.youtube.com/watch?v=NAXoz9cA3Z0 ; M2 demonstration: https://www.youtube.com/watch?v=qPxJVuQcV1w ; restored M2-2 firing: https://www.youtube.com/watch?v=g6ZHQY3iRCc
+
+### Benchmarks
+- M2-2 fuel capacity: "4 gallons" of fuel, plus void for air or nitrogen [S TM 3-376A]. That is 4 × 3.785 = **15.1 L** [D]. Wikipedia gives two 2 US gal (7.6 L) tanks [S https://en.wikipedia.org/wiki/M2_flamethrower].
+- M2-2 pressures: pressure tank 1,700–2,100 psi. Fuel tanks regulated to 350 psi, which is 350 × 6.895 = **2.41 MPa** [S TM; D].
+- M2-2 range: liquid (unthickened) fuel "as far as 20 yards" (**18 m**). Thickened fuel **40 yd (37 m)**. Underbrush and wind reduce both [S TM; D]. Wikipedia gives effective 20 m and max 40 m [S wiki].
+- M2-2 firing time for a full load: "approximately 8 to 9 seconds" of continuous fire [S TM]. Flow rate ≈ 15.1 L / 8.5 s ≈ **1.8 L/s** [D]. This matches Wikipedia's ~0.5 US gal/s (1.9 L/s) [S wiki].
+- Ignition: a cylinder of 5 incendiary charges, each burning 8–12 s [S TM].
+- Weight: 43 lb empty; 68–72 lb filled (19.5 kg / 31–33 kg) [S TM; D].
+- Thickened fuel recipe: one 5¼ lb can of thickener per 20 US gal of gasoline [S TM]. By mass: 2.38 kg thickener in 75.7 L × ~0.74 kg/L = 56 kg of gasoline, so ≈ **4 %** [D; the gasoline density is my assumption].
+- M9 (Vietnam era): one 4¼ US gal (**16 L**) tank; 25 lb empty / 52 lb full; effective range 45–55 m; flow ~0.7 US gal/s (2.6 L/s) [S https://en.wikipedia.org/wiki/M9_flamethrower]. Full-load burn ≈ 16 / 2.6 ≈ **6 s** [D].
+- Napalm flame temperature: "800 to 1,200 °C" [S https://en.wikipedia.org/wiki/Napalm]. Hydrocarbon pool flames reach up to 1,400 °C [S Markova 2020].
+- Burning on the target: thickened fuel "clings to and burns in or on the target for as long as 6 minutes" [S TM].
+- **Gasoline pool burning, measured** [S Markova 2020, Table 2; 20 mm initial depth, 140 s tests]:
+
+| pool area | mass loss rate | mass burning rate m″ | HRR | HRR per area [D] |
+|---|---|---|---|---|
+| 0.25 m² (D 0.56 m) | 0.0122 kg/s | 0.046–0.049 kg/m²·s | 506–528 kW | ≈ 2.0–2.1 MW/m² |
+| 0.66 m² (D 0.92 m) | 0.0349 kg/s | 0.051–0.052 kg/m²·s | 1474–1511 kW | ≈ 2.2–2.3 MW/m² |
+| 2.8 m² (D 1.89 m) | 0.0877 kg/s | 0.034 kg/m²·s | 4127 kW | ≈ 1.47 MW/m² |
+
+- Babrauskas large-pool constants for gasoline: m″∞ = **0.055 kg/m²·s** and kβ = **2.1 m⁻¹** [Q https://www.ojp.gov/pdffiles1/nij/grants/238704.pdf, search summary]. The heat of combustion of 43.7 MJ/kg is my recollection and is not sourced. Check: 0.049 kg/m²·s × 43.7 MJ/kg = **2.1 MW/m²**, which agrees with the measured HRR per area [D].
+- Regression rate: 0.05 kg/m²·s ÷ 740 kg/m³ = 6.8e-5 m/s ≈ **4 mm/min** of pool depth [D; density assumed]. At that rate a 1 mm splash film lasts only ~15 s, while a napalm gob burns for minutes [D + TM].
+
+### Tells a harsh critic should check
+- Thickened fuel travels as a **narrow, arcing, rope-like rod** that stays mostly intact to the target and then splashes and sticks. Unthickened fuel makes a short, billowing, smoky plume that "largely" burns up in flight [S TM]. A cone-shaped "gas jet" is wrong for napalm.
+- The stream is **ballistic**: it droops with range, and it can be skipped into apertures: fuel "strikes the target with force enough to ricochet inside" [S TM].
+- Burning fuel should **stay on surfaces and pool**. Gobs keep burning for minutes, and pools burn at a steady rate per unit area (~0.05 kg/m²·s). Fire should not vanish when the trigger is released.
+- Smoke should be **heavy and dark (sooty)**. Liquid fuel gives more initial flame and smoke than thickened fuel [S TM]. A headwind above 5 mph blows heat back toward the firer [S TM].
+- Ammo is **short**: ~6–9 s of trigger time per load, fired in bursts. The operator may "wet" a target with unignited bursts first and then ignite it [S TM].
+
+---
+
+## weapon/grenade-launcher
+
+### Reference media
+- `refs/weapon-grenade-launcher/01.jpg`: https://commons.wikimedia.org/wiki/File:M203_grenade_launcher_live-fire_exercise_130713-N-NZ935-162.jpg (Public domain, USN). M203 live fire aboard USS Denver.
+- `refs/weapon-grenade-launcher/02.jpg`: https://commons.wikimedia.org/wiki/File:M224_mortar_firing.jpg (Public domain). An M224 60 mm mortar at the moment of firing, with muzzle flash and blast.
+- `refs/weapon-grenade-launcher/03.jpg`: https://commons.wikimedia.org/wiki/File:130724-M-MX805-001_-_1-6_fires_M224_mortar_system_(Image_1_of_5).jpg (Public domain, USMC). An M224 crew laying the gun.
+- YouTube [Q]: M224 live fire: https://www.youtube.com/watch?v=CSLVAtr87tU ; https://www.youtube.com/watch?v=DfkOeHQXAaM
+
+### Benchmarks: 40 mm low-velocity (40×46 mm)
+- Muzzle velocity **76 m/s** (250 ft/s). Max range about **400 m**. Effective range 350 m against an area target and 150 m against a point target [S https://en.wikipedia.org/wiki/M203_grenade_launcher; same 76 m/s on https://en.wikipedia.org/wiki/M79_grenade_launcher].
+- Drag check: the vacuum max range would be v²/g = 76² / 9.81 = 589 m, against 400 m actual [D].
+- Flight time to 150 m on a flat trajectory: sin 2θ = 150·9.81/76² = 0.255, so θ ≈ 7.4° and TOF = 2·76·sin 7.4°/9.81 ≈ **2.0 s** in vacuum [D]. The shot is slow and visibly arcs.
+- Arming distance **14–27 m** [S M203 wiki; M79 wiki].
+- Grenade mass ~227 g [S M203 wiki].
+- M406 HE: fill **32 g Composition B** [S https://bulletpicker.com/cartridge_-40mm-he_-m406.html]. It throws "over 300 fragments" at **1,524 m/s**, with a **5 m lethal radius** [S M79 wiki]. The M203 wiki also states a "casualty radius 130 m" [S]. That figure looks like a danger/hazard radius rather than an effect radius, so do not model casualties out to 130 m.
+- M433 HEDP: 45 g Comp A5 [Q https://en.wikipedia.org/wiki/United_States_40_mm_grenades search summary]. Penetrates ≥ 5 cm (2 in) of armour at ≤ 150 m [S M203 wiki]. FM 3-06.11 Table 7-7 gives HEDP penetration of 20 in double sandbags, 16 in sand-filled cinder block, 12 in pine logs, and 2 in armour plate [S FM 3-06.11 ch7].
+- Accuracy in cities: gunners can place grenades into windows at 125 m and bunker apertures at 50 m, but "cannot consistently hit windows at 50 meters when forced to aim and fire quickly" [S FM 3-06.11 ch7].
+
+### Benchmarks: M224 60 mm mortar
+
+| charge zone | 0 | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| muzzle velocity (m/s) | 65 | 126 | 170 | 208 | 241 |
+| range, min–max (m) | 70–400 | 200–1300 | 350–2100 | 500–2800 | 650–3500 |
+
+Source for the table: [S https://man.fas.org/dod-101/sys/land/m720.htm]. Wikipedia gives HE range as 70–3,490 m [S https://en.wikipedia.org/wiki/M224_mortar].
+- Cartridge mass 1.68 kg [S FAS]. Rate of fire 20 rpm sustained, 30 rpm in short bursts [S FAS; wiki].
+- HE fill **conflicts** between sources. M888: 0.36 kg (0.79 lb) Comp B [S M224 wiki]. M720: 0.19 kg (0.42 lb) Comp B [S https://bulletpicker.com/cartridge_-60mm-he_-m720.html]. Another search summary gives M720 as 358 g [Q metis.fenixinsight.com]. Resolve this before tuning.
+- Fuze options (M734): proximity, near-surface burst, impact, or delay [S FAS].
+- Time of flight, vacuum upper bound at 241 m/s: at 45°, 2·241·0.707/9.81 ≈ **35 s**; at ~79°, 2·241·0.981/9.81 ≈ **48 s** [D]. Real TOF at full charge is roughly 20–50 s. That estimate is not sourced, so find a firing table (FT 60-P-1) before relying on it.
+- Fragment count and velocity for 60 mm: **not found**.
+
+### Tells a harsh critic should check
+- The 40 mm round is **slow enough to see** (76 m/s), follows a pronounced lob, and does **not detonate inside ~14–27 m**. At close range it is a dud that thuds.
+- The 40 mm HE blast is small (32 g fill). It throws fragments and a puff of grey-black smoke, not a fireball. Hand-grenade-class fragments "cannot penetrate a single layer of sandbags, a cinder block, or a brick building" [S FM 3-06.11 ch7].
+- A mortar bomb falls **steeply** after a long flight (tens of seconds). You hear it, then see a sharp dusty burst with radial fragment scars. It punches roofs rather than walls.
+- A fixed "explosion sphere" is wrong for both. The damage is fragment-dominated and directional to the ground, with a small crater.
+
+---
+
+## weapon/thermobaric
+
+### Reference media
+- `refs/weapon-thermobaric/01.jpg`: https://commons.wikimedia.org/wiki/File:RPO-A_missile_and_launcher.jpg (Public domain). The RPO-A launcher tube and its rocket.
+- `refs/weapon-thermobaric/02.jpg`: https://commons.wikimedia.org/wiki/File:Fuel_Air_Explosive_bombs_in_South_Vietnam_1970.jpg (Public domain, USN). FAE bombs, 1970.
+- `refs/weapon-thermobaric/03.jpg`: https://commons.wikimedia.org/wiki/File:USS_McNulty_(DDE-581)_sunk_as_target_with_FAE_1972.jpg (Public domain, USN). A second-generation FAE (BLU-95/96) detonating over a target ship, 1972. It shows the wide, flat cloud-burst geometry.
+- YouTube [Q]: RPO-A and RPO PDM-A (English subs): https://www.youtube.com/watch?v=AWMVPhyAi54 ; RPO Shmel: https://www.youtube.com/watch?v=ybpr3g0v7_8
+
+### Benchmarks: weapons
+- RPO-A Shmel: calibre **93 mm**, mass 11 kg, muzzle velocity **125 ± 5 m/s**, effective range 20–1,000 m (sight to 600 m) [S https://en.wikipedia.org/wiki/RPO-A_Shmel].
+- RPO-M: 90 mm, and its "blast effect is equivalent to 5.5 kg" of TNT [S RPO-A wiki; also https://en.wikipedia.org/wiki/Thermobaric_weapon]. The RPO-A's effect is reportedly "similar to" a 122 mm howitzer shell [S IMAS Annex B].
+- TBG-7V (RPG-7): 105 mm, 4.5 kg. Fill 1.9 kg thermobaric mix plus 0.25 kg A-IX-1 booster. Lethal radius **10 m** [S https://en.wikipedia.org/wiki/RPG-7]. The RPG thermobaric warhead is "said to produce effects comparable to" 2 kg of TNT [S IMAS Annex B].
+- SMAW-NE: **1.8 kg (4 lb) PBXN-113** enhanced-blast warhead, used in Iraq to collapse structures [S https://en.wikipedia.org/wiki/Mk_153_Shoulder-Launched_Multipurpose_Assault_Weapon].
+
+### Benchmarks: FAE physics (the two-stage burst)
+- **Stage 1:** a central burster charge of **1–2 % of the fuel mass** ruptures the case and disperses the fuel as an aerosol [S IMAS §6.3].
+- **Stage 2:** a second detonator initiates the cloud. The delay between dispersion and initiation is "of the order of **150 ms**" (150 ms for the CBU-55B), which is short enough that weather has little effect [S IMAS §6.3, §7.8].
+- Cloud size: a 33 kg charge makes a cloud "up to **30 m** in diameter" [S IMAS]. The BLU-73/B (CBU-72) uses **75 lb (34 kg) ethylene oxide**, bursts at 30 ft (9 m), and gives a cloud **60 ft (18 m) across and 8 ft (2.4 m) thick** [S https://www.globalsecurity.org/military/systems/munitions/cbu-72.htm].
+- Detonation pressure and velocity [S IMAS Table 5]:
+  - FAE: ~**19 bar** at **1,800 m/s**
+  - TNT: 190,000 bar at 6,950 m/s
+- The IMAS note gives eardrum rupture at "approximately 2 Bar" and says FAE is ~10× that [S IMAS fn 7].
+- Energy per unit mass, fuel only [S IMAS Table 3]:
+  - propylene oxide 7.9 kcal/g
+  - ethylene oxide 6.9 kcal/g
+  - TNT 1.1 kcal/g
+- Explosive efficiency is "less than 40%", because air is only 21 % O₂ and the cloud is inhomogeneous [S IMAS §7.2].
+- Explosive limits, % by volume in air [S IMAS Table 7]:
+  - oxirane (ethylene oxide) 3–80
+  - ethyne 2–100
+  - ethene 3–34
+  - methane 5–14
+  - propane 2–10
+  - gasoline 2–8
+- Another search summary gives ethylene oxide as 3–100 % [Q cameochemicals.noaa.gov]. Propylene oxide limits were **not confirmed**.
+- Decay with distance (1 t ethene cloud), overpressure as % of the TNT-equivalent value [S IMAS Table 6]: **50 %** at 10 m from the cloud edge, **139 %** at 20 m, **374 %** at 50 m. The blast falls off far more slowly than from a point charge. The FAE blast wave also lasts longer, so its impulse is higher [S IMAS §7.4].
+- TNT equivalence: W_TNT = K · W_F · (F / F_TNT), where K is efficiency and F is heat of explosion [S IMAS §7.3]. Example: 34 kg EO × 0.35 × (6.9/1.1) ≈ **75 kg TNT-energy equivalent** [D; K = 0.35 is my assumption within "<40%"].
+- Enclosed spaces: thermobarics are "considerably more effective when used in enclosed spaces such as tunnels, buildings" because they burn atmospheric oxygen. In confinement the pressure pulse is extended to **10–50 ms** [S Thermobaric wiki].
+- Thermobaric vs FAE: a thermobaric warhead disperses and ignites "immediately" on impact. It gives a stronger expanding push but less of the "vacuum" effect than an FAE, which needs time to spread [S IMAS Annex B].
+
+### Tells a harsh critic should check
+- **There must be a visible delay.** An FAE shows a burst, a spreading grey-white aerosol cloud (~0.1–0.15 s), and then a flash through the whole cloud volume. A hand-held thermobaric warhead instead gives one big, slow, orange fireball that fills rooms and vents out of windows and doors.
+- The peak pressure is **lower than HE's**, but the blast lasts **much longer**. Fragmentation and a crater should be minimal. The damage comes from push and heat, most of all inside rooms, where doors and windows blow outward and occupants are hit through corridors.
+- The fireball should **follow the geometry**, flowing around corners and down corridors, instead of being a sphere clipped by walls.
+- Afterward there is scorching, lingering smoke and dust, and unburnt fuel residue. A dud leaves a toxic liquid (EO/PO) [S IMAS §11].
+
+---
+
+## weapon/heat-recoilless
+
+### Reference media
+- `refs/weapon-heat-recoilless/01.jpg`: https://commons.wikimedia.org/wiki/File:M3A1_MAAWS_firing_HEDP_502.jpg (Public domain). A Carl-Gustaf M4 firing HEDP 502. The **rear fireball is larger and brighter than the muzzle signature**: incandescent white-yellow with greenish edges, about 2–3 m across. A sheet of dust runs along the ground, the finned round is visible about 1 m ahead of a white muzzle-smoke puff, and spent tubes lie in the backblast zone.
+- `refs/weapon-heat-recoilless/02.jpg`: https://commons.wikimedia.org/wiki/File:AT4_Backblast_(6323136).jpg (Public domain). An AT4 firing, with the backblast plume.
+- `refs/weapon-heat-recoilless/03.jpg`: https://commons.wikimedia.org/wiki/File:AT4_CS.jpg (Licence Ouverte / French Army). AT4 CS, the confined-space variant with a saltwater countermass.
+- YouTube [Q]: AT4 in slow motion: https://www.youtube.com/watch?v=YJ55vE3aUA8 ; SMAW and AT4: https://www.youtube.com/watch?v=nBB82rLVrP4
+
+### Benchmarks
+- **Carl Gustaf (84 mm)**, all [S https://en.wikipedia.org/wiki/Carl_Gustaf_8.4_cm_recoilless_rifle]:
+  - muzzle velocity **230–255 m/s**
+  - mass: M4 6.6 kg, M3 10 kg
+  - HEAT FFV551 penetrates up to **400 mm RHA**; tandem 751 penetrates more than 500 mm
+  - HEDP 502 penetrates more than **150 mm RHA**
+  - ASM 509 has an impact mode and a delay mode
+  - backblast "dangerous to **30 m**", with hazard to about **50–75 m**
+- The backblast danger zone extends "up to 60 meters" to the rear [S https://thedefensepost.com/2025/08/07/carl-gustaf-guide/]. The HEAT 655 CS round can be fired from small enclosures [S CG wiki].
+- The ASM 509 sheet describes an **enhanced-blast** warhead that destroys buildings and parapets "made of bricks and light concrete" [S https://www.saab.com/globalassets/event/aeroindia/84-mm-asm-509.pdf; numeric fields could not be extracted from this PDF].
+- **AT4 (M136)** [S https://en.wikipedia.org/wiki/AT4]:
+  - 84 mm; 6.7 kg (CS: 8 kg)
+  - muzzle velocity **290 m/s** (CS: 220 m/s)
+  - 440 g **octol** HEAT fill
+  - FM 3-06.11 says it can penetrate "more than 17.5 inches (450 millimeters)" of armour plate and has a **10 m** minimum arming distance [S FM 3-06.11 ch7]
+- **M67 (90 mm)** [S https://en.wikipedia.org/wiki/M67_recoilless_rifle]:
+  - muzzle velocity **213 m/s** (700 ft/s)
+  - the HEAT round weighs 3.06 kg
+  - it penetrates **350 mm** of steel, **1.1 m** of packed soil, or **0.8 m** of reinforced concrete
+  - backblast: 43 m long, 120° angle, danger zone to 28 m [Q a-1-6.org / namu.wiki search summary]
+- **Against walls** [S FM 3-06.11 ch7]:
+  - A breach hole for troops should be about **50 in high × 30 in wide (1.27 × 0.76 m)**; a loophole is about **8 in (20 cm)**.
+  - AT4 or Carl Gustaf "may require **3 to 5 rounds**" to penetrate brick walls, and they "usually will not penetrate a heavy European-style stone wall".
+  - SMAW-D makes a hole in brick "often large enough to be a breach hole", and multiple shots breach reinforced concrete, but "it will not cut reinforcing steel bars".
+  - Against wood frame, a single round makes a breach hole plus significant spall.
+- **Backblast geometry:**
+  - AT4: "extends **100 meters** to the rear of the launcher in a **90-degree fan**"; no walls or obstructions within **5 m** behind the firer [S FM 3-23.25 App A]
+  - SMAW: 90 m, 60° cone; lethal to 30 m [S SMAW wiki]
+- HEAT hole diameter in concrete or brick: **not found**. The only hole sizes found are the FM breach and loophole targets above.
+
+### Tells a harsh critic should check
+- A HEAT round against masonry makes a **small, deep hole with spall behind it**, not a big crater. The front face shows a small shallow cone, the back face scabs, and several rounds are needed for a man-sized hole in brick. Rebar survives.
+- **Backblast is as dramatic as the muzzle blast:** a long cone of dust, gas and debris behind the firer (30 m lethal, up to 100 m hazard). A wall within ~5 m behind the firer reflects it back onto the firer.
+- There is a loud report, a puff of smoke, and a projectile you can see for a moment at ~220–290 m/s.
+- An anti-structure or enhanced-blast round (ASM 509 or SMAW-NE) should look different from HEAT: a room-filling blast rather than a jet.
+
+---
+
+## weapon/bunker-buster
+
+### Reference media
+- `refs/weapon-bunker-buster/01.jpg`: https://commons.wikimedia.org/wiki/File:F-15E_gbu-28_release.jpg (Public domain, USAF). An F-15E releasing a GBU-28; the long, slender body is visible.
+- `refs/weapon-bunker-buster/02.jpg`: https://commons.wikimedia.org/wiki/File:U.S._Marines_prepare_to_fire_a_shoulder-launched_multipurpose_assault_weapon.jpg (Public domain). Marines preparing to fire a SMAW (83 mm), the shoulder-scale analogue.
+- YouTube [Q]: GBU-28 overview: https://www.youtube.com/watch?v=FVkYe8tNZX4 ; https://www.youtube.com/watch?v=KJTq9yb_Zow
+
+### Benchmarks
+- **GBU-28** [S https://en.wikipedia.org/wiki/GBU-28]:
+  - 4,000–5,000 lb class (1,800–2,300 kg)
+  - fill: 630 lb (286 kg) tritonal in early models; 675 lb (306 kg) AFX-757 in the C/B
+  - penetrates "over 160 feet (50 m) of earth or 16 feet (5 m) of solid concrete"
+  - a sled test went through **22 ft (6.7 m) of reinforced concrete** and travelled on ~800 m
+  - FAS says the sled test went through ">20 feet of concrete" and a flight test through ">100 feet of earth"; diameter 14.5 in, length ~19 ft (153 in) [S https://man.fas.org/dod-101/sys/smart/gbu-28.htm]
+- Gsponer takes a **terminal velocity of 0.5 km/s** for the GBU-28 and predicts **5.9 m** of concrete. He cites the GBU-28/BLU-113 as claimed to go through 7 m of concrete or 30 m of earth. For the B61-11 at 500 m/s he gets ~2.4 m of concrete [S arXiv 0510052 §3–4]. Impact velocity is otherwise **not published** in the sources fetched.
+- **BLU-109:** 2,000 lb (910 kg); **250 kg tritonal**; steel case about **1 in (25 mm)** thick; **FMU-143** delayed tail fuze [S https://en.wikipedia.org/wiki/BLU-109_bomb]. Its concrete penetration depth was not stated.
+- **SMAW HEDP (shoulder-scale delay mode)** [S SMAW wiki]:
+  - The fuze tells hard targets (high deceleration: the case "mushrooms", so it detonates on the surface) from soft ones (low deceleration: delayed, deeper).
+  - It penetrates **20 cm of double-reinforced concrete**, **30 cm of brick**, ≤ 20 mm of RHA, or **2.1 m of sandbags**.
+  - Muzzle velocity 220 m/s.
+- BROACH and Bunkerfaust: **not researched** (gap).
+- **Young/Sandia equation** [S Gsponer App. 8, rewritten form]:
+  - D ≈ 9.63 · S · N · (L·ρ_eff/ρ_Fe)^0.7 · (v[km/s] − 0.0305), with D in m and L the penetrator length in m.
+  - In Young's SI form this is **D = 0.000018 · S · N · (m/A)^0.7 · (V − 30.5)** for V ≥ 61 m/s. Here m is in kg, A is the cross-section in m², and V is in m/s [D]. Check: (ρ_Fe·L)^0.7 = 7900^0.7 · L^0.7 = 535 · L^0.7, and 0.000018 × 535 = 0.00963 per m/s = 9.63 per km/s. That matches, but the 0.000018 constant is my recollection of SAND97-2426, backed only by this match.
+  - Concrete S-number: S = 0.085·K_e·(11 − P)·(t_c·T_c)^−0.06·(5000/f_c)^0.3, with f_c in psi, P = % rebar by volume, t_c = cure time in years, T_c = thickness in target calibres, and K_e a width factor [S https://www.scielo.br/j/lajss/a/zvf9CzSsdKSRwj9N5dnJccF/?lang=en; summariser extraction, so verify against SAND97-2426 https://digital.library.unt.edu/ark:/67531/metadc697639/].
+  - The Sandia equations fit best below **800 m/s** [Q academia.edu comparison paper, search summary].
+  - Worked GBU-28 example [D]: m = 2,130 kg, d = 0.368 m, so A = 0.1064 m² and m/A = 20,020 kg/m². (m/A)^0.7 = 1,026. With S = 0.9 and N = 1.0 (my assumptions), D = 0.000018 × 0.9 × 1.0 × 1,026 × (500 − 30.5) ≈ **7.8 m**, against the 6.7 m sled result.
+- **Modified NDRC (Kennedy 1976)** [S IJSCET review, eqs 15–25]:
+  - G = (180/√f_c) · N* · (M/d) · (V/(1000·d))^1.8, in FPS units: M in lb, d in in, V in ft/s, f_c in psi.
+  - In SI: **G = 3.8×10⁻⁵ · N* · M/(d·√f_c) · (V/d)^1.8**, with M in kg, d in m, V in m/s, f_c in Pa.
+  - x/d = 2·√G for x/d ≤ 2 (G ≤ 1), and x/d = G + 1 for x/d > 2 (G > 1).
+  - Nose factor N*: flat 0.72, hemispherical 0.84, blunt 1.0, very sharp 1.14.
+
+### Tells a harsh critic should check
+- The penetrator makes a **small entry hole**, then comes a delay: the fuze fires after the bomb is buried, so the blast is **internal**. The surface shows a modest hole plus heave or venting through openings, while the interior is gutted.
+- Depth goes as (m/A)^0.7: a long, dense, narrow body. A wide or light warhead should **not** penetrate deeply however fast it goes. Normal-strength concrete stops it far sooner than soil does (roughly 5–7 m of concrete versus ~30–50 m of earth).
+- At small scale, a fuze that tells hard from soft targets: it bursts on the surface against concrete and goes deep against sandbags and wood.
+- Oblique impacts ricochet or yaw. Penetration is for near-normal hits only.
+
+---
+
+## weapon/satchel
+
+### Reference media
+- `refs/weapon-satchel/01.jpg`: https://commons.wikimedia.org/wiki/File:Blocks_of_C4_in_Iraq.jpg (Public domain, US Army). A stack of 10 C-4 blocks (the M112 shape: olive wrap, long flat block).
+- `refs/weapon-satchel/02.jpg`: https://commons.wikimedia.org/wiki/File:8th_ESB_DFT_urban_breaching_range_(5468270).jpg (Public domain, USMC). A Marine arming a breaching charge on an urban breaching range.
+- `refs/weapon-satchel/03.jpg`: https://commons.wikimedia.org/wiki/File:Knocking_Softly,_Assaultmen_Utilize_Breaching_Charges_DVIDS206234.jpg (Public domain, USMC). A door breaching charge detonating: flash, dust and flying door debris.
+- YouTube [Q]: https://www.youtube.com/watch?v=rUKTIt5GQrM (hole in a concrete wall); https://www.youtube.com/watch?v=SX8YugEydcQ (wall breach test)
+
+### Benchmarks
+- **M112 block:** 1.25 lb (**0.57 kg**) of C-4; about 2 × 1.5 × 11 in (**51 × 38 × 280 mm**) [S https://en.wikipedia.org/wiki/C-4_(explosive)]. An EBAD product sheet gives 1 × 2 × 11 in [Q ebad.com, search summary].
+- The block has **pressure-sensitive adhesive tape on one face** [S https://www.globalsecurity.org/military/systems/munitions/m112-c4.htm]. RE factor **1.34** [S GlobalSecurity]. Wikipedia gives brisance at 115–130 % of TNT [S wiki].
+- C-4 detonation velocity **8,092 m/s**; density ~1.73 g/cm³ [S C-4 wiki].
+- **M183 assembly:** 16 × M112, 4 priming assemblies, and an M85 carrying case [S wiki; GS]. Total mass 16 × 1.25 lb = **20 lb (9.1 kg)** of C-4 [D]. The priming det-cord is 1.5–6.1 m long [S wiki].
+- M37: **not verified** (gap).
+- **Satchel against walls** [S FM 3-06.11 ch8]: against a non-reinforced concrete wall, C-4 in a satchel gives:
+  - **2 lb (0.9 kg):** a mousehole
+  - **5 lb (2.3 kg):** a man-sized hole
+  - **7 lb (3.2 kg):** a two-man hole
+  - **10 lb (4.5 kg):** a vehicle-sized hole
+- **TNT for reinforced concrete** [S FM 3-06.11 ch8, Table 8-2]:
+  - ≤ 10 cm → **5 kg**
+  - 10–15 cm → **10 kg**
+  - 15–20 cm → **20 kg**
+- **Breaching formula** [Q https://info.publicintelligence.net/USArmy-Explosives.pdf, search summary; FM 3-34.214]: P = R³·K·C. P is pounds of TNT, R the breaching radius (≈ wall thickness), K a material factor, and C a tamping/placement factor. The K and C tables were **not retrieved**: the ResearchGate pages returned 403.
+- Scaling check against Table 8-2 [D]: the charge doubles for each +5 cm step, while the pure R³ law would give (15/10)³ = 3.4× and (20/15)³ = 2.4×. The table's thickness bands are coarse. Use R³ as the shape of the curve and fit the constant to the FM 3-06.11 anchor points.
+- FM 3-06.11 advises that "all mechanical means should be used first" for mouseholes [S ch8].
+
+### Tells a harsh critic should check
+- A contact charge on masonry makes a **roughly circular breach with rubble thrown mostly away from the charge side**. It also leaves a scabbed back face, a dust cloud, and a lot of fine debris. Reinforced concrete keeps a **mesh of bent rebar** across the hole.
+- The required charge grows roughly with **thickness cubed**, so a wall twice as thick needs ~8× the charge (not 2×). An untamped charge in open air is much less efficient than a tamped one.
+- The satchel is **heavy (≈9 kg), placed by hand, with a fuse delay**. Blocks stick to the wall with adhesive tape. The detonation is an instant sharp crack with a grey-white flash and no lingering fireball.
+- Blast overpressure hits the placer side too. Real breachers stand off or take cover around a corner.
+
+---
+
+## weapon/cannon-penetration
+
+### Reference media
+- `refs/weapon-cannon-penetration/01.jpg`: https://commons.wikimedia.org/wiki/File:Fort_Pulaski_Damaged_Wall.jpg (Public domain). Close-up of a Fort Pulaski wall scarred by 1862 artillery.
+- `refs/weapon-cannon-penetration/02.jpg`: https://commons.wikimedia.org/wiki/File:Fort_Pulaski,_GA,_US_(14).jpg (CC BY-SA 3.0, Bubba73). A face-on brick scarp. The **shot craters are funnel-shaped with a deeper core**; bricks are spalled out in irregular patches roughly 0.5–1.5 m across, and some patches have merged along a line.
+- `refs/weapon-cannon-penetration/03.jpg`: https://commons.wikimedia.org/wiki/File:Fort_Pulaski,_GA,_US_(21).jpg (CC BY-SA 3.0, Bubba73). An oblique view along the same wall. The dense crater field shows the spread of hits; later repairs are visible in different-coloured brick.
+- YouTube: none found.
+
+### Benchmarks
+- 32-pounder: shot 14.4 kg, calibre 160–163 mm, muzzle velocity **~487 m/s (~1,600 ft/s)** [S https://en.wikipedia.org/wiki/32-pounder_gun].
+- 24-pounder: muzzle velocity 1,625 ft/s (495 m/s), falling to about 300 ft/s at 3,500 yd. It penetrates 62 in of brickwork at that range [Q search summary; the 62 in looks implausible at 91 m/s striking velocity, so do not use it]. Shot mass 11.7 kg, calibre 152 mm [S https://en.wikipedia.org/wiki/24-pounder_long_gun].
+- Earth [S Manucy, https://www.gutenberg.org/files/20483/20483-h/20483-h.htm]:
+  - a 24-pdr at 100 yd buries the ball **12 ft (3.7 m)**
+  - at 200 yd it penetrates **12–24 ft (3.7–7.3 m)** of earthwork, depending on how "poor and hungry" the earth is
+  - a Dutch 48-pdr at 130 yd put a ball 20 ft into a rampart
+- Fort Pulaski, 1862 [S Manucy]:
+  - brick walls **7½ ft (2.3 m)** thick, breached from ~1 mile in a little over 24 h
+  - rifled James projectiles went "19 to 26 inches" into the wall per fair shot
+  - smoothbore columbiads went only **13 in**
+- **Crater shape** [S Gibbon p. 267–8, archive.org OCR]:
+  - the hole is funnel-shaped, ending in a cylindrical part whose depth is **5–8 ball diameters**
+  - the shock splits and cracks the masonry in a circle **4–5 ft (1.2–1.5 m)** across for the largest calibres
+  - field-gun shot "will easily penetrate walls from one and a half feet to two feet thick", but "good masonry four feet thick" resists them unless a regular breach is made
+- For a 24-pdr ball (~5.8 in, 148 mm), that depth is 5–8 × 0.148 = **0.74–1.18 m** [D].
+- **Oblique hits and ricochet** [S Gibbon p. 273–4]:
+  - Against solid masonry, a ball striking at under **33°** "will glance off".
+  - The ball is sometimes thrown back up to **150 yd**; masonry pieces fly **50–80 yd**.
+  - Breaching method: a horizontal cut at a height ≈ the wall thickness, so the rubble ramp forms at 45°. Shots are spaced ~1.5 yd apart for 24-pdrs.
+- **Metz 1834 data** [S Ordnance Manual 1861 pp. 368–372, archive.org OCR]:
+  - Tabulated penetrations in good rubble masonry (Vauban scarp) run roughly 7–27 in across French calibres, charges and ranges. The OCR is too garbled to attribute each value to a gun.
+  - Multipliers: **×1.25** for medium masonry, **×1.76 for brick**, **×0.46** for hard limestone.
+  - The mean funnel diameter is about **5× the shot diameter**; fragments are projected back ~45–50 yd.
+  - Earth multipliers: ×0.63 sand with gravel; ×1.11 wet clay; ×1.50 settled light earth; ×1.90 fresh light earth.
+- **NDRC scabbing and perforation limits** [S IJSCET eqs 22–25]:
+  - scabbing: **h_s/d = 7.91·(x/d) − 5.06·(x/d)²** for x/d ≤ 0.65, and **h_s/d = 2.12 + 1.36·(x/d)** for 0.65 < x/d ≤ 11.75
+  - perforation: **e/d = 3.19·(x/d) − 0.718·(x/d)²** for x/d ≤ 1.35, and **e/d = 1.32 + 1.24·(x/d)** for 1.35 < x/d ≤ 13.5
+- Worked 24-pdr example [D]:
+  - Inputs: M = 10.9 kg, d = 0.147 m, V = 300 m/s, f_c = 30 MPa, N* = 1.0 (sphere).
+  - V/d = 2,041, and 2,041^1.8 = 9.07×10⁵. M/(d·√f_c) = 10.9/(0.147 × 5,477) = 0.01354.
+  - G = 3.8×10⁻⁵ × 0.01354 × 9.07×10⁵ = 0.467, so x/d = 2√G = 1.37 and **x ≈ 0.20 m** into concrete.
+  - Scabbing thickness h_s = (2.12 + 1.36 × 1.37) × 0.147 ≈ **0.58 m**.
+  - Perforation thickness e = (1.32 + 1.24 × 1.37) × 0.147 ≈ **0.44 m**.
+  - Brick is weaker than concrete, so the ~0.9–1.2 m from the Gibbon/Metz brick values is consistent.
+
+### Tells a harsh critic should check
+- Round shot on brick makes a **funnel crater about 5 ball diameters wide around a deeper hole**, plus a ring of cracks. There are no clean round holes, and a single ball does not go through thick masonry.
+- A breach is **cumulative**: rows of hits cut a horizontal slot, then the wall above collapses into a 45° rubble ramp. Rifled shot penetrates about twice as deep as smoothbore shot at range (Pulaski).
+- Balls **bounce back** off masonry and ricochet off glancing faces (under 33°). Ricochet along the ground was a deliberate tactic.
+- Earth **swallows** shot, taking metres of penetration with almost no damage. Scabbing sends fragments off the back face before full perforation.
+
+---
+
+## weapon/rocket-backblast
+
+### Reference media
+- `refs/weapon-rocket-backblast/01.jpg`: https://commons.wikimedia.org/wiki/File:Backblast_area_clear_(31027495255).jpg (Public domain, US Army). An AT4 simulator firing at NTC; the dust plume behind the tube is visible.
+- `refs/weapon-rocket-backblast/02.jpg`: https://commons.wikimedia.org/wiki/File:ASSF_firing_RPG-7.jpg (Public domain). An RPG-7 firing, with the smoke and dust cone behind it.
+- `refs/weapon-rocket-backblast/03.jpg`: https://commons.wikimedia.org/wiki/File:M72_LAW_firing_practice_at_Lai_Khe.jpg (Public domain). M72 LAW firing practice, Vietnam.
+- YouTube [Q]: https://www.youtube.com/watch?v=9WRGwi34ges (backblast area clear); https://www.youtube.com/watch?v=BCN0y4BHiGs ("rocket backblast sends soldier flying"); https://www.youtube.com/watch?v=hZxCtAaXivM (AT4 and SMAW live fire)
+
+### Benchmarks
+
+| weapon | backblast length | angle | notes / source |
+|---|---|---|---|
+| RPG-7 | **30 m** | **70°** | "no obstacles, walls, etc within 2 meters behind", "at least 3 meters" advised; "Firing from inside a small room is to be discouraged" [S https://sadefensejournal.com/the-rpg-7-system-primer/4/]. Wiki: 2 m rear standoff enough in rooms [S RPG-7 wiki]. 1977 Warsaw Pact guide: kill zone 20 m in 45° cone, danger 20–70 m [Q SADJ/search] |
+| M72 LAW | **40 m** | danger + caution zones | 5 m rear clearance in combat [S FM 3-23.25 App A]; backblast gas ~**760 °C** [S https://en.wikipedia.org/wiki/M72_LAW] |
+| AT4 (M136) | **100 m** | **90° fan** | no walls within **5 m** [S FM 3-23.25 App A] |
+| SMAW | **90 m** | **60° cone** | lethal to **30 m** [S SMAW wiki] |
+| Carl Gustaf | dangerous to 30 m; hazard 50–75 m (up to 60 m) | not found | [S CG wiki; defensepost] |
+| M67 90 mm | 43 m | 120° | [Q] |
+
+- RPG-7 flight: boost 115 m/s; the sustainer lights after ~10 m and reaches **300 m/s** [S RPG-7 wiki].
+- **Fire-from-enclosure rules** [S FM 3-06.11 ch7 §7-5b(5)]:
+  - sturdy building; ceiling **≥ 7 ft (2.1 m)**, with loose plaster and ceiling boards removed
+  - floor **≥ 15 × 12 ft (4.6 × 3.7 m)**, "the larger the room, the better"
+  - **≥ 20 ft² (1.86 m²)** of openings to the rear or side
+  - all personnel forward of the weapon's rear, wearing helmets, armour, eye protection and earplugs
+  - all glass and small loose objects removed
+- Minimum room volume ≈ 4.57 × 3.66 × 2.13 = **36 m³** [D]. The old M72 FFE rating needed ≥ 3.7 × 4.6 m, "roughly 50 cubic meters", with ventilation; that rating was removed in 2010 [S M72 wiki].
+- **What happens in the room** (Aberdeen HEL tests with LAW, Dragon and TOW from masonry and frame buildings) [S FM 3-06.11 ch7]:
+  - "The most serious hazard that can be expected is hearing loss."
+  - "Little hazard exists … from any type of flying debris."
+  - Search summary of the same chapter: the backblast "rarely displaces furniture"; most debris is plaster chips and wood trim, and large chunks of plasterboard can come off ceilings [Q].
+- **Table 7-9 structural damage** [S FM 3-06.11 ch7]:
+  - masonry + LAW: no structural damage, slight wall damage, slight debris
+  - small frame + Dragon: **severe** structural and wall damage
+  - medium frame + Dragon: lamps and chairs overturned
+  - large frame + TOW: severe wall damage
+- The AT4 may be fired from an enclosure "in combat only when no other tactical option exists"; in training, never from an enclosure or behind a barrier [S FM 3-23.25 App A].
+- Countermass designs avoid this. The AT4-CS uses a **saltwater countermass** whose spray "captures and dramatically slows down the pressure wave" [S AT4 wiki]. The M72A8/A10 use a liquid countermass [S M72 wiki].
+- Peak overpressure in the room, in kPa: **not found** (gap).
+
+### Tells a harsh critic should check
+- Backblast is a **cone of hot gas, dust and debris** behind the tube, as long as or longer than the muzzle flash is bright: tens of metres, 60–90°. It lifts dust, flattens grass, and can throw loose objects.
+- A **wall close behind the firer** (under 2–5 m) reflects the blast onto the firer and crew.
+- **Firing indoors**: the room fills with dust and smoke, and shatters any glass left in the windows. Ceiling plaster and boards come down, light frame walls can be damaged, and the crew is concussed or deafened. Masonry rooms survive, and the effect depends on room size and open vents.
+- The projectile leaves slowly and the rocket motor burns visibly. On an RPG-7 the sustainer lights ~10 m out with a second flare.
+
+---
+
+## weapon gaps and conflicts
+- Constants K and C for P = R³KC (FM 3-34.214 tables): source blocked. Propylene oxide LEL/UEL. HEAT hole diameters in concrete or brick. Peak room overpressure when firing from an enclosure. 60 mm fragment data. BROACH, Bunkerfaust and M37 specs.
+- M720/M888 fill: 0.19 kg vs 0.36 kg. 40 mm "casualty radius 130 m" is a danger radius, not an effect radius. The 24-pdr "62 in brick at 3,500 yd" is implausible. The Young SI constant 0.000018 is reconstructed from memory and a unit match.
+
+## weapon/bunker-buster (game spec)
+- GBU-39 Small Diameter Bomb: 285 lb (129 kg) total, 206 lb (93 kg) warhead, 36 lb (16 kg) AFX-757, 7.5 in (190 mm) body,
+  1.80 m long, penetrates "greater than 3 ft (0.91 m) of steel reinforced concrete", air-burst and delay fuze options
+  **[S]** https://en.wikipedia.org/wiki/GBU-39_Small_Diameter_Bomb
+- Game check: Young with m 129 kg, A = π·0.095² m², V 260 m/s, S 0.8 (reinforced) gives D ≈ 1.2 m **[D]**, consistent
+  with "> 0.91 m". The 260 m/s impact speed and the RE 1.3 for AFX-757 (→ 21 kg TNT-eq) are assumptions, not sourced.
+
+## weapon known gaps (critic loop, 4 rounds)
+- Point charges indoors: the blast survey clears a breach sphere round the charge (≥ 1.5 m) before judging cover, so a
+  ceiling within that sphere is lost and the room never registers as confined; an HE rocket in a small room does ~30×
+  less than the thermobaric round in the same room. Fuel-air charges are judged from the real ceiling; point charges
+  are unchanged (engine).
+- Contact breaches are sized by P = R³·K·C with C fitted (3.2 → 5 lb C-4 ≈ 1 m² in plain concrete) and reinforced
+  concrete fitted to FM 3-06.11 Table 8-2; K/C tables from FM 3-34.214 were not retrieved. Holes are only as fine as
+  the pieces the wall is built of.
+- Headless scenario outcomes depend on case order within one process (shared piece ids and random streams); a marginal
+  case (four holed slabs over a contained burst) swings between ~1 % and ~78 % demolished.
+- Thermobaric in the open does little to a brick wall 1.7 m from the cloud centroid; the energy ledger beyond the
+  shock (fireball heat, afterburn) is not reported. A secondary field deflagration can follow in a burning room.
+- Flamethrower gas cells next to burning timber sit at the field's 2000 °C clamp (the existing timber fire model); the
+  fuel's own plume is gated at 1050 °C.
+- HEAT: per-round hole area is not measured; the face blast (15 % of the fill) is a calibration, not a sourced split.
+- Frames: evidence shots exist for round 1 only (in-app browser, ~10 fps).
+
 # Gaps (unsourced or weak)
 
 - Gothic roof pitch; church-implosion duration/pile (Bingley 1974 has no numbers in the source); retail floor-to-floor for Art Deco stores.

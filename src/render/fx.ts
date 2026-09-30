@@ -1942,6 +1942,160 @@ export const fx = {
     e.on = true; e.x = pos[0]; e.y = pos[1]; e.z = pos[2]; e.start = clock; e.end = clock + seconds; e.size = 1; e.a = e.b = e.c = 0;
   },
 
+  /** one frame of a flamethrower's fuel in flight: lit, a rolling tongue of flame along its path that swells and
+      sheds soot as it goes; unlit (a wet shot), a glistening amber streak */
+  fuelGlob(from: Vec3, pos: Vec3, vel: Vec3, lit: boolean, age: number): void {
+    if (!ready) return;
+    const [x, y, z] = pos, b = budget();
+    if (!lit) {
+      S.x = x; S.y = y; S.z = z; S.vx = vel[0] * 0.3; S.vy = vel[1] * 0.3; S.vz = vel[2] * 0.3;
+      S.life = 0.05; S.r = 0.9; S.g = 0.55; S.b = 0.15; S.w = 0.02; S.grav = 0; S.drag = 0; S.streak = 0.05; S.bounce = 0;
+      spark();
+      return;
+    }
+    const grow = clamp(age / 0.6, 0, 1);
+    // tongues laid along the path it flew since the last frame, so the rope reads as one stream whatever the frame rate
+    const dx = x - from[0], dy = y - from[1], dz = z - from[2];
+    const n = clamp(Math.ceil(Math.hypot(dx, dy, dz) / (0.28 + 0.3 * grow)), 1, 10);
+    for (let k = 0; k < n; k++) {
+      const u = (k + rng()) / n;
+      pAt(from[0] + dx * u + rf(-0.05, 0.05), from[1] + dy * u + rf(-0.05, 0.05), from[2] + dz * u + rf(-0.05, 0.05));
+      P.vx = vel[0] * 0.2 + rf(-0.4, 0.4); P.vy = vel[1] * 0.2 + rf(0, 0.7); P.vz = vel[2] * 0.2 + rf(-0.4, 0.4); P.drag = 6; P.rise = 1;
+      P.life = rf(0.1, 0.18); P.s0 = 0.14 + 0.45 * grow; P.s1 = P.s0 * rf(1.6, 2.2); P.a = 0; P.heat = rf(1.6, 2.8) * (1 - 0.35 * grow); P.heatDur = P.life;
+      P.spin = rf(-2, 2); P.wind = 0.3; P.fadeIn = 0.02;
+      emit();
+    }
+    if (rng() < (0.05 + 0.2 * grow) * b) {
+      // a fuel-rich flame: dense black soot rolls off the tail of the stream
+      pAt(x + rf(-0.2, 0.2), y + 0.2, z + rf(-0.2, 0.2));
+      P.vx = vel[0] * 0.08 + rf(-0.3, 0.3); P.vy = rf(0.8, 1.8); P.vz = vel[2] * 0.08 + rf(-0.3, 0.3); P.drag = 1.2; P.rise = 1;
+      P.life = rf(2.5, 4.5); P.s0 = 0.4 + 0.4 * grow; P.s1 = rf(1.8, 2.8); pColor(0x16130f, rf(0.8, 1.2)); P.a = 0.55;
+      P.wind = 1.1; P.fadeIn = 0.15; P.heat = 1.2; P.heatDur = 0.25; P.curl = 0.3;
+      emit();
+    }
+  },
+
+  /** one tick (~5×/s) of burning fuel on a surface: sooty tongues of flame of the fire's own height and a
+      column of heavy black smoke (thickened fuel burns fuel-rich: polystyrene and benzene soot) */
+  fuelFire(pos: Vec3, size: number, flameH: number, lit: boolean): void {
+    if (!ready) return;
+    const b = budget(), sz = clamp(size, 0.12, 2.5), H = clamp(flameH, 0.2, 5);
+    if (!lit) {
+      if (rng() < 0.3) { pAt(pos[0], pos[1] + 0.05, pos[2]); P.life = rf(1, 2); P.s0 = sz * 0.5; P.s1 = sz; pColor(0x8c7a55, 0.6); P.a = 0.08; P.rise = 0.2; P.drag = 1; emit(); }
+      return;
+    }
+    const n = Math.max(3, Math.round((9 + 12 * sz + 3 * H) * b));
+    for (let i = 0; i < n; i++) {
+      // the flame's body stands the fire's own height: tongues born up the column, narrowing to the tip
+      const r = rf(0, 0.45 * sz), ang = rf(0, 6.283), h = rng() * rng() * H * 0.7;
+      const w = sz * (1 - 0.6 * h / H) + 0.15;
+      pAt(pos[0] + Math.cos(ang) * r, pos[1] + h + rf(0, 0.15), pos[2] + Math.sin(ang) * r);
+      P.vx = rf(-0.3, 0.3); P.vy = rf(1, 2) + H * 0.35; P.vz = rf(-0.3, 0.3); P.drag = 1.4; P.rise = 0.5;
+      P.life = rf(0.35, 0.7); P.s0 = w * rf(0.9, 1.4); P.s1 = w * 0.4; P.a = 0; P.heat = rf(2, 3.4); P.heatDur = P.life;
+      P.spin = rf(-1.5, 1.5); P.wind = 0.6; P.fadeIn = 0.05;
+      emit();
+    }
+    if (rng() < 0.75 * b) {
+      pAt(pos[0] + rf(-0.2, 0.2) * sz, pos[1] + H * 0.9, pos[2] + rf(-0.2, 0.2) * sz);
+      P.vx = rf(-0.3, 0.3); P.vy = rf(1.4, 2.4); P.vz = rf(-0.3, 0.3); P.drag = 0.6; P.rise = 1.1;
+      P.life = rf(5, 9); P.s0 = sz * 0.6 + 0.2; P.s1 = sz * rf(2.6, 3.8) + 1; pColor(0x14110e, rf(0.8, 1.2)); P.a = 0.62;
+      P.wind = 1.2; P.fadeIn = 0.3; P.heat = 1.4; P.heatDur = 0.35; P.curl = 0.35;
+      emit();
+    }
+    if (rng() < 0.25 * b) {
+      S.x = pos[0] + rf(-0.3, 0.3) * sz; S.y = pos[1] + H * 0.4; S.z = pos[2] + rf(-0.3, 0.3) * sz;
+      S.vx = rf(-0.8, 0.8); S.vy = rf(1.5, 3.5); S.vz = rf(-0.8, 0.8);
+      S.life = rf(1, 2.2); S.r = 3; S.g = 1.3; S.b = 0.35; S.w = 0.009; S.grav = 0.1; S.drag = 1.4; S.streak = 0.02; S.bounce = 0.2;
+      spark();
+    }
+  },
+
+  /** a launcher's backblast: a hot flash out of the tube's back and a long cone of dust and gas along the ground */
+  backblast(pos: Vec3, dir: Vec3, reach: number, gas: number): void {
+    if (!ready) return;
+    const b = Math.max(0.5, budget()), n = Math.round((10 + 8 * gas) * b);
+    for (let i = 0; i < n; i++) {
+      dirAround(dir[0], dir[1] - 0.15, dir[2], 0.45);
+      const sp = rf(0.3, 1) * reach * 1.6;
+      // born well behind the firer: a puff this size started at the tube's end would swallow his own view
+      const o = rf(1.6, 2.4);
+      pAt(pos[0] + dir[0] * o, pos[1] - 0.2 + dir[1] * o, pos[2] + dir[2] * o);
+      P.vx = _v.x * sp; P.vy = _v.y * sp * 0.4; P.vz = _v.z * sp; P.drag = 2.4;
+      P.life = rf(1.5, 3.5); P.s0 = 0.4; P.s1 = rf(1.5, 3) * (0.7 + 0.3 * gas); pColor(0xb9ad98, rf(0.85, 1.1)); P.a = rf(0.3, 0.5);
+      P.rise = 0.15; P.wind = 0.8; P.fadeIn = 0.04; P.heat = i < 3 ? 6 : 0; P.heatDur = 0.08;
+      emit();
+    }
+    flash(pos[0] + dir[0], pos[1] + dir[1], pos[2] + dir[2], 0xffc080, 50 + 40 * gas, 0.12, 12, 2);
+  },
+
+  /** a thermobaric burster throwing its fuel out: a grey-white aerosol cloud swelling to fill the box for `delay` s */
+  fuelCloud(min: Vec3, max: Vec3, at: Vec3, delay: number): void {
+    if (!ready) return;
+    const b = Math.max(0.6, budget());
+    const n = Math.round(22 * b);
+    for (let i = 0; i < n; i++) {
+      const tx = rf(min[0], max[0]), ty = rf(min[1], Math.min(max[1], min[1] + 3)), tz = rf(min[2], max[2]);
+      pAt(at[0], at[1], at[2]);
+      const k = 1 / Math.max(0.05, delay);
+      P.vx = (tx - at[0]) * k * 1.4; P.vy = (ty - at[1]) * k * 1.4; P.vz = (tz - at[2]) * k * 1.4; P.drag = 7;
+      P.life = delay + rf(0.08, 0.2); P.s0 = 0.3; P.s1 = rf(1.4, 2.2); pColor(0xd9d4c4, rf(0.9, 1.05)); P.a = 0.5;
+      P.fadeIn = 0.02; P.rise = 0.1; P.wind = 0.3; P.heat = 0; P.heatDur = 0;
+      emit();
+    }
+    flash(at[0], at[1], at[2], 0xfff0d8, 60, 0.06, 10, 2);
+  },
+
+  /** the cloud going up: flame through the whole box, then a rolling sooty fireball rising out of it */
+  fuelFireball(min: Vec3, max: Vec3, c: Vec3): void {
+    if (!ready) return;
+    const b = Math.max(0.6, budget());
+    const ex = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+    const n = Math.round(70 * b);
+    for (let i = 0; i < n; i++) {
+      pAt(rf(min[0], max[0]), rf(min[1], max[1]), rf(min[2], max[2]));
+      // the cloud burns for over a second as the flame runs through it and the rich core mixes: a slow, rolling ball
+      P.delay = rf(0, 0.5) * rng();
+      P.vx = (P.x - c[0]) * rf(1.5, 3); P.vy = (P.y - c[1]) * rf(1.5, 3) + rf(0.5, 2); P.vz = (P.z - c[2]) * rf(1.5, 3); P.drag = 3;
+      P.life = rf(0.9, 1.9); P.s0 = rf(1.2, 2); P.s1 = rf(2.4, 3.6); P.a = 0; P.heat = rf(4, 7); P.heatDur = P.life * 0.8;
+      P.spin = rf(-1, 1); P.fadeIn = 0.01; P.rise = 1.2; P.wind = 0.3;
+      emit();
+    }
+    for (let i = 0; i < Math.round(18 * b); i++) {
+      pAt(c[0] + rf(-0.4, 0.4) * ex, c[1] + rf(0, 0.5) * ex, c[2] + rf(-0.4, 0.4) * ex);
+      P.delay = rf(0.3, 0.9); P.vx = rf(-1, 1); P.vy = rf(2, 4); P.vz = rf(-1, 1); P.drag = 0.8; P.rise = 1.2;
+      P.life = rf(5, 9); P.s0 = ex * 0.2 + 0.5; P.s1 = ex * rf(0.5, 0.8) + 2; pColor(0x1e1a16, rf(0.8, 1.2)); P.a = 0.6;
+      P.wind = 1; P.fadeIn = 0.3; P.heat = rf(1.5, 3); P.heatDur = 0.8; P.curl = 0.4;
+      emit();
+    }
+    flash(c[0], c[1] + 1, c[2], 0xffa24a, 260 + 60 * ex * ex, 1.8, 12 + ex * 5, 3);
+  },
+
+  /** a fragment's flight from a burst to where it lands: a fast hot streak, a spark where it strikes */
+  fragTrace(from: Vec3, to: Vec3, struck: boolean): void {
+    if (!ready) return;
+    const dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2], L = Math.hypot(dx, dy, dz);
+    if (L < 1e-3) return;
+    const sp = 260;
+    S.x = from[0]; S.y = from[1]; S.z = from[2]; S.vx = (dx / L) * sp; S.vy = (dy / L) * sp; S.vz = (dz / L) * sp;
+    S.life = Math.min(0.2, L / sp); S.r = 6; S.g = 4.4; S.b = 2.2; S.w = 0.006; S.grav = 0; S.drag = 0; S.streak = 0.012; S.bounce = 0;
+    spark();
+    if (!struck) return;
+    for (let i = 0; i < 3; i++) {
+      dirAround(-dx / L, -dy / L, -dz / L, 0.9);
+      const v = rf(3, 9);
+      S.delay = L / sp;
+      S.x = to[0]; S.y = to[1]; S.z = to[2]; S.vx = _v.x * v; S.vy = _v.y * v; S.vz = _v.z * v;
+      S.life = rf(0.15, 0.35); S.r = 5; S.g = 3.4; S.b = 1.4; S.w = 0.006; S.grav = 1; S.drag = 1.5; S.streak = 0.02; S.bounce = 0.3;
+      spark();
+    }
+  },
+
+  /** a fire's light, re-lit each call at the same spot (fuel fires, the flamer's stream): k ~ MW of flame */
+  fireLight(pos: Vec3, k: number): void {
+    if (!ready || k <= 0) return;
+    flash(pos[0], pos[1], pos[2], 0xff7c2a, clamp(30 + 25 * k, 20, 150), 0.35, clamp(10 + 5 * k, 10, 28), 1, 3.5);
+  },
+
   update(dt: number): void {
     if (!ready) return;
     dt = Math.min(Math.max(dt, 0), 0.1);

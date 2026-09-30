@@ -81,13 +81,37 @@ node scripts/validate-levels.ts   # check every blueprint for overlaps / floatin
 
 ## Tools
 
-Four banks of six (`Q` cycles I–IV; `1–6` pick within the bank shown on the hotbar; the wheel steps through
+Banks of six (`Q` cycles them; `1–6` pick within the bank shown on the hotbar; the wheel steps through
 every issued tool and the hotbar follows it to its bank):
 
 - **I** sledgehammer, hand cannon, rocket launcher, remote charges, airstrike marker, thermite
 - **II** cutting charge, wrecking ball, tow winch, gravity gun, firebomb, megabomb
 - **III** disc cutter, chainsaw, drill rig, hydraulic shears, plasma cutter, oxy-fuel torch
 - **IV** detonator panel, excavator remote, hydraulic breaker, water cannon, rock splitter, diamond wire saw
+- **VI** flamethrower, grenade launcher, recoilless rifle, thermobaric rocket, bunker buster, satchel charge
+
+Bank VI, the ordnance and fire kit, runs on real numbers:
+
+- **Flamethrower** (M2-2): 15 L of thickened fuel, ~1.8 L/s, ~8 s of trigger per pack. The stream is a rope of burning
+  gel that sags ~15 m flat and reaches ~37 m at the best elevation; it splashes, clings to walls and ceilings and runs
+  down into pools that burn at the fuel's own rate (0.04 kg/m²·s, sooty black smoke) for tens of seconds. What the
+  flame touches heats through its own skin: timber catches in seconds, masonry spalls, steel warms slowly. `RMB`
+  closes the igniter for a wet shot (soak it, then light it); a spare pack takes 6 s to put on.
+- **Grenade launcher** (40 mm): 76 m/s lob with the arc shown, arms after 18 m (a dud inside that), 32 g of Comp B
+  and 300 fragments: breaks glass and pocks walls, does not breach them. `RMB`/wheel: impact or programmed airburst.
+- **Recoilless rifle** (84 mm HEAT, 255 m/s): the jet perforates ~0.4 m of steel, ~0.7 m of concrete, ~0.8 m of brick
+  and leaves a narrow hole with spall thrown into the space behind; a breach takes several rounds. Keep 5 m clear
+  behind; fired from a small or closed room the backblast fills it.
+- **Thermobaric rocket** (93 mm): 2.1 kg of fuel thrown out as a cloud into the gas field and lit 0.12 s later
+  (~5.5 kg TNT-equivalent). Put it through a window: a room holds the cloud and its walls are pushed out.
+- **Bunker buster**: lase a spot; 4 s later a 129 kg penetrator comes down at ~260 m/s, punches through slabs by the
+  Young/Sandia depth equation and fires 21 kg TNT-eq in the Nth void it counts (wheel: 0-4 floors).
+- **Satchel charge**: 9.1 kg of C-4, pressed on within 4 m or thrown to lie where it lands; fired with `G` or from
+  the Detonator Panel with the other devices and their delays.
+
+The hand cannon's ball penetrates by the modified NDRC formula (a 30 kg ball at 62 m/s goes through ~20 cm of brick,
+scabs the back of walls up to ~0.5 m and craters thicker ones; it glances off below ~33°); the rocket's backblast
+knocks the firer down off a wall right behind him.
 
 Every blow and shot reads back: heavy hits land with a beat of hitstop and a jolt through the tool in hand, blows
 that break nothing leave a strike mark on the face (cracks on masonry and glass, a scuff on metal, a bruise on
@@ -107,12 +131,13 @@ orbit camera: mouse orbits, wheel zooms, `WASD`/`Q``E` move the focus, `Space` p
 
 `WASD` move · `Shift` sprint · `Space` jump, or climb what is in front (a ledge up to ~1.25 m; walking into
 anything knee-high scrambles over it; fast at a low wall it is a vault) · `C`/`Ctrl` crouch · `Alt` careful: slow
-walk, and with `A`/`D` lean round a corner · `Z`/`MMB` zoom (hold) · `1–6` tool in bank · `Q` next bank ·
+walk, and with `A`/`D` lean round a corner · `Z`/`MMB` zoom (hold) · `1–6` tool in bank · `Q` next bank (I–VI) ·
 `Wheel` tool setting (charge size, delay, boom…) where the tool has one, else next tool · `Shift`+`Wheel` detonator
 delay · `LMB` fire / use · `RMB` tool's second action, else detonate · `G` detonate · `E` drive / operate / get out ·
 `U` work a breaker, valve or meter · `X` x-ray · `T` bullet time · `V` collapse replay · `P` back to spawn ·
 `Enter` call the contract early ·
 `R` restart · `Esc` pause ·
+bank VI: `RMB` flamethrower igniter / grenade fuze · `Wheel` airburst range / bunker-buster floor count ·
 free play: `F` fly · `Tab` panel · `B` spawn (`wheel` rotates, `RMB` cancels) · `Backspace` remove
 
 Every key above can be rebound under Settings → Controls (a key another action had is swapped over). A standard

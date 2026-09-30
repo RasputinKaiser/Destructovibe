@@ -66,7 +66,13 @@ export type WeaponId =
   | 'breaker'     // handheld hydraulic breaker: percussive chipping of concrete and masonry, exposes rebar
   | 'hose'        // water cannon / fire monitor: ballistic stream douses fires and shoves light debris
   | 'splitter'    // hydraulic wedge splitter in a drilled hole: cracks a block or member along the hole
-  | 'wiresaw';    // diamond wire saw looped round a member: slow, unattended cut through any section
+  | 'wiresaw'     // diamond wire saw looped round a member: slow, unattended cut through any section
+  | 'flamer'      // bank VI: portable flamethrower, a burning rope of thickened fuel that splashes, sticks and pools
+  | 'launcher'    // 40 mm grenade launcher: arcing low-velocity HE-frag, impact or airburst fuze
+  | 'recoilless'  // 84 mm recoilless rifle, HEAT: a shaped-charge jet that holes what it perforates, spall behind
+  | 'thermobaric' // thermobaric rocket: disperses a fuel cloud, then lights it; fills the room it lands in
+  | 'buster'      // bunker buster: laser designator for a delay-fuzed penetrating bomb that counts the floors it passes
+  | 'satchel';    // satchel charge: 9 kg of plastic explosive in a bag, thrown, fired from the detonator
 
 /** building-services networks: members of the same kind conduct to each other through their welds */
 export type UtilityKind = 'power' | 'gas' | 'water' | 'steam';

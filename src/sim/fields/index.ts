@@ -6,7 +6,7 @@ import {
   amb, bricks, brickList, allocBrick, freeBrick, clearBricks, linkNeighbours, touch, lookup, hit, blocked, refreshOcc, scanBrick,
   type Brick,
 } from './grid';
-import { stepBrick, spill, emitters, sparks, defl, setPour, gasStats, FIRE_CLOCK } from './gas';
+import { stepBrick, spill, emitters, sparks, defl, setPour, gasStats, FIRE_CLOCK, CH4, C3H8, PYRO, FLAME_MEMORY } from './gas';
 import { convect, thermalTick, thermalStats, SOLID_CLOCK } from './thermal';
 import { addWaterAt, stepWater, clearWater, waterStats, tiles } from './water';
 import { survey as blastSurvey, pso, POWER_PER_KG, type Survey } from './blast';
@@ -149,8 +149,8 @@ export function fieldsHeatTick(dt: number, burning: ReadonlySet<Piece>, hot: Set
 }
 
 /** Blast survey round a charge (see blast.ts), timed. */
-export function survey(pos: Vec3, radius: number, power: number): Survey {
-  const s = blastSurvey(pos, radius, power);
+export function survey(pos: Vec3, radius: number, power: number, gasPower = power): Survey {
+  const s = blastSurvey(pos, radius, power, gasPower);
   fieldCost.blastMs += s.ms;
   fieldCost.blasts++;
   return s;
@@ -321,6 +321,115 @@ export function fieldsBlast(pos: Vec3, radius: number, power: number, s: Survey 
     f[F_U][i] += dx * k; f[F_V][i] += dy * k; f[F_W][i] += dz * k;
   }
   for (const b of brickList) if (Math.abs(b.ox + 8 - pos[0]) < 8 + rp && Math.abs(b.oz + 8 - pos[2]) < 8 + rp) b.rescan = 0;
+}
+
+/* ---------------- dispersed fuel clouds (thermobaric) ---------------- */
+
+export interface Cloud { min: Vec3; max: Vec3; cells: number; x: number; kg: number }
+
+/** Throw `kg` of fuel (as propane-equivalent vapour and droplets) out through the open air round `pos` at the
+ * dispersal concentration `x` (mole fraction), breadth-first through open cells out to `rMax`: walls hold it in, an
+ * opening lets it through, and a room too small for it takes it richer. */
+export function disperseFuel(pos: Vec3, kg: number, x: number, rMax: number, side?: Vec3): Cloud {
+  const r = Math.ceil(rMax);
+  for (const [dx, dz] of [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r], [r, r], [-r, -r], [r, -r], [-r, r]]) touch(pos[0] + dx, pos[1], pos[2] + dz, 2, clock);
+  touch(pos[0], pos[1] + r, pos[2], 2, clock);
+  linkNeighbours();
+  const cloud: Cloud = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity], cells: 0, x, kg };
+  let sx = Math.floor(pos[0]), sy = Math.max(0, Math.floor(pos[1])), sz = Math.floor(pos[2]);
+  let i0 = lookup(sx + 0.5, sy + 0.5, sz + 0.5);
+  if (i0 < 0 || blocked(hit, i0)) {
+    /* the burst is in a wall's cell: start on the side it came from */
+    const order: number[][] = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]];
+    if (side) order.sort((a, b) => (b[0] * side[0] + b[1] * side[1] + b[2] * side[2]) - (a[0] * side[0] + a[1] * side[1] + a[2] * side[2]));
+    for (const [dx, dy, dz] of order) {
+      const i = lookup(sx + dx + 0.5, sy + dy + 0.5, sz + dz + 0.5);
+      if (i >= 0 && !blocked(hit, i)) { sx += dx; sy += dy; sz += dz; i0 = i; break; }
+    }
+    if (i0 < 0 || blocked(hit, i0)) return cloud;
+  }
+  const key = (a: number, b: number, c: number): number => ((a + 2048) * 4096 + (b + 2048)) * 4096 + (c + 2048);
+  const seen = new Set<number>([key(sx, sy, sz)]);
+  const q: number[] = [sx, sy, sz];
+  const cells: number[] = [];
+  for (let h = 0; h < q.length; h += 3) {
+    const cx = q[h], cy = q[h + 1], cz = q[h + 2];
+    cells.push(cx, cy, cz);
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      const nx = cx + dx, ny = cy + dy, nz = cz + dz;
+      if (ny < 0 || Math.hypot(nx + 0.5 - pos[0], ny + 0.5 - pos[1], nz + 0.5 - pos[2]) > rMax) continue;
+      const k = key(nx, ny, nz);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const i = lookup(nx + 0.5, ny + 0.5, nz + 0.5);
+      if (i < 0 || blocked(hit, i)) continue;
+      q.push(nx, ny, nz);
+    }
+  }
+  /* moles to place, and the cells they need at x; the nearest cells take it first */
+  let mol = kg / MOL.propane;
+  const perCell = (T: number): number => molDensity(T);
+  const n = cells.length / 3;
+  let need = 0;
+  for (let c = 0; c < n && need < mol; c++) { lookup(cells[3 * c] + 0.5, cells[3 * c + 1] + 0.5, cells[3 * c + 2] + 0.5); need += perCell(20) * x; }
+  const xs = need < mol && n > 0 ? Math.min(0.9, (mol / (n * perCell(20)))) : x;
+  for (let c = 0; c < n && mol > 1e-6; c++) {
+    const cx = cells[3 * c], cy = cells[3 * c + 1], cz = cells[3 * c + 2];
+    const i = lookup(cx + 0.5, cy + 0.5, cz + 0.5);
+    if (i < 0) continue;
+    const f = hit.f, nm = molDensity(f[F_T][i]);
+    const dx = Math.min(xs, mol / nm);
+    const keep = 1 - dx;
+    for (const k of [F_O2, F_CH4, F_C3H8, F_FUEL, F_STEAM, F_CO]) f[k][i] *= keep;
+    f[F_C3H8][i] += dx;
+    mol -= dx * nm;
+    cloud.cells++;
+    cloud.min[0] = Math.min(cloud.min[0], cx); cloud.min[1] = Math.min(cloud.min[1], cy); cloud.min[2] = Math.min(cloud.min[2], cz);
+    cloud.max[0] = Math.max(cloud.max[0], cx + 1); cloud.max[1] = Math.max(cloud.max[1], cy + 1); cloud.max[2] = Math.max(cloud.max[2], cz + 1);
+  }
+  cloud.x = xs;
+  return cloud;
+}
+
+export interface CloudBurn { premixed: number; diffusion: number; x: number; y: number; z: number; cells: number; covered: number; left: number }
+
+/** Light everything burnable in a box at once (a cloud's initiator): the share of each cell inside its flammable
+ * limits burns as a premixed front (J, `premixed`), the rest as far as the cell's oxygen goes (`diffusion`); the
+ * products go into the cell (heat, steam, soot, CO) and the cell keeps the memory of a flame, so the gas that is
+ * left, and what drifts back in, burns on as a standing fireball rather than a second front. */
+export function burnCloud(min: Vec3, max: Vec3): CloudBurn {
+  const out: CloudBurn = { premixed: 0, diffusion: 0, x: 0, y: 0, z: 0, cells: 0, covered: 0, left: 0 };
+  for (let z = Math.floor(min[2]); z < max[2]; z++) for (let y = Math.max(0, Math.floor(min[1])); y < max[1]; y++) for (let x = Math.floor(min[0]); x < max[0]; x++) {
+    const i = lookup(x + 0.5, y + 0.5, z + 0.5);
+    if (i < 0 || blocked(hit, i)) continue;
+    const f = hit.f;
+    const ch4 = f[F_CH4][i], c3 = f[F_C3H8][i], fu = f[F_FUEL][i], o2 = f[F_O2][i];
+    if (ch4 + c3 + fu < 1e-4) continue;
+    const T = f[F_T][i], n = molDensity(T), C = 355e3 / (T + 273.15);
+    const pre = ch4 / CH4.lel + c3 / C3H8.lel + fu / PYRO.lel >= 1 && ch4 / CH4.uel + c3 / C3H8.uel + fu / PYRO.uel <= 1;
+    const need = CH4.o2 * ch4 + C3H8.o2 * c3 + PYRO.o2 * fu;
+    const k = Math.min(1, Math.max(0, o2 - 0.01) / need);
+    const d1 = ch4 * k, d2 = c3 * k, d3 = fu * k;
+    const q = n * (CH4.lhv * d1 + C3H8.lhv * d2 + PYRO.lhv * d3);
+    f[F_CH4][i] -= d1; f[F_C3H8][i] -= d2; f[F_FUEL][i] -= d3;
+    f[F_O2][i] = Math.max(0, o2 - need * k);
+    f[F_STEAM][i] += CH4.h2o * d1 + C3H8.h2o * d2 + PYRO.h2o * d3;
+    if (k < 1) { f[F_CO][i] += 0.1 * (c3 - d2 + ch4 - d1); f[F_SMOKE][i] += 2; f[F_DARK][i] += 1.5; }
+    else { f[F_SMOKE][i] += 0.4; f[F_DARK][i] += 0.2; }
+    f[F_T][i] = Math.min(2000, T + q / C);
+    f[F_BURN][i] = -FLAME_MEMORY;
+    if (pre) out.premixed += q; else out.diffusion += q;
+    out.x += q * (x + 0.5); out.y += q * (y + 0.5); out.z += q * (z + 0.5);
+    out.cells++;
+    let cov = false;
+    for (let yy = y + 1; yy < y + 8 && !cov; yy++) { const j = lookup(x + 0.5, yy + 0.5, z + 0.5); if (j >= 0 && blocked(hit, j)) cov = true; }
+    if (cov) out.covered += q;
+    out.left += n * (f[F_CH4][i] + f[F_C3H8][i] + f[F_FUEL][i]);
+    hit.content = true;
+  }
+  const E = out.premixed + out.diffusion;
+  if (E > 0) { out.x /= E; out.y /= E; out.z /= E; out.covered /= E; }
+  return out;
 }
 
 /* ---------------- rendering hooks ---------------- */
