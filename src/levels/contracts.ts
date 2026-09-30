@@ -193,7 +193,7 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + 'the rush. Piers first, deck follows. Stores sent four charges for six columns, so the rest is up to the cannon and the '
       + 'rockets; someone also abandoned a lorry-load of fuel up top. The bus shelter is council property.',
     tip: 'Three pier bents of two columns each: four charges low on four columns, cannon or rockets on the other two, G from well back.',
-    target: 0.75,
+    target: 0.65,
     par: 100,
     stars: [0, 0],
     primary: 'charge',
