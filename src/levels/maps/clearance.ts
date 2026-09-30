@@ -432,7 +432,7 @@ export function clearanceZone(): Blueprint {
      stretch past the yard are closed at barriers for the felling, and the yard gate is fenced shut. */
   plan.mat([31.2, 47.5], [-13.5, -6.5], 'soil');
   for (const [i, y] of [0.6, 1.2, 1.8, 2.3].entries()) plan.level([14.8 + i * 0.5, 20.4 - i * 0.5], [-15.0 + i * 0.4, -3.4 - i * 0.4], y, 'soil');
-  furn.push(heras('z', -15.3, -2.9, 21.4, lv(21.4, -9)), heras('x', 38.5, 45.5, -2.3, lv(42, -2.3)));
+  furn.push(heras('z', -15.3, -2.9, 21.4, lv(21.4, -9)), heras('x', 38.8, 44.7, -2.6, lv(41.75, -2.6)));
   const closed = (axis: 'x' | 'z', a: number, b: number, at: number, cones: [number, number][], sx: number, sz: number) => {
     const mid = (a + b) / 2, y = axis === 'x' ? lv(mid, at) : lv(at, mid);
     furn.push(barrier(axis, a, b, at, y), ...cones.map(([x, z]) => cone(x, z, lv(x, z))), sign(sx, sz, lv(sx, sz), axis === 'x', 0xe8e8e2, 0.75, 1.9));

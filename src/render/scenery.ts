@@ -504,11 +504,12 @@ function townscape(): THREE.Object3D[] {
     houses.setColorAt(i, c.setHex(bricks[Math.floor(rnd() * bricks.length)]).multiplyScalar(0.9 + 0.2 * rnd()));
   });
   houses.name = 'townscape';
-  // carriageways (7 m) with footways either side, from the site fence out through the town
+  // carriageways (7 m) with footways either side, from the site fence out through the town, just over the flat
+  // ground disc (y 0) inside the hills
   const road: THREE.BufferGeometry[] = [];
   const strip = (axis: 'x' | 'z', at: number, a: number, b: number) => {
     const L = b - a, m = (a + b) / 2;
-    for (const [w, off, col, y] of [[7, 0, 0x3b3c3e, -0.3], [2.2, 4.6, 0x8c887f, -0.26], [2.2, -4.6, 0x8c887f, -0.26]] as [number, number, number, number][]) {
+    for (const [w, off, col, y] of [[7, 0, 0x3b3c3e, 0.04], [2.2, 4.6, 0x8c887f, 0.08], [2.2, -4.6, 0x8c887f, 0.08]] as [number, number, number, number][]) {
       const g = new THREE.PlaneGeometry(axis === 'x' ? L : w, axis === 'x' ? w : L).rotateX(-Math.PI / 2);
       g.translate(axis === 'x' ? m : at + off, y, axis === 'x' ? at + off : m);
       road.push(colorGeo(g, col));

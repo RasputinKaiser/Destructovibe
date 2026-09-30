@@ -121,7 +121,8 @@ export function barrier(axis: 'x' | 'z', a: number, b: number, at: number, y: nu
   const B = (u: Range, yy: Range, v: Range) => (axis === 'x' ? block('pvc', u, yy, [at + v[0], at + v[1]]) : block('pvc', [at + v[0], at + v[1]], yy, u));
   const n = Math.max(1, Math.round((hi - lo) / 2)), s = (hi - lo) / n;
   for (let i = 0; i <= n; i++) { const u = Math.min(hi - 0.04, Math.max(lo + 0.04, lo + i * s)); parts.push(B([u - 0.04, u + 0.04], [y, y + 0.08], [-0.3, 0.3]), B([u - 0.035, u + 0.035], [y + 0.08, y + 1.0], [-0.035, 0.035])); }
-  parts.push(B([lo, hi], [y + 0.78, y + 0.98], [-0.03, 0.03]), B([lo, hi], [y + 0.3, y + 0.42], [-0.03, 0.03]));
+  // the boards on the uprights' face
+  parts.push(B([lo, hi], [y + 0.78, y + 0.98], [0.035, 0.095]), B([lo, hi], [y + 0.3, y + 0.42], [0.035, 0.095]));
   return weldParts(parts, { tint, noWeld: true, group: 'closure' });
 }
 
@@ -137,11 +138,13 @@ export function heras(axis: 'x' | 'z', a: number, b: number, at: number, y: numb
   const lo = Math.min(a, b), hi = Math.max(a, b), parts: PieceSpec[] = [];
   const B = (m: MaterialId, u: Range, yy: Range, v: Range) => (axis === 'x' ? block(m, u, yy, [at + v[0], at + v[1]]) : block(m, [at + v[0], at + v[1]], yy, u));
   const n = Math.max(1, Math.round((hi - lo) / 3.45)), s = (hi - lo) / n;
+  // each panel: end posts, rails between them, wires between the rails (parts touch, never overlap)
+  const rails: Range[] = [[0.14, 0.18], [1.05, 1.09], [1.92, 1.96]];
   for (let i = 0; i < n; i++) {
     const u0 = lo + i * s + 0.03, u1 = lo + (i + 1) * s - 0.03;
     for (const u of [u0, u1 - 0.04]) parts.push(B('steel', [u, u + 0.04], [y + 0.14, y + 2.0], [-0.02, 0.02]));
-    for (const yy of [y + 0.14, y + 1.05, y + 1.96]) parts.push(B('steel', [u0, u1], [yy, yy + 0.04], [-0.02, 0.02]));
-    for (let u = u0 + 0.3; u < u1 - 0.15; u += 0.3) parts.push(B('steel', [u - 0.02, u + 0.02], [y + 0.18, y + 1.96], [-0.02, 0.02]));
+    for (const r of rails) parts.push(B('steel', [u0 + 0.04, u1 - 0.04], [y + r[0], y + r[1]], [-0.02, 0.02]));
+    for (let u = u0 + 0.3; u < u1 - 0.15; u += 0.3) for (let k = 0; k + 1 < rails.length; k++) parts.push(B('steel', [u - 0.02, u + 0.02], [y + rails[k][1], y + rails[k + 1][0]], [-0.02, 0.02]));
   }
   // the feet (the run's material is its steel: the feet are drawn as blocks at the panel joints)
   for (let i = 0; i <= n; i++) { const u = Math.min(hi - 0.08, Math.max(lo + 0.08, lo + i * s)); parts.push(B('concrete', [u - 0.08, u + 0.08], [y, y + 0.14], [-0.25, 0.25])); }
