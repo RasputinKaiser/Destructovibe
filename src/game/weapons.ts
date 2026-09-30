@@ -223,11 +223,12 @@ export function initWeapons(s: THREE.Scene): void {
   };
 }
 
-export function setLoadout(ammo: Partial<Record<WeaponId, number>>): void {
+export function setLoadout(ammo: Partial<Record<WeaponId, number>>, primary?: WeaponId): void {
   loadout.ammo = { ...ammo };
   for (const w of WEAPONS) lastFire[w.id] = -99;
   now = 0;
-  const first = WEAPONS.find(w => ammo[w.id] !== undefined && ammo[w.id] !== 0) ?? WEAPONS.find(w => ammo[w.id] !== undefined);
+  const first = (primary && ammo[primary] !== undefined ? WEAPONS.find(w => w.id === primary) : undefined)
+    ?? WEAPONS.find(w => ammo[w.id] !== undefined && ammo[w.id] !== 0) ?? WEAPONS.find(w => ammo[w.id] !== undefined);
   loadout.current = first ? first.id : 'hammer';
   viewmodel.setWeapon(loadout.current);
 }
@@ -1340,7 +1341,18 @@ export function weaponsAfterStep(dt: number): void {
     const p = projectiles[i];
     if (p.dead) { projectiles.splice(i, 1); continue; }
     const age = now - p.born;
-    if (p.stuck && p.joint && !b3.b3Joint_IsValid(p.joint)) { p.stuck = false; p.joint = null; p.host = null; }
+    if (p.stuck && p.joint && !b3.b3Joint_IsValid(p.joint)) {
+      p.stuck = false; p.joint = null; p.host = null;
+      /* a planted charge whose member broke under it (a ball, another blast) is off the column: left lying armed it
+         would be a dud the detonate key flings about and live ordnance that holds up sign-off, so it goes back in the bag */
+      if ((p.type === 'charge' || p.type === 'cutter') && !detonations.some(d => d.p === p)) {
+        const a = loadout.ammo[p.type];
+        if (a !== undefined && a >= 0) loadout.ammo[p.type] = a + 1;
+        removeProjectile(p);
+        onDeny(`${p.type === 'cutter' ? 'Cutting charge' : 'Charge'} knocked off its member — back in the bag`);
+        continue;
+      }
+    }
     switch (p.type) {
       case 'rocket':
         if (age > 7) blowUp(p, [...p.curPos]);

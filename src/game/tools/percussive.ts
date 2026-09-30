@@ -29,6 +29,9 @@ const BREAK_E: Partial<Record<MaterialId, number>> = {
   concrete: 30e6, marble: 35e6, rconcrete: 40e6, stone: 45e6, castiron: 60e6,
 };
 
+const TIMBER = new Set<MaterialId>(['wood', 'plywood', 'oak']);
+/* m: the timber section the CHIP energies are rated for; thinner boards split in proportion */
+const BOARD_REF = 0.25;
 /* knock: m round the head that a breaking blow knocks out */
 export const SLEDGE = { head: 6.4, vMin: 5.5, vMax: 11, reach: 2.4, wind: 0.55, knock: 0.45 };
 /* 30 kg handheld breaker: 1.6 kW hydraulic in, ~55 J at 1500 blows/min on the steel, ~45 % of that breaks rock */
@@ -118,8 +121,10 @@ export function sledgeBlow(eye: Vec3, fwd: Vec3, k: number): Blow | null {
     const J = Math.min(SLEDGE.head * v * 1.3, piece.mass * 6);
     applyImpulseAt(piece, [fwd[0] * J, fwd[1] * J, fwd[2] * J], point);
   }
-  const need = CHIP[piece.mat];
-  if (need === undefined) return out;
+  const chipAt = CHIP[piece.mat];
+  if (chipAt === undefined) return out;
+  /* timber is rated as a stud or joist; a board (shiplap, a privy's sides) is a fraction of that section to split */
+  const need = TIMBER.has(piece.mat) && piece.depth === 0 ? chipAt * clamp(Math.min(...Array.from(piece.root.spec.size).filter(x => x > 0)) / BOARD_REF, 0.3, 1) : chipAt;
   const s = spotAt(piece, point);
   s.e += E;
   out.progress = clamp(s.e / need, 0, 1);

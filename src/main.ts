@@ -65,6 +65,8 @@ let active: Contract = SANDBOX;
 let save: SaveData;
 let gfx: Gfx;
 let targetMetAt = -1;
+/* the TARGET MET toast waits for the collapse it announces to settle, so it does not sit over the payoff */
+let targetToast = false;
 let quietT = 0;
 let lastDemo = 0;
 let lastWon = false;
@@ -136,13 +138,15 @@ async function loadLevel(c: Contract, label: string, backdrop = false): Promise<
   for (const g of guards) accounts.set(g.label, (accounts.get(g.label) ?? 0) + g.raw);
   scoring.setLiabilities([...accounts].map(([label, raw]) => ({ key: label, label, raw, cap: Math.round(siteValue * scoring.LIABILITY) })));
   scoring.resetScore();
+  scoring.setComboCap(Math.round(siteValue * COMBO_SHARE));
   dmg.clear();
   toastAt = -1e9;
-  setLoadout(c.ammo);
+  setLoadout(c.ammo, c.primary);
   replay.reset();
   resetTime();
   active = c;
   targetMetAt = -1;
+  targetToast = false;
   quietT = 0;
   lastDemo = 0;
   [stars2, stars3] = starThresholds(c, siteValue);
@@ -402,7 +406,9 @@ function finish(won: boolean): void {
   const c = active;
   const pct = scoring.objective.frac;
   const raw = scoring.score.points + scoring.score.penalty;
-  const rows: ResultsView['rows'] = [{ label: `Demolition — ${Math.round(pct * 100)}%`, value: raw }];
+  const chain = Math.round(scoring.score.comboExtra);
+  const rows: ResultsView['rows'] = [{ label: `Demolition — ${Math.round(pct * 100)}%`, value: raw - chain }];
+  if (chain > 0) rows.push({ label: `Chain bonus (best ×${scoring.score.bestChain}, capped)`, value: chain });
   const hurt = scoring.fines();
   if (scoring.score.penalty > 0) rows.push({ label: `Property damage${hurt.length ? ` — ${hurt.map(f => f.label).join(', ')}` : ''}`, value: -scoring.score.penalty });
   let total = scoring.score.points;
@@ -422,11 +428,9 @@ function finish(won: boolean): void {
       spare += Math.max(0, a) * worth[w.id];
     }
     const ammoBonus = issued > 0 ? Math.round((v * 0.35 * spare) / issued) : 0;
-    const chainBonus = scoring.score.bestChain >= 10 ? Math.round(v * 0.004 * scoring.score.bestChain) : 0;
     rows.push({ label: 'Under par', value: timeBonus });
     rows.push({ label: 'Unused ordnance', value: ammoBonus });
-    if (chainBonus) rows.push({ label: `Longest chain ×${scoring.score.bestChain}`, value: chainBonus });
-    total += timeBonus + ammoBonus + chainBonus;
+    total += timeBonus + ammoBonus;
     /* fly-tipping: the target's volume lying outside its footprint, charged at twice the site's worth */
     const out = goalOf(c)?.footprint ? scoring.objective.outside : 0;
     if (out > 0.005) {
@@ -543,7 +547,7 @@ let guards: (Guarded & { raw: number })[] = [];
 
 /* Damage lands per piece: it is booked against the protected structure it came from (the nearest outline, however far
    the piece flew) and the player hears about it once per incident, and once more if it went on growing. */
-const dmg = new Map<string, { label: string; shown: number; fine: number; lastT: number; openT: number; toasted: boolean; capped: boolean; level: 0 | 1 | 2; shownLevel: number }>();
+const dmg = new Map<string, { label: string; shown: number; fine: number; total: number; lastT: number; openT: number; toasted: boolean; capped: boolean; level: 0 | 1 | 2; shownLevel: number }>();
 const LEVEL_TAG = ['MINOR, NO STAR CAP', '★★ MAX', 'WRECKED · ★ MAX'] as const;
 let toastAt = -1e9;
 
@@ -572,17 +576,19 @@ function onFine(f: scoring.Incident): void {
   if (f.fine <= 0 && (!e || f.opened)) return;   // more of a structure already at full liability: nothing new to say
   if (!e || f.opened) {
     if (e?.toasted && e.fine > e.shown) settleToast(e);
-    e = { label: f.label, shown: 0, fine: 0, lastT: now, openT: now, toasted: false, capped: false, level: f.level, shownLevel: -1 };
+    e = { label: f.label, shown: 0, fine: 0, total: 0, lastT: now, openT: now, toasted: false, capped: false, level: f.level, shownLevel: -1 };
     dmg.set(f.key, e);
   }
   e.fine = f.fine;
+  e.total = f.total;
   e.capped = f.capped;
   e.level = f.level;
   e.lastT = now;
 }
 
-function settleToast(e: { label: string; shown: number; fine: number; capped: boolean; level: 0 | 1 | 2; shownLevel: number }): void {
-  ui.toast(`${e.label.toUpperCase()} — DAMAGE SETTLED AT −${e.fine.toLocaleString()}${e.capped ? ' (FULL LIABILITY)' : ''} · ${LEVEL_TAG[e.level]}`, 'bad', 3400);
+function settleToast(e: { label: string; shown: number; fine: number; total: number; capped: boolean; level: 0 | 1 | 2; shownLevel: number }): void {
+  // the structure's whole bill so far: the same number the report docks for it
+  ui.toast(`${e.label.toUpperCase()} — DAMAGE SETTLED AT −${e.total.toLocaleString()}${e.capped ? ' (FULL LIABILITY)' : ''} · ${LEVEL_TAG[e.level]}`, 'bad', 3400);
   e.shown = e.fine;
   e.shownLevel = e.level;
   toastAt = performance.now();
@@ -592,15 +598,16 @@ function flushDamage(): void {
   const now = performance.now();
   for (const [key, e] of dmg) {
     if (!e.toasted) {
-      // the first burst of an incident arrives over a few hundred ms: say it once, with what it came to
-      if (now - e.openT < 450 || now - toastAt < 1200) continue;
+      // the first burst of an incident arrives over a second or two: say it once it has stopped (or after 3 s), so the
+      // star-cap tag it carries is not contradicted a moment later
+      if ((now - e.lastT < 1200 && now - e.openT < 3000) || now - toastAt < 1200) continue;
       ui.toast(`PROPERTY DAMAGE — ${e.label.toUpperCase()} · −${e.fine.toLocaleString()} · ${LEVEL_TAG[e.level]}`, 'bad', 3400);
       e.toasted = true;
       e.shown = e.fine;
       e.shownLevel = e.level;
       toastAt = now;
     } else if (now - e.lastT > 4000) {
-      if ((e.fine > e.shown * 1.3 || e.level > e.shownLevel) && now - toastAt > 1200) settleToast(e);
+      if ((e.fine !== e.shown || e.level > e.shownLevel) && now - toastAt > 1200) settleToast(e);
       if (now - e.lastT > scoring.INCIDENT_GAP * 1000) dmg.delete(key);
     }
   }
@@ -619,11 +626,23 @@ function blueprintValue(bp: Blueprint, groups?: string[]): number {
 }
 
 /* Stars scale with the site's worth so they mean the same on a shed and a tower block. */
+/* A model of a first-time player, in the score's own terms (demolition ≈ the site's worth × the share down; the
+   multiplier adds at most COMBO_SHARE of it; under par pays 0.5 × worth × the share of par left; spare ordnance 0.35 ×
+   worth × the share left). Par is what a first-timer with a sensible plan takes. ★ is the job done. ★★ is doing it
+   efficiently: a little past the target, a quarter inside par, a little ordnance spare. ★★★ is expert: well past the
+   target, done in about half of par. The first jobs of a chapter ask least past ★; the last ask most. */
+const COMBO_SHARE = 0.1;
 function starThresholds(c: Contract, v: number): [number, number] {
   if (c.stars[0] > 0) return c.stars;
+  const chapter = (c as Partial<Job>).chapter;
+  const jobs = CONTRACTS.filter(j => j.chapter === chapter);
+  const i = jobs.indexOf(c as Job);
+  const d = i < 0 || jobs.length < 2 ? 0.5 : i / (jobs.length - 1);
+  const pay = (share: number, parLeft: number, spare: number, chain: number) =>
+    Math.round((v * (Math.min(1, share) + 0.5 * parLeft + 0.35 * spare + COMBO_SHARE * chain)) / 50) * 50;
   return [
-    Math.round((v * (c.target * 1.3 + 0.25)) / 50) * 50,
-    Math.round((v * (Math.min(1, c.target + 0.25) * 1.6 + 0.45)) / 50) * 50,
+    pay(c.target + 0.03 + 0.04 * d, 0.25, 0.1, 0.3),
+    pay(c.target + 0.06 + 0.1 * d, 0.45 + 0.15 * d, 0.2, 0.5),
   ];
 }
 
@@ -865,6 +884,10 @@ function checkContract(dt: number): void {
     if (targetMetAt < 0) {
       targetMetAt = scoring.score.elapsed;
       audio.ui('target');
+      targetToast = true;
+    }
+    if (targetToast && (quietT > 1.5 || scoring.score.elapsed - targetMetAt > 10)) {
+      targetToast = false;
       ui.toast('TARGET MET — keep going for score, Enter to sign off', 'good', 3500);
     }
     /* "keep going" means it: the job signs itself off only once there is nothing left to do — the target all down, the

@@ -446,7 +446,14 @@ function bindInput(): void {
     if (current === 'results' && resFinish && !(e.target as Element).closest('button')) finishResults();
   });
 
+  window.addEventListener('keydown', e => { if (e.key === 'Enter') enterHeld = true; });
   window.addEventListener('keydown', onKey);
+  window.addEventListener('keyup', e => {
+    if (e.key !== 'Enter') return;
+    enterHeld = false;
+    if (current === 'results') resKeyFresh = true;
+  });
+  window.addEventListener('blur', () => { enterHeld = false; });
 }
 
 function onKey(e: KeyboardEvent): void {
@@ -468,8 +475,10 @@ function onKey(e: KeyboardEvent): void {
     if (s === 'title') run('onCampaign');
     else if (s === 'briefing') run('onStartContract');
     else if (s === 'results') {
-      // an Enter meant for "sign off" that lands as the job signs itself off must not skip the report unread
-      if (performance.now() - resultsAt < 900) return;
+      /* an Enter meant for "sign off" that lands as the job signs itself off must not skip the report unread: only a
+         press that starts after the report is up counts, and while the figures are still counting it only finishes them */
+      if (!resKeyFresh || performance.now() - resultsAt < 900) { e.preventDefault(); return; }
+      if (resFinish) { finishResults(); e.preventDefault(); return; }
       run(resHasNext ? 'onNext' : 'onRetry');
     }
     else return;
@@ -535,6 +544,7 @@ export function showScreen(s: ScreenId | null): void {
   }
   if (s === 'results') {
     resultsAt = performance.now();
+    resKeyFresh = !enterHeld;
     if (resPending) startResults();
   } else if (resFinish) finishResults();
 }
@@ -648,6 +658,8 @@ let resPending: ResultsView | null = null;
 let resFinish: (() => void) | null = null;
 let resHasNext = false;
 let resultsAt = -1e9;
+/* Enter is down now; the results screen has seen no Enter held over from the game since it came up */
+let enterHeld = false, resKeyFresh = false;
 
 function countUp(el: HTMLElement, to: number, dur: number): void {
   tweens.push({ el, to, t0: performance.now(), dur, last: NaN });

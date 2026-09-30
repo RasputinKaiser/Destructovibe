@@ -380,8 +380,10 @@ export interface Contract {
   target: number;
   /** par time, seconds */
   par: number;
-  /** score needed for 2 and 3 stars */
+  /** score needed for 2 and 3 stars; [0, 0] reckons them from the site's worth (main.ts starThresholds) */
   stars: [number, number];
+  /** the tool in hand at the start: the one the job is mostly done with */
+  primary?: WeaponId;
   /** -1 = unlimited; weapons missing from the record are not issued */
   ammo: Partial<Record<WeaponId, number>>;
   env: EnvPreset;
