@@ -161,8 +161,8 @@ const TEMPLATE = () => `
     <div class="xh__hit" data-r="hit"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
   </div>
   <div class="pops" data-r="pops"></div>
-  <div class="hud-tool" data-r="tool"><div class="hud-tool__t" data-r="toolT"></div><div class="hud-tool__bar"><i data-r="toolBar"></i></div><div class="hud-tool__d" data-r="toolD"></div></div>
   <div class="hud-bottom">
+    <div class="hud-tool" data-r="tool"><div class="hud-tool__t" data-r="toolT"></div><div class="hud-tool__bar"><i data-r="toolBar"></i></div><div class="hud-tool__d" data-r="toolD"></div></div>
     <div class="hud-seq" data-r="seq"><div class="hud-seq__track" data-r="seqTrack"></div><div class="hud-seq__scale" data-r="seqScale"></div></div>
     <div class="hud-charges" data-r="charges"><i class="led"></i><b data-r="chargeN">0</b><span>Armed</span></div>
     <div class="hud-hint" data-r="hint"></div>
@@ -601,8 +601,9 @@ function jobKeys(ids: WeaponId[]): KeyRow[] {
   ];
   if (has('charge', 'cutter', 'planner', 'thermite', 'megabomb')) rows.push(['G / RMB', 'Detonate what you have placed'], ['Wheel', 'Charge size / delay on the tool in hand']);
   if (has('excavator')) rows.push(['E', 'Climb into the machine / get out']);
-  rows.push(['X', 'Engineer’s x-ray: which joints carry the load'], ['T', 'Bullet time'], ['V', 'Replay the last 12 s'],
-    ['Enter', 'Call the job early'], ['R', 'Restart'], ['Esc', 'Pause · every control']);
+  /* the viewing aids wait until a job has enough going on to need them (Esc lists them all along) */
+  if (ids.length > 3 || has('charge')) rows.push(['X', 'Engineer’s x-ray: which joints carry the load'], ['T', 'Bullet time'], ['V', 'Replay the last 12 s']);
+  rows.push(['Enter', 'Sign off (or call the job early)'], ['R', 'Restart'], ['Esc', 'Pause · every control']);
   return rows;
 }
 
@@ -1174,6 +1175,7 @@ const shortName = (n: string) => {
 };
 
 const hc = {
+  demoLabel: '',
   pct: -1,
   fill: -1,
   target: undefined as number | null | undefined,
@@ -1203,6 +1205,10 @@ const hc = {
 const scoreSpring = spring.create(0);
 
 /** A fresh site: the score starts at 0 instead of counting back from the last job's, and no stale penalty flash. */
+/* what still stands between the percentage and the sign-off (a structure the job says must come down), or null */
+let demoCaveat: string | null = null;
+export function setDemoCaveat(text: string | null): void { demoCaveat = text; }
+
 export function resetHud(): void {
   scoreSpring.value = 0;
   scoreSpring.velocity = 0;
@@ -1234,11 +1240,13 @@ export function updateHud(s: HudState, dt: number): void {
       R.notchLabel.textContent = `Target ${Math.round(s.target * 100)}%`;
     }
   }
-  const met = s.target !== null && demo >= s.target;
+  const reached = s.target !== null && demo >= s.target;
+  const met = reached && !demoCaveat;
+  const label = met ? 'Target met' : reached && demoCaveat ? demoCaveat : 'Demolished';
+  if (label !== hc.demoLabel) { hc.demoLabel = label; R.demoLabel.textContent = label; }
   if (met !== hc.met) {
     hc.met = met;
     R.demo.classList.toggle('is-met', met);
-    R.demoLabel.textContent = met ? 'Target met' : 'Demolished';
     if (met && !reduced()) {
       R.pct.parentElement!.animate(
         [{ transform: 'scale(1.35)', filter: 'brightness(1.8)' }, { transform: 'scale(1)', filter: 'brightness(1)' }],
@@ -1368,7 +1376,7 @@ export function updateHud(s: HudState, dt: number): void {
     R.chargeN.textContent = String(s.chargesPlaced);
   }
 
-  if (s.penalty > hc.penalty) penaltyFlash(s.penalty - hc.penalty);
+  if (s.penalty > hc.penalty) penaltyFlash(s.penalty);
   hc.penalty = s.penalty;
 
   if (s.hint !== hc.hint) {
@@ -1391,7 +1399,17 @@ export function updateHud(s: HudState, dt: number): void {
   }
 }
 
+/* The readout sits over the hotbar and steps back once it has been read: it comes up when the tool (or what the shot
+   will land on) changes, stays while a bar is filling or it warns, and fades TOOL_IDLE s after that. */
+const TOOL_IDLE = 3;
+let toolGist = '', toolShownAt = -1e9;
+
 function updateTool(t: ToolReadout | null): void {
+  const now = performance.now() / 1000;
+  const gist = t ? `${t.title.replace(/[\d.,]+/g, '')}|${t.warn}|${/on target: (\w+)|lands on the ground|no landing/.exec(t.detail)?.[0] ?? ''}` : '';
+  if (gist !== toolGist) { toolGist = gist; toolShownAt = now; }
+  const busy = !!t && (t.warn || t.progress !== null);
+  R.tool.classList.toggle('is-idle', !busy && now - toolShownAt > TOOL_IDLE);
   const key = t ? `${t.title}|${t.detail}|${t.warn}|${t.progress === null}` : '';
   if (key !== hc.tool) {
     hc.tool = key;
@@ -1427,8 +1445,9 @@ function updateTimeline(v: TimelineView | null): void {
   R.seqScale.innerHTML = marks.join('');
 }
 
-function penaltyFlash(delta: number): void {
-  R.penalty.textContent = `${fmt(-delta)} penalty`;
+/* the running property-damage total, flashed each time it grows */
+function penaltyFlash(total: number): void {
+  R.penalty.textContent = `${fmt(-total)} property damage`;
   R.penalty.animate(
     [
       { opacity: 0, transform: 'translateY(-.4rem)' },

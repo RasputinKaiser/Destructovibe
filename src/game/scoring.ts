@@ -30,6 +30,8 @@ export function setScoreHooks(pop: typeof onPop, penalty: typeof onPenalty): voi
 }
 
 export function resetScore(): void {
+  pendingRaw = unbooked = 0;
+  for (const a of book.values()) { a.hurt = 0; a.fine = 0; a.incident = 0; a.lastAt = -1e9; a.incidentFine = 0; }
   score.points = 0; score.penalty = 0; score.chain = 0; score.comboTimer = 0;
   score.elapsed = 0; score.bestChain = 0; score.explosives = 0;
   popAcc = 0; popTimer = -1; popLabel = ''; lastLink = -99;
@@ -58,10 +60,87 @@ export function addBonus(points: number, label: string): void {
   pop(points, label);
 }
 
+/* ---------------- protected property ---------------- */
+
+/* The structure credits a fine per damaged piece of protected property (structure.ts credit(), then its protected-hit
+   hook with where it landed). A damaged building goes on shedding pieces for a minute, so the raw per-piece amounts are
+   only a measure of how much of it is hurt: the fee is docked per protected structure, on the share of it damaged, in
+   the job's own currency (a fraction of what the job pays), capped at the structure's liability. Damage that keeps
+   coming within INCIDENT_GAP of the last is the same incident. */
+export const LIABILITY = 0.3;     // of the job's value: what wrecking one protected structure costs at most
+const FIRST_FINE = 0.15;          // of the liability: the first scratch
+/* How much of a structure is hurt (its raw fine so far over its whole): under DAMAGED it is a ding (a blast wave's
+   broken windows reach every building on a site and cannot be helped), past it the job is capped at ★★, past WRECKED
+   at ★. */
+export const DAMAGED = 0.04, WRECKED = 0.15;
+export const INCIDENT_GAP = 6;    // s of quiet that closes an incident
+
+export interface Liability { key: string; label: string; raw: number; cap: number }
+interface Account extends Liability { hurt: number; fine: number; incident: number; lastAt: number; incidentFine: number }
+/** level: 0 a ding, 1 damaged (★★ at most), 2 wrecked (★ at most) */
+export interface Incident { key: string; label: string; fine: number; total: number; opened: boolean; capped: boolean; level: 0 | 1 | 2 }
+
+const levelOf = (a: Account): 0 | 1 | 2 => {
+  const share = a.hurt / Math.max(a.raw, 1);
+  return share >= WRECKED ? 2 : share >= DAMAGED ? 1 : 0;
+};
+
+const book = new Map<string, Account>();
+let pendingRaw = 0, unbooked = 0;
+export let onFine: (i: Incident) => void = () => {};
+
+export function setFineHook(f: typeof onFine): void { onFine = f; }
+
+/** The protected structures on this job and what each can cost; with none listed, fines are charged as they come. */
+export function setLiabilities(list: Liability[]): void {
+  book.clear();
+  pendingRaw = unbooked = 0;
+  for (const l of list) book.set(l.key, { ...l, hurt: 0, fine: 0, incident: 0, lastAt: -1e9, incidentFine: 0 });
+}
+
+/** The structure's per-piece fine; attributed by chargePenalty() (called straight after, from its protected-hit hook). */
 export function addPenalty(points: number): void {
+  pendingRaw += points;
+}
+
+/** Books the pending damage against the structure `key`. */
+export function chargePenalty(key: string | null): void {
+  const raw = pendingRaw;
+  pendingRaw = 0;
+  if (raw <= 0) return;
+  const a = key !== null ? book.get(key) : undefined;
+  if (!a) { unbooked += raw; dock(raw); return; }
+  const opened = score.elapsed - a.lastAt > INCIDENT_GAP;
+  if (opened) { a.incident++; a.incidentFine = 0; }
+  a.lastAt = score.elapsed;
+  a.hurt += raw;
+  const k = Math.min(1, FIRST_FINE + (1 - FIRST_FINE) * (a.hurt / Math.max(a.raw, 1)) * 3);
+  const fine = Math.round(a.cap * k);
+  const delta = fine - a.fine;
+  a.fine = fine;
+  a.incidentFine += Math.max(0, delta);
+  if (delta > 0) dock(delta);
+  onFine({ key: a.key, label: a.label, fine: a.incidentFine, total: a.fine, opened, capped: k >= 1, level: levelOf(a) });
+}
+
+function dock(points: number): void {
   score.penalty += points;
   score.points -= points;
   onPenalty(points);
+}
+
+/** The worst any protected structure came to: 0 untouched or dinged, 1 damaged, 2 wrecked. Fines charged with no
+    account to book them to (a job with no liabilities listed) count as damage. */
+export function protectedSeverity(): 0 | 1 | 2 {
+  let sev: 0 | 1 | 2 = unbooked > 0 ? 1 : 0;
+  for (const a of book.values()) sev = Math.max(sev, levelOf(a)) as 0 | 1 | 2;
+  return sev;
+}
+
+/** The structures that cost the fee something, worst first. */
+export function fines(): { label: string; fine: number; level: 0 | 1 | 2 }[] {
+  return [...book.values()].filter(a => a.fine > 0).sort((a, b) => b.fine - a.fine)
+    .map(a => ({ label: a.label, fine: a.fine, level: levelOf(a) }));
 }
 
 function pop(pts: number, label: string): void {
@@ -71,6 +150,7 @@ function pop(pts: number, label: string): void {
 }
 
 export function tickScore(dt: number): void {
+  if (pendingRaw > 0) chargePenalty(null);
   score.elapsed += dt;
   if (score.comboTimer > 0) {
     score.comboTimer -= dt;
@@ -106,15 +186,18 @@ export interface Goal {
   limit?: number;
   /** loose items of `group` to be carried into the plan box `zone`: `need` of them (a fraction) before sign-off */
   salvage?: { group: string; zone: Plan; need: number; what: string; where: string };
+  /** a structure that has to be on the ground whatever the percentage says: nothing of `group` that was built above
+      `from` m (its upper part; all of it when absent) still above `below` m */
+  fell?: { group: string; what: string; below: number; from?: number };
 }
 
 /** The parts of a live piece the objectives read (structure.ts Piece). */
-interface Tracked { root: { spec: { group?: string } }; volume: number; demolished: boolean; curPos: ArrayLike<number> }
+interface Tracked { root: { spec: { group?: string; pos: ArrayLike<number> } }; volume: number; demolished: boolean; curPos: ArrayLike<number> }
 
 /** Progress on the active goal: `frac` is the target's demolished fraction, `outside` the fraction of the target's
     volume lying outside its footprint, `salvaged` items in the salvage zone out of `salvageOf` (`salvageLeft` of
     them still exist; an item broken up counts once, by its root). */
-export const objective = { frac: 0, outside: 0, salvaged: 0, salvageOf: 0, salvageLeft: 0 };
+export const objective = { frac: 0, outside: 0, salvaged: 0, salvageOf: 0, salvageLeft: 0, standing: 0 };
 const inZone = new Set<object>(), alive = new Set<object>();
 /** below-grade parts of the target (footings, basements, piles): no demolition reaches them, so the target skips them */
 let buried = new WeakSet<object>();
@@ -143,18 +226,20 @@ export function setGoal(g: Goal | undefined, specs: { group?: string; pos: Array
   });
   objective.frac = objective.outside = objective.salvaged = 0;
   objective.salvageLeft = objective.salvageOf;
+  objective.standing = Infinity;
 }
 
 /** Re-reads the goal's progress off the live pieces; `whole` is the site-wide demolished fraction. */
 export function trackGoal(pieces: Iterable<Tracked>, whole: number): void {
-  if (!goal || (!groups && !goal.salvage)) { objective.frac = whole; return; }
-  let intact = 0, out = 0;
-  const fp = goal.footprint, sv = goal.salvage;
+  if (!goal || (!groups && !goal.salvage && !goal.fell)) { objective.frac = whole; return; }
+  let intact = 0, out = 0, top = 0;
+  const fp = goal.footprint, sv = goal.salvage, fl = goal.fell;
   inZone.clear();
   alive.clear();
   for (const p of pieces) {
     const g = p.root.spec.group;
     if (!g) continue;
+    if (fl && g === fl.group && p.curPos[1] > top && p.root.spec.pos[1] > (fl.from ?? -Infinity)) top = p.curPos[1];
     if (groups?.has(g) && !buried.has(p.root.spec)) {
       if (!p.demolished) intact += p.volume;
       if (fp && !inPlan(fp, p.curPos)) out += p.volume;
@@ -168,6 +253,12 @@ export function trackGoal(pieces: Iterable<Tracked>, whole: number): void {
   objective.outside = base > 0 ? Math.min(1, out / base) : 0;
   objective.salvaged = inZone.size;
   objective.salvageLeft = alive.size;
+  objective.standing = fl ? top : 0;
+}
+
+/** The structure the goal says must come down is still standing. */
+export function stillStanding(): boolean {
+  return !!goal?.fell && objective.standing > goal.fell.below;
 }
 
 /** Salvage still owed before the job can be signed off (0 when there is none, or it is in). */
@@ -182,7 +273,7 @@ export function salvageLost(): boolean {
 }
 
 export function goalMet(target: number): boolean {
-  return objective.frac >= target && salvageOwed() === 0;
+  return objective.frac >= target && salvageOwed() === 0 && !stillStanding();
 }
 
 /** Out of time: the goal's limit has passed with the job unfinished. */
