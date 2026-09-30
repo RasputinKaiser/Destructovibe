@@ -836,7 +836,8 @@ function checkContract(dt: number): void {
   scoring.trackGoal(live, demolitionFraction());
   sagMeter(dt);
   const pct = scoring.objective.frac;
-  if (pct < active.target && sagging >= 4 && quietT > 1.5) flashHint('It is going — the structure is sagging under its own weight. Give it a few seconds.', 0.5);
+  /* only once something has come down: a site settling onto its welds at the start moves too */
+  if (pct > 0.02 && pct < active.target && sagging >= 6 && quietT > 1.5) flashHint('It is going — the structure is sagging under its own weight. Give it a few seconds.', 0.5);
   if (pct > lastDemo + 0.002) { lastDemo = pct; quietT = 0; } else quietT += dt;
   const goal = goalOf(active);
   if (scoring.goalExpired(active.target)) {
@@ -875,8 +876,8 @@ function checkContract(dt: number): void {
   }
   if (rangedAmmoLeft() === 0 && liveOrdnance() === 0) {
     if (loadout.ammo.hammer !== undefined) {
-      if (quietT > 3 && sagging < 4) flashHint('Out of ordnance — keep swinging or Enter to call it', 0.5);
-    } else if (quietT > 5 && sagging < 4) {
+      if (quietT > 3 && sagging < 6) flashHint('Out of ordnance — keep swinging or Enter to call it', 0.5);
+    } else if (quietT > 5 && sagging < 6) {
       finish(false);
     }
   }

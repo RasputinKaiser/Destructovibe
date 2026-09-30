@@ -594,8 +594,7 @@ function jobKeys(ids: WeaponId[]): KeyRow[] {
   const has = (...w: WeaponId[]) => w.some(id => ids.includes(id));
   const banks = new Set(ids.map(id => BANK_OF.get(id)?.bank ?? 0)).size;
   const rows: KeyRow[] = [
-    ['W A S D', 'Move · Shift sprint · Space jump'],
-    ['Mouse', 'Look'],
+    ['W A S D', 'Move · mouse to look · Shift sprint · Space jump'],
     ['LMB', has('hammer') ? 'Fire / use the tool · hold the sledge to wind up, release to strike' : 'Fire / use the tool'],
     [banks > 1 ? '1–6 · Q' : '1–6', banks > 1 ? 'Pick a tool · Q switches bank' : 'Pick a tool (wheel steps through them)'],
   ];
@@ -603,7 +602,7 @@ function jobKeys(ids: WeaponId[]): KeyRow[] {
   if (has('excavator')) rows.push(['E', 'Climb into the machine / get out']);
   /* the viewing aids wait until a job has enough going on to need them (Esc lists them all along) */
   if (ids.length > 3 || has('charge')) rows.push(['X', 'Engineer’s x-ray: which joints carry the load'], ['T', 'Bullet time'], ['V', 'Replay the last 12 s']);
-  rows.push(['Enter', 'Sign off (or call the job early)'], ['R', 'Restart'], ['Esc', 'Pause · every control']);
+  rows.push(['Enter', 'Sign off (or call the job early)'], ['R · Esc', 'Restart · pause, with every control']);
   return rows;
 }
 
