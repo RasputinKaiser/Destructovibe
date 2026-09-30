@@ -347,6 +347,7 @@ machines) fall 559 → 17-34 per step within 4 s, and those few keep the ~3400-b
 in pits below grade (y -2.5 to -3.6), plus a welded rconcrete pair that fell through the ground (y -270, the doomed
 sweep is in afterStep). Full run (MODE=plain): 131-445 over threshold per step, awake 3380-4070. So under pure physics
 the heap does not sleep either: its keepers are a few dozen jittering small or wedged bodies, not afterStep calls.
+Same probe at 203aaec (both run-5 changes; shift 0, the trajectory that brought down less of the tower: demo 46.9 %; runs/r5-probe/keep-tower20-noafter-203aaec.txt): awake 3884 flat for 10 s while only 18 → 2-4 bodies a step are over threshold, nearly all 0.004 m³ steel bits (net 2-44 mm on 8-243 mm of path) and an aluminium piece. A handful of rattling fittings holds a 3900-body island awake.
 
 ### Heap re-wakes: a piece that bore nothing leaves a sleeping heap asleep (backlog #1)
 
@@ -384,3 +385,16 @@ Realism (realism-probe, wake test = wake every loose sleeper at the default thre
   wood bearing a body at 3.2x its weight) still wakes the pile, as it should.
 Idle S/H/D/R 1800: identical to main.
 The lists are per call (a destroy nested inside another cannot hand the outer one its lists); chapel_S45 shift 0 and +0.3 re-run after that refactor: fingerprints equal the A/B head's (508ab182c957c8dc, 0e71676c01da3f19).
+
+End checks at 203aaec: tsc exit 0; npm test exit 0, 47/47 (# fail 0; viewer-independence green); validate:fractures,
+grid, rigging, levels exit 0; idle sim 1800 S/H/D/R: weldsLost 0, awakeOther 0, awakeMachine 88/1/13/11, fingerprints
+b51ea9c8bb683f3f / d8a15bccdd0db91a / ab002adcfb6ebfe1 / afb0963e03276e0f (= main). Same checks passed at a2581ea.
+Render probe not run (both changes are sim-side; the browser render probe was physics-bound in runs 1-2).
+
+Backlog top 3: #2 collapse aftermath (a rattle rule for tiny fragments: steel bits of 0.004 m³ with path ≫ net keep the
+tower heap awake under pure physics; judge with keepers MODE=noafter and the wake test), #3 procedural textures at load,
+#7 validate:levels.
+
+Next run: probes trusted. For timing, the per-second PERF arrays (`--keep-perf`) give the worst step without the blast
+second; runtime.py's *_peak_cpu include it. The tower's demo % spans 47-64 % across shifts on both trees: judge any
+collapse-changing rule over ≥ 5 shifts. fq-probe.py and wake-probe.py patch a tree copy (never the worktree).
