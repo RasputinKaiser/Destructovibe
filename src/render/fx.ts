@@ -2678,4 +2678,6 @@ export const fxKit = {
   root: (): THREE.Group | null => (ready ? root : null),
   /** brightness of additive water droplets for the current light (they must not glow at night) */
   drop: (): number => dropK,
+  /** the wind the smoke and mist drift in, m/s */
+  wind,
 };

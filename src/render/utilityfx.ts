@@ -22,38 +22,50 @@ export function waterColumn(pos: Vec3, dir: Vec3, v0: number, D: number, mud: nu
   const dx = _cd.x, dy = _cd.y, dz = _cd.z;
   const up = Math.max(0.25, dy), big = clamp(D / 0.2, 0.1, 1.5), H = (v0 * up) ** 2 / (2 * G);
   const tUp = (v0 * up) / G, tAll = 2 * tUp + 0.3;
-  const cr = mix(0.93, MUD[0], mud * 0.8), cg = mix(0.95, MUD[1], mud * 0.8), cbb = mix(0.96, MUD[2], mud * 0.8);
+  const cr = mix(0.9, MUD[0], mud * 0.8), cg = mix(0.92, MUD[1], mud * 0.8), cbb = mix(0.95, MUD[2], mud * 0.8);
   const [x, y, z] = pos;
-  /* the body: aerated water, opaque white where it is thick, spreading to a plume */
-  const n = Math.max(1, Math.round((2 + 3 * big) * b));
+  /* the plume: above its first third a jet is no longer a column but a veil of spray, wider than the column, that
+     leans over with the wind and hazes what is behind it. Soft overlapping puffs born along the upper part of the
+     path, rising a little, then settling and drifting downwind */
+  const n = Math.max(2, Math.round((4 + 5 * big) * b));
   for (let i = 0; i < n; i++) {
-    dirAround(dx, dy, dz, 0.05 + 0.04 * rf(0, 1));
-    const sp = v0 * rf(0.86, 1.02);
-    pAt(x + rf(-0.5, 0.5) * D, y + rf(0, 0.2) * D, z + rf(-0.5, 0.5) * D);
-    P.delay = rf(0, 0.1); P.vx = _v.x * sp; P.vy = _v.y * sp; P.vz = _v.z * sp; P.drag = 0.08;
-    P.accel = -G / 2; P.life = tAll * rf(0.95, 1.15); P.s0 = D * 1.2 + 0.05; P.s1 = D * 1.8 + 0.06 * H + 0.3; P.variant = 3;
-    P.r = cr * rf(0.96, 1.03); P.g = cg * rf(0.97, 1.02); P.b = cbb; P.a = 0.28 + 0.1 * big; P.fadeIn = 0.02; P.wind = 0.5; P.spin = rf(-1.5, 1.5);
+    const f = rf(0.3, 1), t = f * tUp * (dy > 0.8 ? 1 : 1.6);
+    const px = x + dx * v0 * t, py = y + dy * v0 * t - 0.5 * G * t * t, pz = z + dz * v0 * t;
+    pAt(px + rf(-0.3, 0.3) * (D + 0.1 * H * f), Math.max(y + 0.3, py), pz + rf(-0.3, 0.3) * (D + 0.1 * H * f));
+    P.delay = rf(0, 0.1); P.vx = rf(-0.6, 0.6); P.vy = rf(-0.3, 0.6); P.vz = rf(-0.6, 0.6); P.drag = 0.6; P.accel = -0.35;
+    P.life = rf(2.2, 3.6); P.s0 = D + 0.08 * H * f + 0.15; P.s1 = 0.6 + 0.2 * H * f; P.variant = Math.floor(rf(0, 3));
+    P.r = cr * rf(0.97, 1.03); P.g = cg * rf(0.98, 1.02); P.b = cbb; P.a = 0.07 + 0.04 * big; P.fadeIn = 0.25; P.wind = 1; P.spin = rf(-0.4, 0.4);
     fxKit.emit();
   }
-  /* drops torn off the column: thrown slower and wider, falling round it as rain */
-  const nd = Math.min(40, Math.round((10 + 14 * big) * (0.5 + 0.5 * b)));
+  /* the fall-back: spray raining out of the crown round the column and downwind of it, a curtain of soft grey-white
+     streamers falling at the speed of big drops, plus a few heavy drops (lit by the scene, no glow, no bounce) */
+  const nc = Math.max(1, Math.round((2 + 2 * big) * b));
+  for (let i = 0; i < nc; i++) {
+    const a = rf(0, 6.283), r = rf(0.2, 0.6) * (D + 0.12 * H);
+    pAt(x + dx * H * 0.2 + Math.cos(a) * r, y + H * rf(0.75, 1), z + dz * H * 0.2 + Math.sin(a) * r);
+    P.delay = rf(0, 0.1); P.vx = Math.cos(a) * rf(0.4, 1.4); P.vy = rf(-1, 0.5); P.vz = Math.sin(a) * rf(0.4, 1.4); P.drag = 0.3;
+    P.accel = -2.2; P.life = Math.min(4, Math.sqrt((2 * H) / 4.4) + 0.6); P.s0 = 0.25 + 0.3 * D; P.s1 = 0.7 + 0.1 * H; P.variant = 3;
+    P.r = cr * 0.95; P.g = cg * 0.96; P.b = cbb; P.a = 0.14 + 0.06 * big; P.fadeIn = 0.1; P.wind = 1; P.spin = rf(-0.3, 0.3);
+    fxKit.emit();
+  }
+  const nd = Math.min(8, Math.round((3 + 3 * big) * (0.5 + 0.5 * b)));
   for (let i = 0; i < nd; i++) {
-    dirAround(dx, dy, dz, 0.1 + 0.2 * rf(0, 1));
-    const sp = v0 * rf(0.45, 1.0);
-    const t = rf(0, 0.6);
-    S.x = x + dx * sp * t * 0.3; S.y = y + dy * sp * t * 0.3; S.z = z + dz * sp * t * 0.3;
+    dirAround(dx, dy, dz, 0.04 + 0.06 * rf(0, 1));
+    const sp = v0 * rf(0.6, 0.98);
+    S.x = x; S.y = y; S.z = z;
     S.vx = _v.x * sp; S.vy = _v.y * sp; S.vz = _v.z * sp;
-    S.life = tAll * rf(0.7, 1.05); S.r = -0.7 * k * (1 - 0.4 * mud); S.g = -0.74 * k * (1 - 0.45 * mud); S.b = -0.8 * k * (1 - 0.55 * mud);
-    S.w = rf(0.006, 0.013) * (0.8 + 0.4 * big); S.grav = 1; S.drag = 0.18; S.streak = 0.05; S.bounce = 0.05; S.delay = rf(0, 0.1);
+    S.life = tAll * rf(0.7, 0.95); S.r = -0.22 * k * (1 - 0.4 * mud); S.g = -0.24 * k * (1 - 0.45 * mud); S.b = -0.26 * k * (1 - 0.55 * mud);
+    S.w = rf(0.006, 0.012) * (0.8 + 0.4 * big); S.grav = 1; S.drag = 0.18; S.streak = 0.035; S.bounce = 0; S.delay = rf(0, 0.1);
     spark();
   }
-  /* the skirt: water crashing back down and running off round the foot */
-  if (rf(0, 1) < 0.35 + 0.4 * b) {
-    const rr = 0.3 + 0.12 * H;
+  /* the skirt: white splash where it crashes back down, short-lived */
+  if (rf(0, 1) < 0.3 + 0.4 * b) {
+    const rr = 0.2 + 0.08 * H;
     const a = rf(0, 6.283);
-    pAt(x + Math.cos(a) * rr * rf(0, 1), y + 0.1, z + Math.sin(a) * rr * rf(0, 1));
-    P.vx = Math.cos(a) * rf(0.8, 2) * big; P.vy = rf(0.2, 0.6); P.vz = Math.sin(a) * rf(0.8, 2) * big; P.drag = 1.2;
-    P.life = rf(1.4, 2.4); P.s0 = 0.4 + D; P.s1 = 1.2 + 0.18 * H; P.r = cr; P.g = cg; P.b = cbb; P.a = 0.3; P.fadeIn = 0.08; P.wind = 1; P.rise = 0.05;
+    pAt(x + Math.cos(a) * rr * rf(0, 1), y + 0.15, z + Math.sin(a) * rr * rf(0, 1));
+    P.vx = Math.cos(a) * rf(0.6, 1.6) * big; P.vy = rf(0.4, 1.2); P.vz = Math.sin(a) * rf(0.6, 1.6) * big; P.drag = 1.5;
+    P.life = rf(0.8, 1.4); P.s0 = 0.3 + D; P.s1 = 0.9 + 0.12 * H; P.variant = 3;
+    P.r = cr * 1.02; P.g = cg * 1.02; P.b = cbb * 1.04; P.a = 0.22; P.fadeIn = 0.05; P.wind = 1; P.accel = -0.8;
     fxKit.emit();
   }
 }
@@ -73,6 +85,8 @@ interface JetView {
   p0: THREE.Vector3; v: THREE.Vector3; wantP: THREE.Vector3; wantV: THREE.Vector3; T: number; r0: number; r1: number; len: number; mud: number;
 }
 const jets: JetView[] = [];
+/** the wind the jets lean in, m/s (the services pass it with the jets) */
+const jetWind = new THREE.Vector3();
 let jetGeo: THREE.CylinderGeometry | null = null;
 let jetLast = 0;
 
@@ -87,6 +101,7 @@ uniform float uLen;
 uniform float uLevel;
 uniform float uFade;
 uniform float uMud;
+uniform vec3 uWind;
 varying float vJS;
 varying float vJA;
 float jHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
@@ -105,33 +120,40 @@ const JET_NORMAL = /* glsl */`
   vec3 jB2 = cross( jTan, jB1 );
   vec2 jQ = normalize( position.xz + vec2( 1e-5, 0.0 ) );
   float jAng = atan( jQ.y, jQ.x );
-  float jR = mix( uR0, uR1, pow( position.y, 0.8 ) ) * ( 1.0 + 0.16 * ( jNoise( vec2( jAng * 1.3, jS * uLen * 0.7 - uTime * 3.0 ) ) - 0.5 ) );
+  // a torn, bulging silhouette: two octaves of noise running up the jet at the flow's pace
+  // it holds its bore for the first stretch, then frays wider
+  float jR = mix( uR0, uR1, pow( smoothstep( 0.2, 1.0, position.y ), 1.4 ) ) * ( 1.0 + 0.3 * ( jNoise( vec2( jAng * 1.3, jS * uLen * 0.7 - uTime * 3.0 ) ) - 0.5 )
+    + 0.6 * position.y * ( jNoise( vec2( jAng * 3.1 + 7.0, jS * uLen * 2.2 - uTime * length( uV ) * 0.8 ) ) - 0.5 ) );
+  // the loose outer water wanders off the axis more the higher it gets
+  vec3 jOff = vec3( jNoise( vec2( jS * uLen * 0.9 - uTime * 1.3, 3.0 ) ) - 0.5, 0.0, jNoise( vec2( jS * uLen * 0.9 - uTime * 1.1, 9.0 ) ) - 0.5 ) * ( 0.5 * position.y * uR1 );
   vec3 jN = jB1 * jQ.x + jB2 * jQ.y;
   vec3 objectNormal = jN;
   vJS = position.y;
   vJA = jAng;`;
 
 const JET_POS = /* glsl */`
-  vec3 transformed = uP0 + uV * jT + vec3( 0.0, - 4.905 * jT * jT, 0.0 ) + jN * jR;`;
+  vec3 transformed = uP0 + uV * jT + vec3( 0.0, - 4.905 * jT * jT, 0.0 ) + uWind * ( 0.35 * jT * jT ) + jN * jR + jOff;`;
 
 const JET_ALPHA = /* glsl */`
   {
     // streaks of aerated water climbing at the flow's speed; the column thins and tears as it rises
     float jn = jNoise( vec2( vJA * 4.0, vJS * uLen * 0.3 - uTime * length( uV ) * 0.3 ) ) * 0.6
       + jNoise( vec2( vJA * 11.0 + 3.0, vJS * uLen * 0.9 - uTime * length( uV ) * 0.9 ) ) * 0.4;
-    float jEnd = 1.0 - smoothstep( 0.6, 1.0, vJS );
-    float jA = mix( 0.92, 0.3, vJS ) * jEnd * smoothstep( 0.0, 0.02, vJS );
-    jA *= smoothstep( 0.22 + 0.45 * vJS, 0.62 + 0.3 * vJS, jn + 0.18 );
+    // a coherent column for its first third or so, tearing into the spray veil (particles) above; aerated water at
+    // the outlet is opaque white from any distance
+    float jEnd = 1.0 - smoothstep( 0.3, 0.8, vJS );
+    float jA = mix( 1.0, 0.45, vJS ) * jEnd * smoothstep( 0.0, 0.02, vJS );
+    jA *= mix( 1.0, smoothstep( 0.05 + 0.5 * vJS, 0.4 + 0.4 * vJS, jn + 0.25 ), smoothstep( 0.08, 0.3, vJS ) );
     diffuseColor.a *= jA * uFade;
     diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 0.46, 0.36, 0.26 ), uMud ) * ( 0.8 + 0.3 * jn );
   }`;
 
 const JET_VIEW = /* glsl */`
   // a round jet is thick through its middle and thin at its edges, where it is all loose drops
-  diffuseColor.a *= 0.12 + 0.88 * pow( abs( dot( normalize( normal ), normalize( vViewPosition ) ) ), 0.8 );`;
+  diffuseColor.a *= mix( 1.0, 0.3 + 0.7 * pow( abs( dot( normalize( normal ), normalize( vViewPosition ) ) ), 0.6 ), smoothstep( 0.1, 0.35, vJS ) );`;
 
 function jetMat(u: Record<string, THREE.IUniform>): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ color: 0xf7f9fb, roughness: 0.75, metalness: 0, transparent: true, depthWrite: false, envMapIntensity: 0.9 });
+  const m = new THREE.MeshStandardMaterial({ color: 0xe2e7ea, roughness: 0.85, metalness: 0, transparent: true, depthWrite: false, envMapIntensity: 0.7 });
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, u);
     sh.vertexShader = sh.vertexShader
@@ -151,7 +173,7 @@ function makeJet(root: THREE.Group): JetView {
   jetGeo ??= new THREE.CylinderGeometry(1, 1, 1, 16, 40, true).translate(0, 0.5, 0);
   const u: Record<string, THREE.IUniform> = {
     uP0: { value: new THREE.Vector3() }, uV: { value: new THREE.Vector3(0, 1, 0) }, uT: { value: 1 }, uR0: { value: 0.1 }, uR1: { value: 0.5 },
-    uTime: { value: 0 }, uLen: { value: 5 }, uLevel: { value: 0 }, uFade: { value: 0 }, uMud: { value: 0 },
+    uTime: { value: 0 }, uLen: { value: 5 }, uLevel: { value: 0 }, uFade: { value: 0 }, uMud: { value: 0 }, uWind: { value: jetWind },
   };
   const mesh = new THREE.Mesh(jetGeo, jetMat(u));
   mesh.frustumCulled = false;
@@ -184,9 +206,11 @@ function stepJet(j: JetView): void {
 
 const _jd = new THREE.Vector3();
 /** The water jets to draw now (services, ~4×/s): each keeps its mesh while its key stays in the list. */
-export function setWaterJets(list: JetSpec[]): void {
+export function setWaterJets(list: JetSpec[], wind?: Vec3): void {
   const root = fxKit.root();
   if (!root) return;
+  const w = wind ?? [fxKit.wind.x, 0, fxKit.wind.z];
+  jetWind.set(w[0], 0, w[2]);
   while (jets.length < Math.min(JETS, list.length)) jets.push(makeJet(root));
   for (const j of jets) j.on = false;
   for (const s of list.slice(0, JETS)) {
@@ -204,8 +228,9 @@ export function setWaterJets(list: JetSpec[]): void {
     /* a steep jet is drawn up to its crown (the particles fall back); a slanting one along its whole arc to the ground */
     j.T = vh < 0.3 * s.v0 && vy > 0 ? (0.95 * vy) / G : Math.min(4, (vy + Math.sqrt(vy * vy + 2 * G * Math.max(0.05, s.pos[1] - s.floor))) / G);
     j.len = Math.max(0.3, s.v0 * j.T * 0.75);
-    j.r0 = s.D * 0.5;
-    j.r1 = s.D * 0.5 + 0.07 * j.len + 0.08;
+    /* an aerated jet swells at once to ~1.3× its orifice and spreads at ~1:20 until it tears into spray */
+    j.r0 = s.D * 0.65;
+    j.r1 = s.D * 0.65 + 0.045 * j.len + 0.05;
     j.mud = s.mud;
   }
 }
@@ -302,4 +327,18 @@ export function updateUtilityFx(): void {
   updateTails();
   const root = fxKit.root();
   if (root && (indList.length || indMesh)) drawIndicators(root);
+}
+
+/** One tick (~10×/s) of surface water pouring off an edge (a kerb, a slab, a crater lip): a short glassy fall and a
+    soft white splash where it lands, not a spray of drops. `size` grows with the flow. */
+export function waterPour(pos: Vec3, size: number): void {
+  if (!fxKit.ready()) return;
+  const b = budget(), s = clamp(size, 0.1, 2.5), [x, y, z] = pos;
+  if (rf(0, 1) < 0.6 * b) {
+    pAt(x + rf(-0.2, 0.2) * s, y - 0.2, z + rf(-0.2, 0.2) * s);
+    P.vx = rf(-0.4, 0.4); P.vy = rf(0.1, 0.5); P.vz = rf(-0.4, 0.4); P.drag = 1.5; P.accel = -0.5;
+    P.life = rf(0.6, 1.1); P.s0 = 0.15 + 0.15 * s; P.s1 = 0.4 + 0.35 * s; P.variant = 3;
+    pColor(0xe6ecef); P.a = 0.18; P.fadeIn = 0.05; P.wind = 0.6;
+    fxKit.emit();
+  }
 }

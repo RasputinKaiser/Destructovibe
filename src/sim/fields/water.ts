@@ -1,6 +1,6 @@
 import { CAT, overlapAABB, entityOfShape, b3 } from '../../physics/physics';
 import type { Piece } from '../../destruction/structure';
-import { fx } from '../../render/fx';
+import { waterPour } from '../../render/utilityfx';
 import { groundAt, surfaceAt } from '../../terrain/terrain';
 import { SURFACE } from '../../terrain/surface';
 
@@ -109,7 +109,6 @@ export function depthAt(x: number, z: number, y: number): number {
 
 export function clearWater(): void { tiles.clear(); }
 
-const _dir: [number, number, number] = [0, -1, 0];
 export function stepWater(dt: number, rain: number): void {
   if (!tiles.size) return;
   const t0 = performance.now();
@@ -162,7 +161,7 @@ export function stepWater(dt: number, rain: number): void {
       waterStats.pours++;
       if (t.pourT <= 0) {
         t.pourT = 0.1;
-        fx.waterSpray([t.ox + (px / pour) * CELL, py / pour, t.oz + (pz / pour) * CELL], _dir, Math.min(2.5, Math.sqrt(pour) * 3));
+        waterPour([t.ox + (px / pour) * CELL, py / pour, t.oz + (pz / pour) * CELL], Math.min(2.5, Math.sqrt(pour) * 3));
       }
     }
     t.vol = vol;

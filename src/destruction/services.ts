@@ -10,7 +10,7 @@ import { waterColumn, setWaterJets, clearWaterJets, setTailSource, setIndicators
 import { makeTail, stepTail, kickTail, tailEnd, type Tail } from './conductors';
 import { setPieceHeat, setPiecePower } from './batches';
 import { flammable } from './materials';
-import { explode, heat, ignite, douse, burningPieces, live, releaseGround, type Piece } from './structure';
+import { explode, heat, ignite, douse, burningPieces, live, releaseGround, windVector, type Piece } from './structure';
 import * as fields from '../sim/fields/index';
 import {
   supplyOf, memberR, ropeR, lampW, device, tripTime, stdRating, arcVolts, arcHolds, ARC_GAP, arcEnergy, arcBlast, contactR, ageOf, dirtOf, leakage, exposedGear,
@@ -131,6 +131,7 @@ interface Break {
   ec: number;               // contact class its arc energy was last assessed at
   u: number;                // water / steam / gas: exit speed at the orifice, m/s
   duct: boolean;            // the member it parted from rose through the surface: a buried break vents up its hole
+  dx: number; dz: number;   // duct: where that hole is
   jv: number;               // water, drawn: speed that carries the jet to its reach (0: a weep or a sprinkler)
   jd: number;               // water, drawn: width of the column at its foot, m
   jm: number;               // water, drawn: soil in it, 0..1
@@ -530,6 +531,7 @@ export function svcLinkLost(a: Piece, b: Piece, pos: Vec3, n: Vec3, record: bool
     /* a riser that stood up through the surface (a hydrant barrel, a standpipe) leaves its hole open when it goes */
     const q = (p === a ? b : a).root.spec, g = groundAt(q.pos[0], q.pos[2]);
     br.duct = q.pos[1] - q.size[1] / 2 < g - 0.05 && q.pos[1] + q.size[1] / 2 > g + 0.05;
+    br.dx = q.pos[0]; br.dz = q.pos[2];
   }
 }
 
@@ -598,7 +600,7 @@ function addBreak(p: Piece, pos: Vec3, dir: Vec3, area: number, full: boolean): 
   const lit = m.kind === 'gas' && (p.temp > 450 || (full && (p.mat === 'steel' || p.mat === 'castiron') && rnd() < 0.15));
   const b: Break = { p, kind: m.kind, lp, ld, t0: clock, fxT: rnd() * 0.1, auT: rnd() * 0.25, size: 0, active: false, shown: false,
     area, full, link: null, spr: false, lit, q: 0, arcT: m.kind === 'power' && m.on ? 3 : 0, arcing: false,
-    contact: 0, chk: -1, enc: undefined, gone: false, ins: false, hv: m.hv, ia: 0, ua: 0, vp: 0.1 + rnd() * 0.2, ec: -1, u: 0, duct: false, jv: 0, jd: 0, jm: 0, jdir: [0, 1, 0], id: ++breakIds, tail: null };
+    contact: 0, chk: -1, enc: undefined, gone: false, ins: false, hv: m.hv, ia: 0, ua: 0, vp: 0.1 + rnd() * 0.2, ec: -1, u: 0, duct: false, dx: 0, dz: 0, jv: 0, jd: 0, jm: 0, jdir: [0, 1, 0], id: ++breakIds, tail: null };
   breaks.push(b);
   return b;
 }
@@ -1456,7 +1458,11 @@ function breakWorld(b: Break): void {
   /* a break in the ground vents up through the soil (or out of the crater over it): the gas, water or steam
      comes out at the surface above it */
   const c = coverAt(_v[0], _v[1], _v[2]);
-  if (c > 0.05) { _v[1] = groundAt(_v[0], _v[2]) + 0.05; vec3.set(_d, 0, 1, 0); bwCover = b.duct ? 0 : c; }
+  if (c > 0.05) {
+    /* up an open duct it comes out of the duct's own hole */
+    if (b.duct) { _v[0] = b.dx; _v[2] = b.dz; }
+    _v[1] = groundAt(_v[0], _v[2]) + 0.05; vec3.set(_d, 0, 1, 0); bwCover = b.duct ? 0 : c;
+  }
 }
 
 /* Flow at every open break: what the network's supply can push through all of them at once. */
@@ -1497,7 +1503,7 @@ function updateBreaks(): void {
     const n = nets[m.net];
     breakWorld(b);
     let drive = n ? n.P : 0;
-    if (b.kind === 'water' && n) drive = Math.max(0, n.P - (_v[1] - n.y) / HEAD);
+    if (b.kind === 'water' && n) drive = Math.max(0, n.P - (_v[1] - n.y) / HEAD) * mainLoss(b);
     const A = b.area * m.flow;
     b.q = CV[b.kind] * A * Math.sqrt(drive);
     /* the jet leaves at Cv·√(2ΔP/ρ) (Cv ≈ 0.97; the orifice's Cd ≈ 0.6 in CV is the contraction of its area) */
@@ -1524,6 +1530,18 @@ function updateBreaks(): void {
     }
     for (const b of list) b.shown = true;
   }
+}
+
+/* A break far down a main is fed through its length: the head H0 reaching it is spent on the jet and on friction in
+   the pipe carrying the jet's flow, H0 = u²/2g·(1 + f·L/D·(Cd·Ab/Ap)²), so the jet gets 1/(1 + f·L/D·(Cd·Ab/Ap)²) of
+   it (Darcy f ≈ 0.02 for old cast iron). A street grid is looped and fed from both ends of a block, so no break is fed
+   through more than ~30 m of its own main. A weep barely notices; a full-bore rupture 30 m out gets about half. */
+const DARCY = 0.02, LOOP = 30;
+function mainLoss(b: Break): number {
+  const m = b.p.svc!, Ap = (Math.PI / 4) * Math.max(0.01, m.bore) ** 2, r = (0.6 * b.area * m.flow) / Ap;
+  let L = 0;
+  for (let q: Piece | null = b.p, h = 0; q && h < 60 && L < LOOP; q = q.svc!.fp, h++) L += Math.max(...q.root.spec.size);
+  return 1 / (1 + (DARCY * Math.min(L, LOOP) / Math.max(0.01, m.bore)) * r * r);
 }
 
 /* A supply boosted by pumps (a pump hall's sets) holds its pressure only while they run: with its motors stopped (their
@@ -1728,9 +1746,12 @@ function gasRooms(): void {
       else {
         /* a jet lands a few metres out along its throw, on the surface it came out over (a column falls back round
            its own foot); a weep runs down the pipe */
-        const L = b.size * 1.5;
-        vec3.set(_c, _v[0] + _d[0] * L, _v[1] + Math.min(0, _d[1]) * L + 0.1, _v[2] + _d[2] * L);
-        fields.addWater(_c, kg, TICK);
+        const L = b.size * 1.5, R = _d[1] > 0.7 ? 0.4 + 0.25 * L : 0;
+        for (let k = 0; k < (R ? 4 : 1); k++) {
+          const a = (k * Math.PI) / 2;
+          vec3.set(_c, _v[0] + _d[0] * L + R * Math.cos(a), _v[1] + Math.min(0, _d[1]) * L + 0.1, _v[2] + _d[2] * L + R * Math.sin(a));
+          fields.addWater(_c, R ? kg / 4 : kg, TICK);
+        }
         if (bwCover > 0.05 && b.full) scour(b);
       }
     } else if (b.kind === 'steam') fields.addGas(_v, Math.min(20, b.q * 0.6), 'steam', TICK);
@@ -1899,14 +1920,16 @@ function lookJets(): void {
       const H = clamp(0.15 + 0.9 * Math.sqrt(b.q), 0.15, 1.2) / (1 + bwCover);
       b.jv = Math.sqrt(2 * G * H); b.jd = 0.35 + 2 * D; b.jm = 1; vec3.set(b.jdir, 0, 1, 0);
     } else {
-      const eta = 0.35 + 0.3 * clamp(D / 0.2, 0, 1), pit = !b.duct && coverAt(_v[0], _v[1] - 0.3, _v[2]) > 0;
+      /* what of its head a jet keeps against drag and break-up: ~45 % for a 400 mm main (15 m from a 16-inch main at
+         ~3.5 bar), less the thinner it is */
+      const eta = 0.3 + 0.15 * clamp(D / 0.4, 0, 1), pit = !b.duct && coverAt(_v[0], _v[1] - 0.3, _v[2]) > 0;
       b.jv = Math.sqrt(eta) * b.u; b.jd = D; b.jm = pit ? clamp(1 - (clock - b.t0) / 12, 0.15, 1) : 0;
       if (pit) { vec3.set(b.jdir, _d[0] * 0.5, Math.max(_d[1], 0) + 1.2, _d[2] * 0.5); vec3.normalize(b.jdir, b.jdir); }
       else vec3.copy(b.jdir, _d);
     }
     if (b.jv > 0.5) jetList.push({ key: b.id, pos: [_v[0], _v[1], _v[2]], dir: [b.jdir[0], b.jdir[1], b.jdir[2]], v0: b.jv, D: b.jd, mud: b.jm, floor: groundAt(_v[0], _v[2]) });
   }
-  setWaterJets(jetList);
+  setWaterJets(jetList, windVector());
 }
 
 function arc(b: Break, strength: number): void {
