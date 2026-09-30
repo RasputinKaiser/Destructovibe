@@ -12,6 +12,7 @@ const ITERS = 8;
 const R = 0.012;              // conductor radius: it rests this far over the ground
 const SLEEP = 1.5e-4;         // m per step under which a node counts as still
 const SLEEP_STEPS = 45;
+const STICK = 0.004;           // m per step (0.24 m/s) under which a node on the ground stays put
 
 export interface Tail {
   x: Float32Array;            // node positions, node 0 on the insulator
@@ -67,8 +68,10 @@ export function stepTail(t: Tail, anchor: ArrayLike<number> | null, dt: number, 
     const o = i * 3, gy = ground(x[o], x[o + 2]) + R;
     if (x[o + 1] < gy) {
       x[o + 1] = gy;
-      /* lying on the ground: most of its sliding is lost to friction */
-      px[o] += (x[o] - px[o]) * 0.6; px[o + 2] += (x[o + 2] - px[o + 2]) * 0.6;
+      /* lying on the ground: a slow creep is held by static friction, a slide loses most of its speed */
+      const sx = x[o] - px[o], sz = x[o + 2] - px[o + 2];
+      if (sx * sx + sz * sz < STICK * STICK) { x[o] = px[o]; x[o + 2] = px[o + 2]; }
+      else { px[o] += sx * 0.6; px[o + 2] += sz * 0.6; }
       if (px[o + 1] < gy) px[o + 1] = gy;
       if (i === n - 1) t.grounded = true;
     } else if (i === n - 1 && x[o + 1] < gy + 0.05) t.grounded = true;
