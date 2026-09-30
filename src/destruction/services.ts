@@ -1329,7 +1329,8 @@ function updateBreaks(): void {
        network is off, so a strained joint does not open a fresh one every tick; so does an open end, which jets (or
        arcs) again the moment its line is turned back on */
     if (b.gone || b.p.dead || (!b.link && ((!m.on && !b.full) || (m.closed && !m.source) || healed(b)))) { if (b.link?.leak === b) b.link.leak = null; breaks.splice(i, 1); continue; }
-    if (!m.on) { b.q = 0; b.size = 0; continue; }
+    /* supply off (valve shut, meter or EFV tripped, main isolated): a gas flame starves and goes out */
+    if (!m.on) { b.q = 0; b.size = 0; b.lit = false; continue; }
     if (b.kind === 'power') continue;
     const A = b.area * m.flow;
     const n = nets[m.net];
@@ -1357,7 +1358,12 @@ function updateBreaks(): void {
     const A = b.area * m.flow;
     b.q = CV[b.kind] * A * Math.sqrt(drive);
     b.size = drive > 0 ? clamp(1.4 * Math.sqrt((A / A_REF) * drive), 0.08, 2.5) : 0;
-    if (b.kind === 'gas' && !b.lit) igniteCheck(b);
+    if (b.kind === 'gas') {
+      /* a burning leak is a jet flame fed as fast as the gas comes: it stays one (no gas gathers to blow up) until its
+         supply fails or water knocks it down, after which the gas vents unlit again */
+      if (b.q <= 0 || (b.lit && doused())) b.lit = false;
+      else if (!b.lit) igniteCheck(b);
+    }
     if (b.size >= 0.1) byKind[b.kind].push(b);
   }
   /* Every open break acts on the world; only the drawing and the sound are budgeted, to the biggest flows (never the
@@ -1481,9 +1487,20 @@ function protect(): void {
   }
 }
 
-/* An unlit gas leak catches from an arc or flame near it. */
+/* Water knocking a jet flame down: a heavy spray at the orifice (a hose or monitor stream on it; ~0.2 kg/m³ of
+   droplets, not a sprinkler's drizzle) quenches the flame's base faster than the jet can hold it. Needs breakWorld. */
+const DOUSE_WATER = 0.2;
+function doused(): boolean {
+  vec3.scaleAndAdd(_c, _v, _d, 0.3);
+  return fields.sampleField(_c, 'water') > DOUSE_WATER || fields.sampleField(_v, 'water') > DOUSE_WATER;
+}
+
+/* An unlit gas leak catches from an arc or flame near it, or from the gas field burning (or hot enough to light
+   methane) where it comes out: the flash back from a fire its own gas reached. Needs breakWorld. */
 function igniteCheck(b: Break): void {
   if (b.p.temp > 450) { b.lit = true; return; }
+  vec3.scaleAndAdd(_c, _v, _d, 0.3);
+  if (fields.sampleField(_c, 'flame') > 0 || fields.sampleField(_c, 'T') > 537) { b.lit = true; return; }
   for (const o of breaks) {
     if (o.kind === 'power' && o.arcing && vec3.squaredDistance(o.p.curPos, _v) < 9) { b.lit = true; return; }
     if (o.kind === 'gas' && o.lit && o !== b && vec3.squaredDistance(o.p.curPos, _v) < 4) { b.lit = true; return; }
@@ -1573,6 +1590,13 @@ function roomGas(e: Enclosure): { mean: number; vol: number } {
 
 /* A field deflagration: the services' account of it, and the leaks in that room catch. */
 function roomDeflagrated(pos: Vec3, m3: number, backdraft: boolean): void {
+  /* the flame runs back through the cloud to whatever is feeding it: a leak it reached stays alight as a jet */
+  const reach = Math.min(6, 1.5 + Math.cbrt(m3) * 2);
+  for (const b of breaks) {
+    if (b.kind !== 'gas' || b.lit || b.q <= 0) continue;
+    breakWorld(b);
+    if (vec3.squaredDistance(_v, pos) < reach * reach) b.lit = true;
+  }
   if (backdraft) return;
   // the field's own front catching up with a room an arc has already burnt through is the same event
   for (const e of encs.values()) if (e && inside(e, pos, 1) && clock - e.burnt < 5) return;
@@ -1721,7 +1745,10 @@ function jetEffect(b: Break): void {
   /* unlit gas neither heats nor lights anything: it goes into the gas field */
   if (b.kind === 'gas' && !b.lit) return;
   breakWorld(b);
-  const L = b.spr ? Math.max(3.5, _v[1] + 0.5) : 1 + b.size * (b.kind === 'water' ? 3 : 2.2);
+  /* a jet fire is as long as its heat release makes it (API 521: L = 0.00326·Q^0.478, Q in W): ~1 m for a weep, a
+     dozen for a torn main */
+  const L = b.spr ? Math.max(3.5, _v[1] + 0.5) : b.kind === 'gas' ? clamp(0.00326 * Math.pow(b.q * GAS_KG * 50e6, 0.478), 0.5, 15)
+    : 1 + b.size * (b.kind === 'water' ? 3 : 2.2);
   vec3.scaleAndAdd(_c, _v, _d, L / 2);
   const pos: Vec3 = [_v[0], _v[1], _v[2]], dir: Vec3 = [_d[0], _d[1], _d[2]];
   const spread = b.spr ? 0.4 : 0.35, base = b.spr ? 0.5 : 0.3;
