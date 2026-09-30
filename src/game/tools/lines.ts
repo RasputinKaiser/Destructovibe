@@ -258,15 +258,15 @@ export function faceStake(o: THREE.Object3D | null, toward: Vec3): void {
 /* What a line leaves behind when it goes: the anchor stays where it was driven (a holdfast that ploughed out lies
    over toward the pull in a furrow of turned soil). The oldest are cleared past a dozen. */
 const left: THREE.Object3D[] = [];
-function leaveStake(o: THREE.Object3D | null, ripped: boolean): void {
+function leaveStake(o: THREE.Object3D | null, ripped: boolean, slide = 0.8): void {
   if (!o) return;
   if (ripped && o.userData.big) {
     // the deadman torn out of its trench: the winch dragged most of a metre toward the pull on its skids; the trench
     // stays where it was, torn open
     const mound = o.userData.mound as THREE.Object3D | undefined;
     if (mound) { scene.attach(mound); mound.scale.set(1, 2.5, 1.4); left.push(mound); }
-    o.position.x += Math.sin(o.rotation.y) * 0.8;
-    o.position.z += Math.cos(o.rotation.y) * 0.8;
+    o.position.x += Math.sin(o.rotation.y) * slide;
+    o.position.z += Math.cos(o.rotation.y) * slide;
   } else if (ripped) {
     /* the front group, which took the line, is laid over toward the pull; the ones behind less, as their lashings
        tore; the lashings hang slack (drawn gone) and the soil in front is turned up */
@@ -651,12 +651,12 @@ const PART_AT = 0.85;
 /* The line lets go: both halves run back past their anchors at the recoil speed. Anyone standing in their path is hit
    by what the line carries: a share of the strain energy, felt as a shove the mover turns into a stagger or a
    knockdown. */
-function snapBack(L: Line, T: number, at = PART_AT): void {
+function snapBack(L: Line, T: number, at = PART_AT, reach = at > 0 ? 1.9 : 0.85): void {
   const U = strainEnergy(L, T) * L.spec.recoil;
   const v = recoilSpeed(L, T);
   const brk: Vec3 = [L.pa[0] + (L.pb[0] - L.pa[0]) * at, L.pa[1] + (L.pb[1] - L.pa[1]) * at, L.pa[2] + (L.pb[2] - L.pa[2]) * at];
   // parted, both halves fly back past their anchors; an anchor torn out, the whole line flies toward what pulled it
-  for (const id of L.vis) gfx.snap(id, L.pa, L.pb, at, v, at > 0 ? 1.9 : 0.85);
+  for (const id of L.vis) gfx.snap(id, L.pa, L.pb, at, v, reach);
   L.vis.length = 0;
   if (L.spec.look === 'chain') audio.ropeSnap(brk, 'chain');
   else if (L.spec.look === 'wire') { audio.ropeSnap(brk, 'wire'); audio.snap(brk, clamp(U / 20e3, 0.3, 1)); }
@@ -701,7 +701,13 @@ export function releaseLine(L: Line, why: GoneWhy): void {
   // a line can't hold more than it breaks at: a solver spike on the parting step isn't energy it stored
   // a ground anchor ploughed out (end a): the line is whole, its freed end is thrown toward the far end
   const pulled = why === 'rip' && !L.a.piece && (L.a.over ?? 0) > 0.3;
-  if ((why === 'break' || why === 'cut' || why === 'rip') && T > 0.02 * L.spec.mbl) snapBack(L, Math.min(L.tension, breakLoad(L) * 1.05), pulled ? 0 : PART_AT);
+  /* a winch torn off its deadman keeps its rope on the drum: the machine is the freed end, dragged along the line on its
+     skids by the energy the rope held, U / (mu m g) with ~150 kg and mu ~0.6, the rope laid slack behind it */
+  const Tp = Math.min(L.tension, breakLoad(L) * 1.05);
+  const slide = pulled && L.stake?.userData.big ? Math.min((strainEnergy(L, Tp) * L.spec.recoil) / (0.6 * 150 * G), 0.8 * vec3.distance(L.pa, L.pb)) : 0.8;
+  if ((why === 'break' || why === 'cut' || why === 'rip') && T > 0.02 * L.spec.mbl) {
+    snapBack(L, Tp, pulled ? 0 : PART_AT, pulled && L.stake?.userData.big ? slide / Math.max(0.5, vec3.distance(L.pa, L.pb)) : undefined);
+  }
   else {
     for (const id of L.vis) gfx.remove(id);
     L.vis.length = 0;
@@ -711,7 +717,7 @@ export function releaseLine(L: Line, why: GoneWhy): void {
   L.block = null;
   dropHitch(L.a);
   dropHitch(L.b);
-  leaveStake(L.stake, why === 'rip' && !L.a.piece && (L.a.over ?? 0) > 0.3);
+  leaveStake(L.stake, pulled, slide);
   L.stake = null;
   const i = rig.indexOf(L);
   if (i >= 0) rig.splice(i, 1);

@@ -666,7 +666,8 @@ function drawWhip(id: number, L: ToolLine): boolean {
     /* the half keeps its length: with its end run back near (or past) the anchor, the slack is thrown up in a bight
        over it (two legs of half the length each), which falls once the recoil is spent */
     const c = Math.hypot(_we[0] - anchor[0], _we[1] - anchor[1], _we[2] - anchor[2]);
-    const bight = Math.sqrt(Math.max(0, len * len - c * c)) * 0.5 * (t < tau ? 1 : Math.exp(-(t - tau) / 0.35));
+    // a low wave, not a standing loop: at most a tenth of the half's length, 1.5 m, less for a weak recoil
+    const bight = Math.min(Math.sqrt(Math.max(0, len * len - c * c)) * 0.5, 0.1 * len, 1.5 * Math.min(1, w.v / 60)) * (t < tau ? 1 : Math.exp(-(t - tau) / 0.35));
     for (let i = 0; i <= LS; i++) {
       const s = i / LS;
       const wave = amp * Math.sin(Math.PI * s) * Math.sin(Math.PI * (4 * s - t * 14));
@@ -779,6 +780,8 @@ export const lines = {
     for (let i = 0; i < WHISK; i++) whiskM?.setMatrixAt(id * WHISK + i, ZERO);
     for (let i = 0; i < 2; i++) { eyeM?.setMatrixAt(id * 2 + i, ZERO); shackleM?.setMatrixAt(id * 2 + i, ZERO); ferruleM?.setMatrixAt(id * 2 + i, ZERO); }
     cageM?.setMatrixAt(id, ZERO);
+    // a chain drawn as a strand at range: that strand goes too (the links are laid fresh each frame)
+    if (L.look === 'chain' && fibreM) { for (let i = 0; i < LS; i++) fibreM.setMatrixAt(id * LS + i, ZERO); fibreM.instanceMatrix.needsUpdate = true; L.far = false; }
     if (twin >= 0) tl[twin].whip = { t0: clock, a: [...a], b: [...b], at, v, twin: -2, reach };
   },
   remove(id: number): void {
