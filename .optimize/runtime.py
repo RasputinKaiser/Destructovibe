@@ -22,6 +22,7 @@ Windows are 60 steps (1 s); the blast (if any) fires at step 60, i.e. the start 
   idle_*    steady  = windows 10..19 (t 10-20 s; run 1-2 used t 5-10 s, which caught the start-up settle)
   tower_D / terrace_S  collapse = windows 1..9 (t 1-10 s), aftermath = windows 15..19 (t 15-20 s, ~+15 s after blast)
   chapel_S  settle_s = first second from which no body is awake; t10_20 = windows 10..19
+  terrace_S60  late = windows 45..59 (t 45-60 s); awake_min_late shows whether the pile sleeps between re-wakes
 Metrics are ms per physics step (phys = b3World_Step + event dispatch, after = afterStep + terrain, frame = once-a-frame
 syncMeshes/maintain) and awake bodies; *_cpu = process CPU ms per step (user+sys, includes GC threads), steadier
 than wall time when other agents load the machine, though the M1's efficiency cores still inflate it under load.
@@ -38,12 +39,15 @@ SCEN = {
     'terrace_S': (['S', '1200', '-3.6,1.2,50.8,5'], 'blast'),
     # the viewer-independence test's chapel blast, run to 30 s: a collapse with no fire, so the pile can go to sleep
     'chapel_S':  (['S', '1800', '-60.5,1.2,-8,5'], 'settle'),
+    # the terrace blast to 60 s (run 3): its pile is still collapsing at 20 s; judge the late aftermath (t 45-60 s)
+    'terrace_S60': (['S', '3600', '-3.6,1.2,50.8,5'], 'late'),
 }
 KEY = {  # metrics the A/B table prints, per kind
     'idle': ['after_cpu', 'phys_cpu', 'after_ms', 'phys_ms', 'ter_ms', 'soft_ms', 'awake_end', 'awake_other'],
     'blast': ['collapse_phys_cpu', 'collapse_after_cpu', 'aftermath_phys_cpu', 'aftermath_after_cpu', 'collapse_total_ms',
               'aftermath_total_ms', 'awake_at_16s', 'awake_end', 'pieces_created', 'demo_pct'],
     'settle': ['t10_20_phys_cpu', 't10_20_after_cpu', 'collapse_total_ms', 'settle_s', 'awake_end'],
+    'late': ['late_phys_cpu', 'late_after_cpu', 'late_total_ms', 'awake_at_45s', 'awake_min_late', 'awake_end', 'demo_pct'],
 }
 def mean(a): return round(statistics.fmean(a), 3) if a else None
 def med(a):
@@ -92,6 +96,10 @@ def run(name, root=ROOT, shift=0.0):
         m.update(settle_s=settle, t10_20_phys_ms=mean(w('phys', 10, 19)), t10_20_after_ms=mean(w('after', 10, 19)),
                  t10_20_phys_cpu=mean(w('physCpu', 10, 19)), t10_20_after_cpu=mean(w('afterCpu', 10, 19)),
                  collapse_total_ms=mean(tot[1:10]), awake_end=a[-1])
+    elif kind == 'late':
+        m.update(late_phys_cpu=mean(w('physCpu', 45, 59)), late_after_cpu=mean(w('afterCpu', 45, 59)),
+                 late_total_ms=mean(tot[45:60]), awake_at_45s=P['awake'][45], awake_min_late=min(P['awake'][45:60]),
+                 awake_end=P['awake'][-1])
     else:
         m.update(collapse_phys_ms=mean(w('phys', 1, 9)), collapse_after_ms=mean(w('after', 1, 9)),
                  collapse_total_ms=mean(tot[1:10]), collapse_worst_s_ms=round(max(tot[1:10]), 2),

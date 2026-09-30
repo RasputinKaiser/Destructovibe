@@ -95,3 +95,16 @@ terrace_S: 3 pairs
   awake_end                      1859       1882      +1%     x1.02  1754-1870 / 1833-1904
   pieces_created                 1995       2022      +1%     x1.01  1950-2004 / 1933-2088
   demo_pct                      4.347      4.392      +1%     x1.01  3.379-4.387 / 3.634-4.42
+A/B base export (<scratch>/r3/base) vs head d26e530; load 5.24 -> 11.33; concurrent=True
+
+terrace_S60: 2 pairs
+  shift +0.00 base-head  buildMs 5389/5475 (x1.02)  fp CHANGED  weldsLost 1383/1239  awakeOther 1724/1788
+  shift +0.15 head-base  buildMs 6828/6883 (x1.01)  fp CHANGED  weldsLost 1379/1415  awakeOther 1593/1645
+  metric                     base med   head med    d med med ratio  base range / head range
+  late_phys_cpu                12.599     11.105     -12%     x0.90  11.16-14.039 / 10.215-11.995
+  late_after_cpu                7.078      6.739      -5%     x0.95  6.987-7.169 / 6.628-6.85
+  late_total_ms                 30.03     28.145      -6%     x0.96  19.208-40.853 / 19.722-36.567
+  awake_at_45s                 1694.0     1748.0      +3%     x1.03  1649-1739 / 1669-1827
+  awake_min_late                 60.0       51.5     -14%     x0.86  60-60 / 48-55
+  awake_end                    1706.5     1764.5      +3%     x1.03  1641-1772 / 1693-1836
+  demo_pct                       4.54      4.408      -3%     x0.97  4.522-4.559 / 4.279-4.537

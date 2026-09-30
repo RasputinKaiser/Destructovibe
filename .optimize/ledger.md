@@ -188,13 +188,34 @@ Applied:
   demo % per pair (base/head): chapel 3.76/3.48, 3.62/3.74, 3.75/3.35, 3.63/3.61, 8.82/9.25; terrace 3.69/3.27,
   4.35/4.39, 4.39/4.42, 3.38/3.63: signed differences both ways, within the trajectory scatter. weldsLost similar.
 
-Remaining keepers (not fixed): chapel ±0.15 and -0.3 trajectories drop debris onto a running conveyor (crates 553-556
-at y 1.2 carried 1.5-3.5 m in 5 s; wood/roof fragments carried 2 m) next to an electromagnet (stepMagnets
-ApplyForceToCenter every step): genuine motion that keeps the touching pile in its island. Physically right for what
-rides the belt; the pile beside it is held only by Box3D's island granularity. The terrace at +29 s is still failing
-welds (15 in 5 s), carving detail and remaking terrain tiles: not a sleep problem yet at that time.
+- Realism (probe, terrace shift 0, 61 s): demo 4.57 % base / 4.28 % head (the A/B terrace pairs span 3.3-4.4 %);
+  wake test base 770 sleepers, 2 dropped > 10 cm (0.15 m); head 704 sleepers, 1 dropped (brick 4918 at y 3.1, a
+  creep-raised sleeper that slid off when woken, 2.9 m). Neither pile sleeps by 60 s (awake 1720 / 1836; head was at
+  60 awake at 50 s and was woken again).
+
+Remaining awake piles are real motion, not wakers: on chapel +0.15 (x -60.35) at +29 s, pure physics (MODE=noafter)
+still has stones rolling away from the heap (3332/3334: 7 m in 5 s at y 0.1-0.3; 1586: 3.3 m), and the full run has a gas
+deflagration at +31 s (5 bodies made, 624 impulses). The pile then sleeps by +33 s in both (awake 1046 -> 126, of which
+95 machine). So "asleep within ~15 s of motion ending" holds on that trajectory; the 30 s window of chapel_S just ends
+before it. (Crates 553-556 riding the conveyor at (39, -41) and a crane/magnet group are separate machine islands.)
+The terrace at +29 s is still failing welds (15 in 5 s), carving detail and remaking terrain tiles. At +47-57 s
+(keepers.py, S 2880 + 600): pure physics sleeps it (awake 57 -> 15, machines only); the full run sleeps it to 47-60 awake
+and is re-woken by gas deflagrations every ~4.3 s (b3World_Explode from fields deflagrations, 614-674 impulses and
+13-27 bodies destroyed each, then detail shrink/carve of the damaged units) plus single destroys (fire disintegrate,
+fading rubble, terrain sweep freeing a buried body). All are real events; whether a leaking main should keep puffing
+(rather than settle into a jet flame) is a gas-model realism question, not a sleep bug.
 Risk to watch: heatWake has no dedicated fire-collapse scenario in the harness (the chapel's gas fire is the only one);
 a burning frame's joints now break when their load reaches 0.6 of the decaying cap instead of on a random nudge.
 
 End checks at f1d2a50: tsc exit 0; npm test exit 0, 35/35 (viewer-independence green); validate:grid, rigging, fractures,
 levels exit 0; idle sim 1800 S/H/D/R: weldsLost 0, awakeOther 0 on all four.
+
+Backlog top 3: #1 rolling rubble (stones rolling 7 m at +29 s) and late deflagrations on the chapel; #4 terrace late
+aftermath (gas deflagrations every ~4.3 s, a gas-model question); #2 collapse phase proper (Box3D step 50 % of tower).
+
+Next run: probes trusted. A/B with `runtime.py --base <git archive of the base rev> --concurrent`; realism with
+`.optimize/realism-probe.mjs` (wake test + demo% over shifts); wakers with `.optimize/keepers.py` (MODE=noafter first:
+if pure physics sleeps the pile, the keeper is a wake call, find it with MODE=calls/KNOCK). New scenario terrace_S60
+(3600 steps, t 45-60 s): A/B vs ee1aac2, 2 pairs: late phys_cpu 12.6 -> 11.1 ms, after_cpu 7.1 -> 6.7 ms, awake_min_late 60 / 52 (both piles do sleep between deflagrations; neither run changes the cadence). Start with backlog #1: why round stones roll 7 m on the
+chapel heap (rolling resistance of pieces over RUBBLE_VOL), then the gas deflagration cadence (#4) with the owner's
+view on realism. No fire-collapse scenario exists: add one before touching heat/fire rules again (heatWake, f1d2a50).
