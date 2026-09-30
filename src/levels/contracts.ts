@@ -112,7 +112,7 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + 'the bottom course brings a stack down, but which way it goes once the course lets go is its own business: watch the first '
       + 'one, and pick the side you shoot the rest from by what it did. The rockets stay in the van today.',
     tip: 'Three or four cannonballs into each stack\'s bottom course. Watch which way the first one goes and shoot the rest from the side that sends them away from the vehicles.',
-    target: 0.6,
+    target: 0.55,
     par: 180,
     stars: [8000, 11000],
     ammo: { hammer: -1, cannon: 14 },
@@ -163,7 +163,7 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + 'has to be on the ground and not on the terrace. Its plinth is three metres of solid brick; the shaft above it is what '
       + 'you cut. Nobody on this crew has felled one this tall, so take it steady and watch which way it leans.',
     tip: 'Cannon the stack\'s shaft just above the plinth, one face, from the mill side, and watch it lean before you add more. The mill goes on charges along its ground-floor piers.',
-    target: 0.65,
+    target: 0.5,
     par: 240,
     stars: [65000, 90000],
     goal: { fell: { group: 'chimney', what: 'the chimney', below: 6, from: 12 } },
