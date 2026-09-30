@@ -19,7 +19,7 @@ Interleaved A/B (run 2+; use this for every timing claim):
   a node_modules symlink.
 
 Windows are 60 steps (1 s); the blast (if any) fires at step 60, i.e. the start of window 1.
-  idle_*    steady  = windows 5..9 (t 5-10 s)
+  idle_*    steady  = windows 10..19 (t 10-20 s; run 1-2 used t 5-10 s, which caught the start-up settle)
   tower_D / terrace_S  collapse = windows 1..9 (t 1-10 s), aftermath = windows 15..19 (t 15-20 s, ~+15 s after blast)
   chapel_S  settle_s = first second from which no body is awake; t10_20 = windows 10..19
 Metrics are ms per physics step (phys = b3World_Step + event dispatch, after = afterStep + terrain, frame = once-a-frame
@@ -31,15 +31,16 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCEN = {
-    'idle_S':    (['S', '600'], 'idle'),
-    'idle_D':    (['D', '600'], 'idle'),
+    # 20 s: the steady window is t 10-20 s, past the start-up settle (Clearance sandbags on timbers, quiet by ~9.5 s)
+    'idle_S':    (['S', '1200'], 'idle'),
+    'idle_D':    (['D', '1200'], 'idle'),
     'tower_D':   (['D', '1200', '-60,1.5,-55,5'], 'blast'),
     'terrace_S': (['S', '1200', '-3.6,1.2,50.8,5'], 'blast'),
     # the viewer-independence test's chapel blast, run to 30 s: a collapse with no fire, so the pile can go to sleep
     'chapel_S':  (['S', '1800', '-60.5,1.2,-8,5'], 'settle'),
 }
 KEY = {  # metrics the A/B table prints, per kind
-    'idle': ['after_cpu', 'after_ms', 'phys_ms', 'ter_ms', 'soft_ms', 'awake_end'],
+    'idle': ['after_cpu', 'phys_cpu', 'after_ms', 'phys_ms', 'ter_ms', 'soft_ms', 'awake_end', 'awake_other'],
     'blast': ['collapse_phys_cpu', 'collapse_after_cpu', 'aftermath_phys_cpu', 'aftermath_after_cpu', 'collapse_total_ms',
               'aftermath_total_ms', 'awake_at_16s', 'awake_end', 'pieces_created', 'demo_pct'],
     'settle': ['t10_20_phys_cpu', 't10_20_after_cpu', 'collapse_total_ms', 'settle_s', 'awake_end'],
@@ -80,10 +81,11 @@ def run(name, root=ROOT, shift=0.0):
          # as one instance (seen once in run 2, concurrent runs); such a run is not comparable
          'machines': (full or {}).get('machines'), 'stderr': r.stderr[-600:]}
     if kind == 'idle':
-        m.update(after_ms=mean(w('after', 5, 9)), phys_ms=mean(w('phys', 5, 9)), frame_ms=mean(w('frame', 5, 9)),
-                 soft_ms=mean(w('soft', 5, 9)), joints_ms=mean(w('joints', 5, 9)), svc_ms=mean(w('svc', 5, 9)),
-                 ter_ms=mean(w('ter', 5, 9)), after_cpu=mean(w('afterCpu', 5, 9)), phys_cpu=mean(w('physCpu', 5, 9)),
-                 awake_end=P['awake'][-1])
+        lo, hi = 10, 19
+        m.update(after_ms=mean(w('after', lo, hi)), phys_ms=mean(w('phys', lo, hi)), frame_ms=mean(w('frame', lo, hi)),
+                 soft_ms=mean(w('soft', lo, hi)), joints_ms=mean(w('joints', lo, hi)), svc_ms=mean(w('svc', lo, hi)),
+                 ter_ms=mean(w('ter', lo, hi)), after_cpu=mean(w('afterCpu', lo, hi)), phys_cpu=mean(w('physCpu', lo, hi)),
+                 awake_end=P['awake'][-1], awake_other=res.get('awakeOther'))
     elif kind == 'settle':
         a = P['awake']
         settle = next((i for i in range(1, len(a)) if all(x == 0 for x in a[i:])), None)
