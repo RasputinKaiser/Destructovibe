@@ -42,6 +42,7 @@ let rain = 0;
 let deflT = -1;
 let deflCool = 0;
 let frontIdle = 0;
+let frontRate = 0, frontBase = 0;
 let credit = 0;
 const pending: Brick[] = [];
 
@@ -133,6 +134,8 @@ export function sampleField(pos: ArrayLike<number>, f: 'T' | 'smoke' | 'dark' | 
   const i = lookup(pos[0], pos[1], pos[2]);
   if (i < 0) return f === 'u' || f === 'w' ? 0 : amb[k];
   if (k === F_P) return (hit.f[F_P][i] * 353) / (hit.f[F_T][i] + 273.15) / FIELD_DT;
+  /* below zero F_BURN is a burnt-out cell's memory of its flame, not flame */
+  if (k === F_BURN) return Math.max(0, hit.f[k][i]);
   return hit.f[k][i];
 }
 
@@ -218,13 +221,18 @@ export function stepFields(dt: number): void {
 /* A premixed flame front's heat, gathered until it stops spreading (0.6 s at most, the time a turbulent front
    takes to cross a room), then dealt as one blast at its centroid: 18 kJ of explode power per m³ of
    methane-equivalent burnt, amplified by the room it is in. Fuel that was mostly smoke-layer pyrolysate burning
-   when air got in is a backdraft. */
+   when air got in is a backdraft.
+   A fire or a lit leak keeps lighting fresh fuel as it arrives (a pile's volatiles, a jet's gas drifting into new
+   cells): fronts at a steady rate, which is a standing flame burning as fast as it is fed. Only a burst well above
+   that running rate (FRONT_TAU mean) burnt a mixture that had gathered, and only that is a deflagration. */
+const FRONT_TAU = 8, BURST = 4;
 const ev = { E: 0, x: 0, y: 0, z: 0, pyro: 0, cov: 0 };
 function deflagrations(dt: number): void {
   if (defl.E > 0) {
     ev.E += defl.E; ev.x += defl.x; ev.y += defl.y; ev.z += defl.z; ev.pyro += defl.pyro; ev.cov += defl.cov;
-    if (deflT < 0) deflT = 0;
+    if (deflT < 0) { deflT = 0; frontBase = frontRate; }
   }
+  frontRate += (defl.E / dt - frontRate) * Math.min(1, dt / FRONT_TAU);
   /* bricks step every 0.1-0.25 s, not every frame: the front is still going until none has burnt for longer */
   frontIdle = defl.n > 0 ? 0 : frontIdle + dt;
   const burning = frontIdle < 0.3;
@@ -236,9 +244,9 @@ function deflagrations(dt: number): void {
   /* the burn that follows a deflagration (the fireball rolling out, the rest of the layer catching) is flame, not
      a second blast */
   if (deflCool > 0) { deflT = -1; ev.E = ev.x = ev.y = ev.z = ev.pyro = ev.cov = 0; return; }
-  const E = ev.E;
+  const E = ev.E, deflT0 = deflT;
   deflT = -1;
-  if (E > 1.5e6) {
+  if (E > 1.5e6 && E > BURST * frontBase * deflT0) {
     deflCool = 4;
     const pos: Vec3 = [ev.x / E, ev.y / E, ev.z / E];
     const V = E / 35.8e6;
@@ -394,6 +402,7 @@ export function clearFields(): void {
   defl.E = defl.x = defl.y = defl.z = defl.pyro = defl.n = defl.cov = 0;
   deflT = -1;
   deflCool = 0;
+  frontRate = frontBase = 0;
   credit = 0;
   rs = RS0;
   thermalStats.flashovers = thermalStats.backdrafts = thermalStats.deflagrations = thermalStats.shocks = thermalStats.conducted = 0;

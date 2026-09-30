@@ -25,6 +25,10 @@ const EVAP = 1.5;                       // 1/s droplet evaporation per 100 K of 
 const T_MAX = 2000;
 const FLAME_HOLD = 0.25;             // s a burnt-out cell stays a flame front for its neighbours
 const FRONT_AGE = 0.5;               // s a newly lit cell counts as the passing front (> the 0.25 s longest brick step)
+/* s a burnt-out cell remembers its flame (F_BURN counts up from −FLAME_MEMORY to 0). Fuel that keeps arriving where a
+   flame stood (a leak's jet, a pile's volatiles) relights as that standing flame, burning as fast as it comes: not a
+   premixed front. A deflagration needs a mixture that gathered where nothing was burning. */
+const FLAME_MEMORY = 3;
 /* molar LHV (J/mol), O₂ demand (mol/mol), H₂O made, autoignition °C, LEL, UEL. The pyrolysate stands for timber
    volatiles (CO, CH₄, formaldehyde, tars): flammable roughly 7–70 %, igniting unaided near CO's 609 °C. */
 const CH4 = { lhv: 802e3, o2: 2, h2o: 2, ait: 537, lel: 0.05, uel: 0.15 };
@@ -255,7 +259,7 @@ export function stepBrick(b: Brick, dt: number): boolean {
         const ait = fu > ch4 + c3 ? PYRO.ait : c3 > ch4 ? C3H8.ait : CH4.ait;
         if (!lit && ((pre && (pign[pi] || T > ait || front)) || (front && o2 >= 0.05 && ch4 / CH4.lel + c3 / C3H8.lel + fu / PYRO.lel >= 1))) {
           lit = true;
-          pB[pi] = 1e-3;
+          pB[pi] = pB[pi] < 0 ? FRONT_AGE : 1e-3;
         }
         /* outside the premixed range fuel still burns where it meets a flame, an ember or hot enough air, at the
            rate it mixes: the diffusion flame at a smouldering room's opening, rollover under a ceiling */
@@ -281,8 +285,10 @@ export function stepBrick(b: Brick, dt: number): boolean {
           }
           pM[pi] = ch4; pPr[pi] = c3; pFu[pi] = fu; pO2[pi] = o2;
         }
-        if (pB[pi] > 0) pB[pi] = (ch4 + c3 + fu < 0.004 || o2 < 0.03) && pB[pi] > FLAME_HOLD ? 0 : pB[pi] + dt;
-      } else if (pB[pi] > 0) pB[pi] = pB[pi] > FLAME_HOLD ? 0 : pB[pi] + dt;
+        if (pB[pi] > 0) pB[pi] = (ch4 + c3 + fu < 0.004 || o2 < 0.03) && pB[pi] > FLAME_HOLD ? -FLAME_MEMORY : pB[pi] + dt;
+        else if (pB[pi] < 0) pB[pi] = Math.min(0, pB[pi] + dt);
+      } else if (pB[pi] > 0) pB[pi] = pB[pi] > FLAME_HOLD ? -FLAME_MEMORY : pB[pi] + dt;
+      else if (pB[pi] < 0) pB[pi] = Math.min(0, pB[pi] + dt);
       if (q !== 0) {
         const T1 = clamp(T + q / C, Ta - 30, T_MAX);
         if (qc > 0) { S[pi] += (T1 - T) / Tabs / dt; if (pB[pi] > 0 && S[pi] * dt > 0.3) expanding = true; }
