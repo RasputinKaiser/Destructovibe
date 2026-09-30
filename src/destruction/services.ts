@@ -1907,7 +1907,8 @@ function roomBurn(e: Enclosure, burnt: number): boolean {
   e.burnt = clock;
   const c: Vec3 = [(e.min[0] + e.max[0]) / 2, (e.min[1] + e.max[1]) / 2, (e.min[2] + e.max[2]) / 2];
   const power = Math.min(160e3, 18e3 * V);
-  if (power >= 1.5e3) explode(c, clamp(2 + 1.5 * Math.cbrt(10 * V), 3, 10), power, clamp(700 * V, 150, 6000), 1.2);
+  // a deflagration's point blast already stands for the room's pressure: no charge's gas phase on top
+  if (power >= 1.5e3) explode(c, clamp(2 + 1.5 * Math.cbrt(10 * V), 3, 10), power, clamp(700 * V, 150, 6000), 1.2, undefined, 0);
   return true;
 }
 
@@ -2147,7 +2148,7 @@ function blowout(pos: Vec3, fixture: FixtureKind, volume: number, p?: Piece): vo
     case 'gasmain': {
       /* a crushed meter lets its gas go; a district governor's inventory burns as a fireball */
       const k = clamp(Math.sqrt(volume / 2), 0.25, 1);
-      explode(pos, 4.5 * k, 60e3 * k * k, 2500 * k);
+      explode(pos, 4.5 * k, 60e3 * k * k, 2500 * k, 1, undefined, 0);
       fx.fire(pos, 5 * k, 1.8 * k);
       igniteAround(pos, 5.5 * k, 0.7);
       break;

@@ -40,15 +40,16 @@ export function contactCharge(kg: number, at: Vec3, n: Vec3, host: Piece | null)
     if (breached) {
       // the wall inside R goes; where the sphere of radius R meets the back face the hole is √(R² − t²) across: a thicker
       // wall leaves a narrower breach
-      explode(at, Math.max(0.3, Math.sqrt(R * R - thick * thick)), b.power, b.impulse * 0.5, 1, 12);
+      explode(at, Math.max(0.3, Math.sqrt(R * R - thick * thick)), b.power, b.impulse * 0.5, 1, 12, 0);
     } else {
       damagePiece(host, at, Math.min(host.hp * 0.45, b.power), true);
       if (!host.dead) strikes.add(host, at, n, Math.min(1.2, R * 2));
       fx.debris(at, 14, host.pm.chips, 5, n);
     }
-    // what the wall did not take goes into the air on the charge's side: no fresh breaking, a few welds near by
+    /* what the wall did not take goes into the air on the charge's side: no fresh breaking by the shock, a few welds
+       near by. The charge's gas is all of it, once: a room on that side is pressurised by the whole charge */
     const o: Vec3 = [at[0] + n[0] * Math.max(0.6, R), at[1] + n[1] * Math.max(0.6, R), at[2] + n[2] * Math.max(0.6, R)];
-    explode(o, b.radius, b.power * 0.5, b.impulse, 0.15, 0);
+    explode(o, b.radius, b.power * 0.5, b.impulse, 0.15, 0, b.power);
     return;
   }
   explode(at, b.radius, b.power, b.impulse, 1.45, 30);

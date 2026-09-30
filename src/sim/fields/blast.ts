@@ -1,6 +1,6 @@
 import type { Vec3 } from '../../types';
 import { vec3 } from 'math';
-import { CAT, overlapAABB, entityOfShape } from '../../physics/physics';
+import { b3, CAT, overlapAABB, entityOfShape } from '../../physics/physics';
 import type { Piece } from '../../destruction/structure';
 import { rasterize, isFragile, polyBox } from './grid';
 
@@ -8,17 +8,39 @@ import { rasterize, isFragile, polyBox } from './grid';
    Graham's closed forms of the Kingery–Bulmash curves in scaled distance Z = R / W^⅓; a charge on or near the
    ground reflects off it (W × 1.8, hemispherical burst). A local 1 m occupancy grid round the charge supplies line
    of sight (walls shadow what is behind them, openings channel the wave), and the volume the wave can reach
-   under cover: a charge inside a room adds the room's quasi-static gas pressure (UFC 3-340-02 Fig. 2-152 fit,
-   ~2.25 MPa · (W/V)^0.72) held for the room's blow-down time, and multiple reflections off its walls. */
+   under cover.
+
+   Confinement is judged on the building as it stood when the charge went off, not on what the charge's own crater
+   leaves: the room is the covered space connected to the charge, its ceiling the real one. The charge holes only
+   what lies inside its contact-breach radius (P = R³·K·C, the rule the satchel uses, masonry K); openings (glazing
+   counts as open: it goes at a few kPa) and that breach vent the room. In a room that holds it the charge adds:
+   - the quasi-static gas pressure of its products and their afterburn, Pqs = 2.25 MPa · (W/V)^0.78 (UFC 3-340-02
+     Fig. 2-152: ~0.4 bar at W/V = 0.0058 kg/m³), W the charge's own mass (the ground's reflection of the shock adds
+     no heat to the room's air);
+   - its blow-down through the vent area A: P(t) = (Pqs + P0)·e^(−2.13 τ) − P0, τ = A·a0·t / V (Baker et al. 1983),
+     whose impulse over the first 50 ms (a member's response time) is the gas impulse;
+   - the reverberations: each wall takes its first reflected impulse again at half, then a quarter (1.75 × in all,
+     Baker et al. 1983).
+   How much of that a room holds goes with its vent ratio A / V^⅔ (fully confined below ~0.3, effectively open past
+   ~1.5). Walls the gas blows out vent the rest of the blow-down (explode() dry-runs its wall panels and calls vent()). */
 
 export const POWER_PER_KG = 60e3;       // explode() power per kg TNT: rocket 1.25 kg, charge 2.5, propane tank 2.5
-const P0 = 101325;
+const P0 = 101325, A0 = 340;
 /* Within the breach radius the charge holes whatever stands there: nothing in it shadows (≥ 1.5 m, half the
    blast radius). */
 const FREE = 1.5, BREACH = 0.5;
 const MAX_H = 18;
 /* impulse (Pa·s) of gas pressure plus reverberation that loads a room's walls like a charge's full power at contact */
 const GAS_IMPULSE = 15e3;
+/* peak gas pressure: 2.25 MPa at W/V = 1 kg/m³ and ~0.4 bar at 0.0058 kg/m³ (UFC 3-340-02 Fig. 2-152) */
+const QS_P = 2.25e6, QS_EXP = 0.78;
+/* the gas phase that counts for a member: its first 50 ms */
+const GAS_T = 0.05;
+/* a closed room still leaks (door gaps, flues, services): m² */
+const LEAK = 0.5;
+/* contact breach, P = R³·K·C (P lb TNT, R ft): ordinary masonry and concrete K 0.35, untamped C 3.2 (see
+   game/ordnance/breach.ts) */
+const BREACH_K = 0.35, BREACH_C = 3.2, FT = 0.3048, LB = 0.4536;
 
 export function pso(Z: number): number {
   const z = Math.max(Z, 0.05);
@@ -33,24 +55,53 @@ export function iso(Z: number): number {
 export function cr(P: number): number {
   return (2 * (7 * P0 + 4 * P)) / (7 * P0 + P);
 }
+/** Peak quasi-static gas overpressure (Pa) of `kg` TNT in a closed volume V (m³). */
+export function gasPressure(kg: number, V: number): number {
+  return kg > 0 && V > 0 ? QS_P * Math.min(1, kg / V) ** QS_EXP : 0;
+}
+/* Blow-down from P (Pa) with time constant T = V / (A·a0) for up to `dur` s: its impulse (Pa·s) and the pressure left. */
+function blowDown(P: number, T: number, dur: number): { I: number; P: number } {
+  if (P <= 0 || dur <= 0) return { I: 0, P: Math.max(0, P) };
+  const tm = Math.log((P + P0) / P0) / 2.13, te = Math.min(tm, dur / T);
+  return { I: T * ((P + P0) * (1 - Math.exp(-2.13 * te)) / 2.13 - P0 * te), P: Math.max(0, (P + P0) * Math.exp(-2.13 * te) - P0) };
+}
+/** Gas impulse (Pa·s) over the first GAS_T s of a room of V m³ at Pqs blowing down through A m² of vents, and through
+ * A + A2 once walls of A2 m² that the gas blew out have opened (after tOpen s). */
+export function gasImpulse(Pqs: number, V: number, A: number, A2 = 0, tOpen = Infinity): number {
+  if (Pqs <= 0) return 0;
+  const t1 = Math.min(GAS_T, tOpen);
+  const a = blowDown(Pqs, V / (Math.max(LEAK, A) * A0), t1);
+  return a.I + blowDown(a.P, V / (Math.max(LEAK, A + A2) * A0), GAS_T - t1).I;
+}
+/** Radius (m) a contact charge of `kg` TNT breaches ordinary masonry or concrete to. */
+export function contactBreach(kg: number): number {
+  return kg > 0 ? Math.cbrt(kg / LB / (BREACH_K * BREACH_C)) * FT : 0;
+}
+/** Share of the gas phase and reverberation a room of V m³ keeps with A m² of vents. */
+export function heldBy(V: number, A: number): number {
+  const vent = V > 0 ? A / Math.pow(V, 2 / 3) : 99;
+  return Math.max(0, Math.min(1, (1.5 - vent) / 1.2));
+}
 
 export interface Survey {
   pos: Vec3; W: number; cw: number; radius: number; free: number;
   x0: number; y0: number; z0: number; n: number;
   occ: Uint8Array; steps: Uint16Array; roofed: Uint8Array;
-  confined: boolean; V: number; Av: number; Pqs: number; tg: number; iGas: number; iMulti: number;
+  /** Wg: TNT-eq that heats the room's gas; V (m³) and Av (m², openings and the charge's own breach) of the room;
+   * held: the share of gas phase and reverberation it keeps; Pqs its peak gas pressure; iGas0 the gas impulse before
+   * any wall goes, iGas after the walls the gas blew out have vented it (vent()); iMulti the reverberations on a wall
+   * at the room's half-width */
+  confined: boolean; Wg: number; V: number; Av: number; held: number; Pqs: number; tg: number; iGas0: number; iGas: number; iMulti: number;
   gas: number;              // confined-room load share, in units of the charge's power (0 in the open)
   roomMin: Vec3; roomMax: Vec3;
   ms: number;
 }
 
 const UNREACHED = 65535;
-let occ = new Uint8Array(0), por = new Uint8Array(0), cov = new Uint8Array(0), steps = new Uint16Array(0), roofed = new Uint8Array(0);
+let occ = new Uint8Array(0), occ0 = new Uint8Array(0), por = new Uint8Array(0), cov = new Uint8Array(0), steps = new Uint16Array(0), roofed = new Uint8Array(0);
 let queue = new Int32Array(0);
 let inside = new Uint8Array(0);
 
-/** gasPower: the energy that pressurises a room it fills, when it differs from the shock's (a fuel-air charge: a low,
- * long push from far more energy than its peak pressure shows) */
 /* covered: solid somewhere above within the grid */
 function coverPass(n: number): void {
   for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
@@ -63,13 +114,32 @@ function coverPass(n: number): void {
   }
 }
 
-export function survey(pos: Vec3, radius: number, power: number, gasPower = power): Survey {
+const _cp: Vec3 = [0, 0, 0];
+/* The side of the solid a charge sits on: from the nearest surface point of what fills its cell, outward. A charge
+   planted on a wall shares the wall's grid cell; it is on the face it was put on, not in the wall. */
+function airSide(pos: Vec3): Vec3 | null {
+  let best = Infinity;
+  const out: Vec3 = [0, 0, 0];
+  overlapAABB([pos[0] - 0.6, pos[1] - 0.6, pos[2] - 0.6], [pos[0] + 0.6, pos[1] + 0.6, pos[2] + 0.6], CAT.structure | CAT.prop | CAT.debris, shape => {
+    const e = entityOfShape(shape);
+    if (!e || e.kind !== 'piece' || (e as Piece).dead) return;
+    b3.b3Shape_GetClosestPoint(_cp, shape, pos);
+    const d = Math.hypot(pos[0] - _cp[0], pos[1] - _cp[1], pos[2] - _cp[2]);
+    if (d > 1e-4 && d < best) { best = d; vec3.set(out, (pos[0] - _cp[0]) / d, (pos[1] - _cp[1]) / d, (pos[2] - _cp[2]) / d); }
+  });
+  return best < Infinity ? out : null;
+}
+
+/** gasPower: the energy that pressurises a room it fills, when it differs from the shock's (a fuel-air charge: a low,
+ * long push from far more energy than its peak pressure shows; 0: none, e.g. a gas deflagration, whose point blast
+ * already stands for the room's pressure). cloud: a fuel-air cloud, which holes nothing round itself. */
+export function survey(pos: Vec3, radius: number, power: number, gasPower = power, cloud = false): Survey {
   const t0 = performance.now();
   const W = Math.max(0.01, power / POWER_PER_KG) * (pos[1] < 2.5 ? 1.8 : 1);
-  const Wg = gasPower === power ? W : Math.max(0.01, gasPower / POWER_PER_KG) * (pos[1] < 2.5 ? 1.8 : 1);
+  const Wg = Math.max(0, gasPower / POWER_PER_KG);
   const H = Math.min(MAX_H, Math.max(8, Math.ceil(radius * 2) + 2));
   const n = 2 * H + 1, n3 = n * n * n;
-  if (occ.length < n3) { occ = new Uint8Array(n3); por = new Uint8Array(n3); cov = new Uint8Array(n3); steps = new Uint16Array(n3); roofed = new Uint8Array(n3); queue = new Int32Array(n3); }
+  if (occ.length < n3) { occ = new Uint8Array(n3); occ0 = new Uint8Array(n3); por = new Uint8Array(n3); cov = new Uint8Array(n3); steps = new Uint16Array(n3); roofed = new Uint8Array(n3); queue = new Int32Array(n3); }
   occ.fill(0, 0, n3); por.fill(0, 0, n3); cov.fill(0, 0, n3); steps.fill(UNREACHED, 0, n3); roofed.fill(0, 0, n3);
   const x0 = Math.floor(pos[0]) - H, y0 = Math.floor(pos[1]) - H, z0 = Math.floor(pos[2]) - H;
   const idx = (x: number, y: number, z: number): number => (x - x0) + n * ((y - y0) + n * (z - z0));
@@ -89,23 +159,46 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
   });
   for (let z = 0; z < n; z++) for (let y = 0; y < n && y0 + y < 0; y++) for (let x = 0; x < n; x++) occ[x + n * (y + n * z)] = 1;
   const cx = Math.floor(pos[0]) - x0, cy = Math.floor(pos[1]) - y0, cz = Math.floor(pos[2]) - z0;
-  /* a fuel-air charge breaches nothing round itself: what covers it is the room's real ceiling, judged before the charge's
-     own breach sphere is cleared (a point charge of this size would have holed that ceiling; a cloud does not) */
-  const trueCover = gasPower !== power;
-  if (trueCover) coverPass(n);
-  // …and it holes no wall round itself either: only its own cell is cleared
-  const free = trueCover ? 0.5 : Math.max(FREE, radius * BREACH);
+  const c0 = cx + n * (cy + n * cz);
+
+  /* the building as it stood: its cover, and the air cell the charge went off in */
+  coverPass(n);
+  occ0.set(occ.subarray(0, n3));
+  let seed = c0;
+  if (occ0[c0]) {
+    const a = airSide(pos);
+    seed = -1;
+    if (a) for (const k of [0.6, 1.1]) {
+      const sx = Math.floor(pos[0] + a[0] * k) - x0, sy = Math.floor(pos[1] + a[1] * k) - y0, sz = Math.floor(pos[2] + a[2] * k) - z0;
+      if (sx < 0 || sy < 0 || sz < 0 || sx >= n || sy >= n || sz >= n) break;
+      const j = sx + n * (sy + n * sz);
+      if (!occ0[j]) { seed = j; break; }
+    }
+  }
+  /* what the charge holes: only what lies inside its contact-breach radius (a fuel-air cloud, nothing); a holed cell of
+     the envelope counts as under cover, so the flood below reaches the far side of the hole and counts it as a vent */
+  const rb = cloud ? 0 : contactBreach(Wg > 0 ? Wg : power / POWER_PER_KG);
+  const br = Math.ceil(rb) + 1;
+  for (let z = -br; z <= br; z++) for (let y = -br; y <= br; y++) for (let x = -br; x <= br; x++) {
+    const gx = cx + x, gy = cy + y, gz = cz + z;
+    if (gx < 0 || gy < 0 || gz < 0 || gx >= n || gy >= n || gz >= n || y0 + gy < 0) continue;
+    const i = gx + n * (gy + n * gz);
+    if (!occ0[i]) continue;
+    const dx = Math.max(x0 + gx - pos[0], 0, pos[0] - (x0 + gx + 1)), dy = Math.max(y0 + gy - pos[1], 0, pos[1] - (y0 + gy + 1)), dz = Math.max(z0 + gz - pos[2], 0, pos[2] - (z0 + gz + 1));
+    if (dx * dx + dy * dy + dz * dz >= rb * rb) continue;
+    occ0[i] = 0;
+    roofed[i] = 1;
+  }
+
+  /* the shock's view: within the breach sphere the charge holes whatever stands there and nothing shadows */
+  const free = cloud ? 0.5 : Math.max(FREE, radius * BREACH);
   const fr = Math.ceil(free);
   for (let z = -fr; z <= fr; z++) for (let y = -fr; y <= fr; y++) for (let x = -fr; x <= fr; x++) {
     if (x * x + y * y + z * z > free * free + 0.5 || y0 + cy + y < 0) continue;
-    const i = cx + x + n * (cy + y + n * (cz + z));
-    if (trueCover && occ[i]) roofed[i] = 1;
-    occ[i] = 0;
+    occ[cx + x + n * (cy + y + n * (cz + z))] = 0;
   }
-  if (!trueCover) coverPass(n);
   /* breadth-first reach through open cells */
   let head = 0, tail = 0;
-  const c0 = cx + n * (cy + n * cz);
   steps[c0] = 0; queue[tail++] = c0;
   const maxSteps = Math.round(H * 1.4);
   while (head < tail) {
@@ -122,15 +215,17 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
       queue[tail++] = j;
     }
   }
-  /* The room the gas fills: the covered space connected to the charge under cover. Openings to the open air vent it;
-     the wave that leaves through a window and comes back in through the next house's is the shock's business, not the
-     gas's. */
+  /* The room the gas fills: the covered space connected to the charge under cover, as it stood. Openings to the open
+     air (and the charge's own breach through the envelope) vent it; the wave that leaves through a window and comes
+     back in through the next house's is the shock's business, not the gas's. */
   if (inside.length < n3) inside = new Uint8Array(n3);
   inside.fill(0, 0, n3);
   let V = 0, Av = 0;
   const rmin: Vec3 = [Infinity, Infinity, Infinity], rmax: Vec3 = [-Infinity, -Infinity, -Infinity];
+  const reach = Math.round(H * 1.4);
   head = tail = 0;
-  if (roofed[c0]) { inside[c0] = 1; queue[tail++] = c0; }
+  const sy0 = seed >= 0 ? ((seed / n) | 0) % n : -1;
+  if (seed >= 0 && roofed[seed] && y0 + sy0 >= 0) { inside[seed] = 1; queue[tail++] = seed; }
   while (head < tail) {
     const i = queue[head++];
     const x = i % n, y = ((i / n) | 0) % n, z = (i / (n * n)) | 0;
@@ -138,33 +233,46 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
     if (x < rmin[0]) rmin[0] = x; if (y < rmin[1]) rmin[1] = y; if (z < rmin[2]) rmin[2] = z;
     if (x > rmax[0]) rmax[0] = x; if (y > rmax[1]) rmax[1] = y; if (z > rmax[2]) rmax[2] = z;
     if (x === 0 || y === n - 1 || z === 0 || x === n - 1 || z === n - 1) Av++;
-    if (steps[i] >= maxSteps) continue;
+    const r = Math.abs(x - cx) + Math.abs(y - cy) + Math.abs(z - cz);
+    if (r >= reach) continue;
     for (let k = 0; k < 6; k++) {
       const nx = x + (k === 0 ? 1 : k === 1 ? -1 : 0), ny = y + (k === 2 ? 1 : k === 3 ? -1 : 0), nz = z + (k === 4 ? 1 : k === 5 ? -1 : 0);
       if (nx < 0 || ny < 0 || nz < 0 || nx >= n || ny >= n || nz >= n) continue;
       const j = nx + n * (ny + n * nz);
-      if (occ[j] || inside[j]) continue;
+      if (occ0[j] || inside[j]) continue;
       if (!roofed[j]) { Av++; continue; }
       inside[j] = 1;
       queue[tail++] = j;
     }
   }
   const cw = Math.cbrt(W);
-  const confined = roofed[c0] === 1 && V > 1;
-  let Pqs = 0, tg = 0, iGas = 0, iMulti = 0;
+  const held = heldBy(V, Av);
+  const confined = tail > 0 && V > 1 && held > 0 && Wg > 0;
+  let Pqs = 0, tg = 0, iGas0 = 0, iMulti = 0;
   if (confined) {
-    Pqs = 2.25e6 * Math.min(1, Wg / V) ** 0.72;
-    tg = Math.min(0.05, Math.max(0.003, V / (Math.max(0.5, Av) * 0.6 * 340)));
-    iGas = 0.5 * Pqs * tg;
-    const Zr = Math.cbrt(V) / cw;
-    iMulti = 2 * cw * iso(Zr) * cr(pso(Zr));
+    Pqs = gasPressure(Wg, V);
+    tg = (V / (Math.max(LEAK, Av) * A0)) * Math.log((Pqs + P0) / P0) / 2.13;
+    iGas0 = gasImpulse(Pqs, V, Av);
+    const Zr = Math.max(1, 0.5 * Math.cbrt(V)) / cw;
+    iMulti = 0.75 * cw * iso(Zr) * cr(pso(Zr));
   }
-  return {
-    pos: [pos[0], pos[1], pos[2]], W, cw, radius, free, x0, y0, z0, n, occ, steps, roofed, confined, V, Av, Pqs, tg, iGas, iMulti,
-    gas: confined ? Math.min(1.2, (iGas + iMulti) / GAS_IMPULSE) : 0,
+  const s: Survey = {
+    pos: [pos[0], pos[1], pos[2]], W, cw, radius, free, x0, y0, z0, n, occ, steps, roofed, confined, Wg, V, Av, held, Pqs, tg, iGas0, iGas: iGas0, iMulti,
+    gas: 0,
     roomMin: [x0 + rmin[0], y0 + rmin[1], z0 + rmin[2]], roomMax: [x0 + rmax[0] + 1, y0 + rmax[1] + 1, z0 + rmax[2] + 1],
-    ms: performance.now() - t0,
+    ms: 0,
   };
+  s.gas = confined ? held * Math.min(1.2, (s.iGas + iMulti) / GAS_IMPULSE) : 0;
+  s.ms = performance.now() - t0;
+  return s;
+}
+
+/** Walls of `A` m² the gas has blown out vent the rest of the blow-down once they have opened, `tOpen` s after the
+ * charge: what the room's other members take. The peak (Pqs, held) was reached before they moved. */
+export function vent(s: Survey, A: number, tOpen: number): void {
+  if (!s.confined || A <= 0) return;
+  s.iGas = gasImpulse(s.Pqs, s.V, s.Av, A, tOpen);
+  s.gas = s.held * Math.min(1.2, (s.iGas + s.iMulti) / GAS_IMPULSE);
 }
 
 /* 3D DDA through the survey grid from the charge to t: false when a solid cell (beyond the charge's own reach)
@@ -255,13 +363,15 @@ export function panelLoad(s: Survey, c: Vec3, n: Vec3): { P: number; I: number; 
   const r = 1 + (cr(P) - 1) * c1 * c1;
   P *= r; I *= r;
   if (L > d * 1.02) { const k = Math.max(0.2, d / L); P *= k; I *= k; }
-  /* the gas phase and the reverberations build only in a room that holds them: vented through openings of more than
-     about its own wall area (vent area / V^⅔ past ~1.5, an aisle bay open to a nave) the charge is effectively in
-     the open (UFC 3-340-02 §2-15: gas impulse falls away with the vent ratio) */
-  const vent = s.V > 0 ? s.Av / Math.pow(s.V, 2 / 3) : 99;
-  const held = Math.max(0, Math.min(1, (1.5 - vent) / 1.2));
-  const gas = held > 0 && inRoom(s, c, 0.3);
-  if (gas) { P = Math.max(P, s.Pqs * held); I += (s.iGas + s.iMulti) * held; }
+  /* the gas phase and the reverberations build only in a room that holds them (s.held: vented through openings of
+     more than about its own wall area the charge is effectively in the open). The wall is judged on the gas it takes
+     before it moves (iGas0); the reverberations are its own first reflection again at half and a quarter (Baker). */
+  const gas = s.held > 0 && inRoom(s, c, 0.3);
+  if (gas) {
+    const Zd = Math.max(0.2, d) / s.cw;
+    P = Math.max(P, s.Pqs * s.held);
+    I += (s.iGas0 + 0.75 * s.cw * iso(Zd) * cr(pso(Zd))) * s.held;
+  }
   return { P, I, gas };
 }
 
@@ -272,7 +382,7 @@ export function paneLoad(s: Survey, c: Vec3, n: Vec3 | null): { side: number; fa
   const d = Math.hypot(c[0] - s.pos[0], c[1] - s.pos[1], c[2] - s.pos[2]);
   let P = pso(L / s.cw);
   if (L > d * 1.02) P *= Math.max(0.25, d / L);
-  if (inRoom(s, c, 0.5)) P = Math.max(P, s.Pqs);
+  if (inRoom(s, c, 0.5)) P = Math.max(P, s.Pqs * s.held);
   let cos2 = 1;
   if (n && d > 1e-3) {
     const c1 = ((s.pos[0] - c[0]) * n[0] + (s.pos[1] - c[1]) * n[1] + (s.pos[2] - c[2]) * n[2]) / d;

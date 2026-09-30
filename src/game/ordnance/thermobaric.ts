@@ -79,7 +79,7 @@ function ignition(p: Pending): void {
     /* a longer positive phase than a point charge of the same energy: ~1.6× the impulse on what is free to move */
     /* a fuel-air burn peaks at ~20 bar, not a high explosive's 10⁵: little brisance, a crushing push. The shock is dealt at
        half the TNT equivalent; a room it fills is pressurised by all of it (the survey's gas phase) */
-    explode(c, radius, W * 0.5 * 60e3, 2150 * Math.sqrt(W * 0.5) * (1 + 0.6 * held), 1.3, 24, W * 60e3);
+    explode(c, radius, W * 0.5 * 60e3, 2150 * Math.sqrt(W * 0.5) * (1 + 0.6 * held), 1.3, 24, W * 60e3, true);
     const sv = lastBlast.survey, log = tbxLog[tbxLog.length - 1];
     if (sv && log) { log.confined = sv.confined; log.Pqs = sv.Pqs; log.V = sv.V; }
   }

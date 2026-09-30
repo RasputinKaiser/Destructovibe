@@ -1210,6 +1210,54 @@ Source for the table: [S https://man.fas.org/dod-101/sys/land/m720.htm]. Wikiped
 
 ---
 
+## weapon/confined-blast — any charge inside a room
+
+Sources fetched for this section:
+- Salvado, Tavares, Teixeira-Dias & Cardoso (2017), *Confined explosions: the effect of compartment geometry*, J. Loss
+  Prev. Process Ind. 48:126-144 (accepted manuscript): https://www.pure.ed.ac.uk/ws/files/34748553/JLPP_3479_AFAM.pdf
+- Catovic & Kljuno (2021), *Review of methods for prediction of internal blast loading*, PEN 9(2):534-544:
+  https://pdfs.semanticscholar.org/6035/72df9d1349d84292cf9428567b6b85ef81cd.pdf (quotes Baker, Cox, Westine, Kulesz &
+  Strehlow, *Explosion Hazards and Evaluation*, 1983)
+- Hu, Wu, Lukaszewicz, Dragos, Ren & Haskett (2011), *Characteristics of confined blast loading in unvented structures*,
+  IJPS 2(1): https://opus.lib.uts.edu.au/bitstream/10453/118537/1/2041-4196.2.1.21.pdf
+
+### Benchmarks
+- Two loads inside a structure: the reflected shock with its reverberations, then the quasi-static gas pressure, which
+  depends on the room's volume, its vent area and the explosive [S Catovic & Kljuno §2].
+- Reverberations: each re-reflection taken at half the one before (P_r2 = P_r1/2, P_r3 = P_r2/2, then nothing), so
+  for a slow-responding wall the train is one pulse of **1.75 ×** the first reflected pressure and impulse
+  [S Catovic & Kljuno eqs. 1-4, after Baker et al. 1983].
+- Gas blow-down through vents: P(t) = (P_QS + P0)·e^(−2.13 τ) − P0, τ = α_e·A_s·a0·t / V (α_e the vent share of the
+  wall area A_s, a0 the sound speed); it reaches ambient at τ_max = ln((P_QS + P0)/P0) / 2.13, and the gas impulse is
+  the area under the curve [S Catovic & Kljuno eqs. 12-15].
+- Peak gas pressure, UFC 3-340-02 Fig. 2-152 as replotted with test data: **~0.4 bar at W/V = 0.0058 kg/m³**
+  [S Salvado et al. §6, Fig. 18]. Full afterburn of TNT's products needs W/V below **0.387 kg/m³**; the total energy
+  with afterburn is **~3.22 ×** the heat of detonation [S Salvado et al. §6].
+- A detonation-only hydrocode (no afterburn) gives far less: P_g = 1.50·x^0.967 MPa, x = W/V in kg/m³
+  [S Hu et al. 2011, eq. 7] (0.076 MPa at 0.046 kg/m³ against 0.20 MPa from the fit below [D]); afterburn is most of a
+  real room's gas pressure.
+- Degree of venting runs from fully vented through partially vented to fully confined [S Salvado et al. Fig. 1, after
+  UFC 3-340-02]. Subsequent reflections are usually weaker than the first, but in slender compartments they can be
+  stronger [S Salvado et al. §7].
+
+### What the game does (src/sim/fields/blast.ts, src/destruction/structure.ts)
+- The room is found on the building as it stood when the charge went off: its real ceiling and walls, glazing counted
+  as open. The charge holes only what lies inside its contact-breach radius, P = R³·K·C with masonry K 0.35 and C 3.2
+  (weapon/satchel): 2.5 kg TNT → 0.52 m [D]. A charge planted on a wall is on the side it was planted on.
+- P_QS = 2.25 MPa·(W/V)^0.78, W the charge's own TNT-eq (no ground-reflection factor). 0.40 bar at 0.0058 kg/m³ [D,
+  matches the S point]; 1.19 bar for 2.5 kg in 108 m³ [D], against the afterburn energy bound
+  (γ − 1)·3.22·4.184 MJ/kg·W/V = 1.25 bar [D]. The 2.25 MPa anchor at W/V = 1 kg/m³ is carried over from the earlier
+  fit and is **not re-sourced**.
+- Blow-down on the Baker curve through the room's vent area (openings, the charge's own breach, and, once they have
+  moved hL/2(h + L) out, the wall panels the gas blows out); what a member takes is its first 50 ms.
+- Reverberations: 0.75 × the wall's own normal reflected impulse on top of the direct shock (the 1.75 × train).
+- Share held: 1 below a vent ratio A/V^⅔ of 0.3, none past 1.5 (judgement, **not sourced**; UFC's charts were not read).
+- The gas load moves things: masonry panels by the SDOF P–I verdict, slabs and sheet walls bounding the room pushed out
+  by (gas + reverberation impulse) × area.
+- Test (tests/confinement.test.ts), 2.5 kg at 1 m in a 6 × 3 × 6 m 9 in brick room under a 25 cm RC slab: open (no
+  roof) walls ~6 % down; 3 × 3 m opening (vent ratio 0.53, held 0.81, gas impulse ~0.5 kPa·s) ~20-50 % of the site
+  down; closed (gas impulse ~5 kPa·s) ~98 % down with the slab thrown off [D, sim].
+
 ## weapon gaps and conflicts
 - Constants K and C for P = R³KC (FM 3-34.214 tables): source blocked. Propylene oxide LEL/UEL. HEAT hole diameters in concrete or brick. Peak room overpressure when firing from an enclosure. 60 mm fragment data. BROACH, Bunkerfaust and M37 specs.
 - M720/M888 fill: 0.19 kg vs 0.36 kg. 40 mm "casualty radius 130 m" is a danger radius, not an effect radius. The 24-pdr "62 in brick at 3,500 yd" is implausible. The Young SI constant 0.000018 is reconstructed from memory and a unit match.
@@ -1222,10 +1270,9 @@ Source for the table: [S https://man.fas.org/dod-101/sys/land/m720.htm]. Wikiped
   with "> 0.91 m". The 260 m/s impact speed and the RE 1.3 for AFX-757 (→ 21 kg TNT-eq) are assumptions, not sourced.
 
 ## weapon known gaps (critic loop, 4 rounds)
-- Point charges indoors: the blast survey clears a breach sphere round the charge (≥ 1.5 m) before judging cover, so a
-  ceiling within that sphere is lost and the room never registers as confined; an HE rocket in a small room does ~30×
-  less than the thermobaric round in the same room. Fuel-air charges are judged from the real ceiling; point charges
-  are unchanged (engine).
+- Point charges indoors (fixed, see weapon/confined-blast): the survey used to clear a breach sphere (≥ 1.5 m) round the
+  charge before judging cover, so a nearby ceiling was lost and the room never registered as confined. Every charge is
+  now judged on the room as it stood.
 - Contact breaches are sized by P = R³·K·C with C fitted (3.2 → 5 lb C-4 ≈ 1 m² in plain concrete) and reinforced
   concrete fitted to FM 3-06.11 Table 8-2; K/C tables from FM 3-34.214 were not retrieved. Holes are only as fine as
   the pieces the wall is built of.

@@ -3663,8 +3663,10 @@ function detonateProp(p: Piece): void {
   fx.fire(pos, 6 + chance() * 4, ex.radius * 0.22);
 }
 
-/** gasPower: what a room it goes off in is pressurised by, when not the same as the shock's power (fuel-air charges) */
-export function explode(pos: Vec3, radius: number, power: number, impulse: number, weldReach = 1, maxFractures = BLAST_FRACTURES, gasPower = power): void {
+/** gasPower: what a room it goes off in is pressurised by, when not the same as the shock's power (a fuel-air charge's
+ * whole energy; 0 for a blast whose room pressure is dealt elsewhere: the breach half of a contact charge, a gas
+ * deflagration). cloud: a fuel-air cloud, which holes nothing round itself. */
+export function explode(pos: Vec3, radius: number, power: number, impulse: number, weldReach = 1, maxFractures = BLAST_FRACTURES, gasPower = power, cloud = false): void {
   counters.explosions++;
   chance.at(pos[0], pos[1], pos[2], stepCount, 4);
   fx.explosion(pos, radius);
@@ -3679,7 +3681,9 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
   /* The wave, not just the distance: in plain view in the open a piece takes the calibrated fall-off below; a wall
      between shadows it (the wave diffracts round, weaker); inside a room the gas pressure and the reflections load
      every surface that bounds it, however far from the charge. */
-  const bl = fields.survey(pos, radius, power, gasPower);
+  const bl = fields.survey(pos, radius, power, gasPower, cloud);
+  /* the room's walls the gas blows out vent the rest of its blow-down: what its floors, columns and joints take */
+  if (bl.confined) { const b = blownOut(bl, pos); fields.vent(bl, b.A, b.t); }
   const lo: Vec3 = [pos[0] - radius, pos[1] - radius, pos[2] - radius], hi: Vec3 = [pos[0] + radius, pos[1] + radius, pos[2] + radius];
   if (bl.confined) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], bl.roomMin[k] - 1); hi[k] = Math.max(hi[k], bl.roomMax[k] + 1); }
   const near = new Map<Piece, { p: Piece; d: number; cp: Vec3 }>();
@@ -3703,8 +3707,11 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
     const lf = fields.loadFactors(bl, h.cp, h.d);
     // the ground over a buried member takes most of the blow, and all of the fireball
     const sh = blastShield(h.cp, power / 60e3);
-    let e = (gasPower === power ? power * (f * f * lf.shadow + lf.gas) : power * f * f * lf.shadow + gasPower * lf.gas) / h.p.pm.blastResist * sh;
+    let e = power * (f * f * lf.shadow) / h.p.pm.blastResist * sh;
     if (broke >= maxFractures && !h.p.pm.explosive) e = Math.min(e, Math.max(0, h.p.hp - h.p.damage) * 0.9);
+    /* a blast held to no fresh breaking holds its shock to that, not its room's gas; a masonry panel's gas load is the
+       SDOF verdict's (blastPanels), which throws it out whole rather than shattering it where it stands */
+    if (lf.gas > 0 && !panelGeom(h.p)) e += gasPower * lf.gas / h.p.pm.blastResist * sh;
     const was = h.p.queued;
     damagePiece(h.p, h.cp, e, true);
     if (h.p.queued && !was) broke++;
@@ -3746,6 +3753,7 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
     if (hit > 0.75) failWeld(w, w.ductile && hit < 1.1 ? 'overload' : 'blast');
     else if (hit > 0.1) scaleWeld(w, 1 - hit * 0.35);
   }
+  if (bl.confined) gasPush(bl, pos, hits);
   fields.fieldsBlast(pos, radius, power, bl);
   explodeImpulse(pos, radius, impulse, CAT.player | CAT.projectile);
   pushFree(pos, radius, impulse);
@@ -3790,6 +3798,35 @@ function lateBlastPush(): void {
   }
 }
 
+/* The gas phase and the reverberations push every plate that bounds the charge's room outward: a floor or roof slab
+   over it takes (gas impulse + reverberation) × its area upward, a sheet wall or a door outward. A plate with the room on
+   both sides (a partition) is pushed equally both ways; masonry panels are the SDOF verdict's (blastPanels). What its
+   joints make of the momentum is theirs. */
+const _gn: Vec3 = [0, 0, 0], _gq: Vec3 = [0, 0, 0];
+function gasPush(bl: Survey, pos: Vec3, hits: { p: Piece; d: number; cp: Vec3 }[]): void {
+  for (const h of hits) {
+    const p = h.p;
+    if (p.dead || fields.isFragile(p) || !fields.inRoom(bl, h.cp)) continue;
+    if (PANEL_MATS.has(p.mat) && !p.pm.rebar) continue;
+    const mn: Vec3 = [0, 0, 0], mx: Vec3 = [0, 0, 0];
+    P.bounds(p.poly, mn, mx);
+    const dims: Vec3 = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
+    const t = dims[0] <= dims[1] && dims[0] <= dims[2] ? 0 : dims[1] <= dims[2] ? 1 : 2;
+    const th = dims[t], a = dims[(t + 1) % 3], b = dims[(t + 2) % 3];
+    if (th > 0.5 * Math.min(a, b)) continue;
+    vec3.set(_gn, t === 0 ? 1 : 0, t === 1 ? 1 : 0, t === 2 ? 1 : 0);
+    vec3.transformQuat(_gn, _gn, p.curRot);
+    const side = (h.cp[0] - pos[0]) * _gn[0] + (h.cp[1] - pos[1]) * _gn[1] + (h.cp[2] - pos[2]) * _gn[2] >= 0 ? 1 : -1;
+    vec3.scaleAndAdd(_gq, p.curPos, _gn, side * (th / 2 + 0.6));
+    if (fields.inRoom(bl, _gq, 0)) continue;
+    const Zd = Math.max(0.2, h.d) / bl.cw;
+    const I = bl.held * (bl.iGas + 0.75 * bl.cw * fields.iso(Zd) * fields.cr(fields.pso(Zd)));
+    const j = Math.min(I * a * b, p.mass * 22);
+    if (j <= 0) continue;
+    b3.b3Body_ApplyLinearImpulseToCenter(p.body, [_gn[0] * side * j, _gn[1] * side * j, _gn[2] * side * j], true);
+  }
+}
+
 /* ---------------- blast on wall panels ----------------
    Unreinforced masonry fails out of plane: a panel spanning a storey cracks along a bed joint at its flexural
    tensile strength (plus whatever precompression the load above puts on it) and then rocks out as two leaves until it
@@ -3807,9 +3844,7 @@ const _pn: Vec3 = [0, 0, 0], _pu: Vec3 = [0, 0, 0], _pc: Vec3 = [0, 0, 0];
 export const panelLog: { id: number; mat: MaterialId; P: number; I: number; R: number; I0: number; gas: boolean; failed: boolean; v: number }[] = [];
 
 export const lastBlast: { survey: Survey | null } = { survey: null };
-function blastPanels(bl: Survey, pos: Vec3): void {
-  panelLog.length = 0;
-  lastBlast.survey = bl;
+function panelCands(bl: Survey, pos: Vec3): Piece[] {
   const g = bl.n, lo: Vec3 = [bl.x0, Math.max(bl.y0, -0.5), bl.z0], hi: Vec3 = [bl.x0 + g, bl.y0 + g, bl.z0 + g];
   const cand: { p: Piece; d: number }[] = [];
   const seen = new Set<Piece>();
@@ -3824,44 +3859,88 @@ function blastPanels(bl: Survey, pos: Vec3): void {
     cand.push({ p, d: vec3.distance(p.curPos, pos) });
   });
   cand.sort((a, b) => a.d - b.d || pieceKey(a.p) - pieceKey(b.p));
+  return cand.map(c => c.p);
+}
+
+/* A storey-high masonry panel the SDOF model below judges: its thickness, height and length, with its normal left in
+   _pn; null for anything else. */
+function panelGeom(p: Piece): { th: number; h: number; L: number } | null {
+  if (p.dead || p.queued || p.depth > 0 || !p.welds.length || !PANEL_MATS.has(p.mat) || p.pm.rebar) return null;
+  if (Math.min(...p.root.spec.size) > 0.8) return null;
+  const mn: Vec3 = [0, 0, 0], mx: Vec3 = [0, 0, 0];
+  P.bounds(p.poly, mn, mx);
+  const dims: Vec3 = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
+  const t = dims[0] <= dims[1] && dims[0] <= dims[2] ? 0 : dims[1] <= dims[2] ? 1 : 2;
+  const th = dims[t];
+  vec3.set(_pn, t === 0 ? 1 : 0, t === 1 ? 1 : 0, t === 2 ? 1 : 0);
+  vec3.transformQuat(_pn, _pn, p.curRot);
+  if (Math.abs(_pn[1]) > 0.5 || th > 0.8) return null;
+  // the in-plane axis nearest vertical spans the storey
+  const u = (t + 1) % 3, v = (t + 2) % 3;
+  vec3.set(_pu, u === 0 ? 1 : 0, u === 1 ? 1 : 0, u === 2 ? 1 : 0);
+  vec3.transformQuat(_pu, _pu, p.curRot);
+  const vert = Math.abs(_pu[1]) >= 0.7 ? u : v;
+  const h = dims[vert], L = dims[vert === u ? v : u];
+  if (h < 0.6 || L < 0.4 || h * L < 0.5) return null;
+  return { th, h, L };
+}
+
+/* A panel's verdict under this blast, no side effects (leaves its normal in _pn and its nearest point in _pc). */
+function judgePanel(bl: Survey, pos: Vec3, p: Piece): { ld: { P: number; I: number; gas: boolean }; R: number; I0: number; m: number; h: number; L: number; over: boolean } | null {
+  const g = bl.n;
+  const pg = panelGeom(p);
+  if (!pg) return null;
+  const { th, h, L } = pg;
+  // load point: halfway from the face's nearest point to its middle (the SDOF sees the face's mean load)
+  b3.b3Shape_GetClosestPoint(_pc, p.shape, pos);
+  const c: Vec3 = [(_pc[0] + p.curPos[0]) / 2, (_pc[1] + p.curPos[1]) / 2, (_pc[2] + p.curPos[2]) / 2];
+  if (Math.abs(c[0] - bl.pos[0]) > g / 2 || Math.abs(c[1] - bl.pos[1]) > g / 2 || Math.abs(c[2] - bl.pos[2]) > g / 2) return null;
+  const ld = panelLoad(bl, c, _pn);
+  const area = h * L, m = p.mass / area;
+  // precompression at mid-height: what the bed below carries, less half the panel's own weight
+  let Nb = 0;
+  for (const w of p.welds) {
+    weldPos(w, _v);
+    weldNormal(w, _pu);
+    if (Math.abs(_pu[1]) > 0.7 && _v[1] < p.curPos[1]) Nb += Math.max(0, w.sN);
+  }
+  const sd = Math.max(p.pm.density * 9.81 * h / 2, (Nb - p.mass * 9.81 / 2) / Math.max(0.01, th * L));
+  const M = (p.pm.eng.ft * 1e6 + Math.min(sd, 0.4e6)) * th * th / 6;
+  // one-way over the storey, with some two-way help from the returns and arching between floors
+  const R = 1.5 * 8 * M / (h * h);
+  const I0 = Math.sqrt(m * R * th);
+  const over = ld.P > R && ld.I > I0 && (ld.P / R - 1) * (ld.I / I0 - 1) >= 0.25;
+  return { ld, R, I0, m, h, L, over };
+}
+
+/* Wall area (m²) of the charge's room that its gas phase blows out (a dry run of the panel verdicts below, before
+   anything has moved), and when it has opened: a panel driven out by the gas at Pqs has opened a gap round itself as
+   wide as its own face once it has moved hL / 2(h + L), which takes √(2·x·m / Pqs). Those walls vent the rest of the
+   blow-down. */
+function blownOut(bl: Survey, pos: Vec3): { A: number; t: number } {
+  let A = 0, n = 0, tA = 0;
+  const Pg = Math.max(1, bl.Pqs * bl.held);
+  for (const p of panelCands(bl, pos)) {
+    if (n >= MAX_PANELS) break;
+    const v = judgePanel(bl, pos, p);
+    if (!v || !v.over || !v.ld.gas) continue;
+    const a = v.h * v.L;
+    A += a; n++;
+    tA += a * Math.sqrt(2 * (a / (2 * (v.h + v.L))) * v.m / Pg);
+  }
+  return { A, t: A > 0 ? tA / A : Infinity };
+}
+
+function blastPanels(bl: Survey, pos: Vec3): void {
+  panelLog.length = 0;
+  lastBlast.survey = bl;
   let failed = 0;
-  for (const { p } of cand) {
+  for (const p of panelCands(bl, pos)) {
     if (failed >= MAX_PANELS) break;
     if (p.dead || !p.welds.length) continue;
-    const mn: Vec3 = [0, 0, 0], mx: Vec3 = [0, 0, 0];
-    P.bounds(p.poly, mn, mx);
-    const dims: Vec3 = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
-    const t = dims[0] <= dims[1] && dims[0] <= dims[2] ? 0 : dims[1] <= dims[2] ? 1 : 2;
-    const th = dims[t];
-    vec3.set(_pn, t === 0 ? 1 : 0, t === 1 ? 1 : 0, t === 2 ? 1 : 0);
-    vec3.transformQuat(_pn, _pn, p.curRot);
-    if (Math.abs(_pn[1]) > 0.5 || th > 0.8) continue;
-    // the in-plane axis nearest vertical spans the storey
-    const u = (t + 1) % 3, v = (t + 2) % 3;
-    vec3.set(_pu, u === 0 ? 1 : 0, u === 1 ? 1 : 0, u === 2 ? 1 : 0);
-    vec3.transformQuat(_pu, _pu, p.curRot);
-    const vert = Math.abs(_pu[1]) >= 0.7 ? u : v;
-    const h = dims[vert], L = dims[vert === u ? v : u];
-    if (h < 0.6 || L < 0.4 || h * L < 0.5) continue;
-    // load point: halfway from the face's nearest point to its middle (the SDOF sees the face's mean load)
-    b3.b3Shape_GetClosestPoint(_pc, p.shape, pos);
-    const c: Vec3 = [(_pc[0] + p.curPos[0]) / 2, (_pc[1] + p.curPos[1]) / 2, (_pc[2] + p.curPos[2]) / 2];
-    if (Math.abs(c[0] - bl.pos[0]) > g / 2 || Math.abs(c[1] - bl.pos[1]) > g / 2 || Math.abs(c[2] - bl.pos[2]) > g / 2) continue;
-    const ld = panelLoad(bl, c, _pn);
-    const area = h * L, m = p.mass / area;
-    // precompression at mid-height: what the bed below carries, less half the panel's own weight
-    let Nb = 0;
-    for (const w of p.welds) {
-      weldPos(w, _v);
-      weldNormal(w, _pu);
-      if (Math.abs(_pu[1]) > 0.7 && _v[1] < p.curPos[1]) Nb += Math.max(0, w.sN);
-    }
-    const sd = Math.max(p.pm.density * 9.81 * h / 2, (Nb - p.mass * 9.81 / 2) / Math.max(0.01, th * L));
-    const M = (p.pm.eng.ft * 1e6 + Math.min(sd, 0.4e6)) * th * th / 6;
-    // one-way over the storey, with some two-way help from the returns and arching between floors
-    const R = 1.5 * 8 * M / (h * h);
-    const I0 = Math.sqrt(m * R * th);
-    const over = ld.P > R && ld.I > I0 && (ld.P / R - 1) * (ld.I / I0 - 1) >= 0.25;
+    const j = judgePanel(bl, pos, p);
+    if (!j) continue;
+    const { ld, R, I0, m, h, over } = j;
     let vel = 0;
     if (over) {
       failed++;
