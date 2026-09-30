@@ -3889,8 +3889,10 @@ const _cover: [number, number, number, number, number, number] = [0, 0, 0, 0, 0,
 function buried(p: Piece): boolean {
   b3.b3Body_ComputeAABB(_cover, p.body);
   const top = _cover[4];
-  if (top > 0.65) return false;
   const cx = (_cover[0] + _cover[3]) / 2, cz = (_cover[2] + _cover[5]) / 2;
+  // wholly below the terrain surface (a cable or pipe in the soil; over a dug hole groundAt is -Infinity)
+  if (top < groundAt(cx, cz) - 0.05) return true;
+  if (top > 0.65) return false;
   let sealed = false;
   overlapAABB([cx - 0.05, top + 0.02, cz - 0.05], [cx + 0.05, top + 0.6, cz + 0.05], CAT.structure, shape => {
     if (sealed) return;

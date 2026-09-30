@@ -116,7 +116,7 @@ async function loadLevel(c: Contract, label: string, backdrop = false): Promise<
   const spawn = bp.spawn ?? { pos: [0, 0, 26] as Vec3, yaw: 0 };
   createPlayer(spawn.pos, spawn.yaw);
   setEnvironment(c.env);
-  buildScenery(gfx.scene, c.env, bp.terrain?.half);
+  buildScenery(gfx.scene, c.env, bp.terrain?.half, bp.backdrop);
   ui.setLoading(0.3, 'Mixing materials');
   await nextFrame();
   for (const m of new Set(bp.pieces.map(p => p.mat))) getPieceMaterials(m);

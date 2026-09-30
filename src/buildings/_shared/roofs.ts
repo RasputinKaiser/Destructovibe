@@ -159,12 +159,13 @@ export function stackShaft(s: ShaftOpts): PieceSpec[] {
   const w = s.x[1] - s.x[0], zc = (s.z[0] + s.z[1]) / 2, rimD = Math.min(potD + 0.035, w / s.pots - 0.012), bodyD = Math.min(potD, rimD - 0.03);
   for (let i = 0; i < s.pots; i++) {
     const x = s.x[0] + ((i + 0.5) * w) / s.pots, y1 = top + (s.potH ?? 0.55) + 0.08 * (i % 2), clay = shadeTint(s.potTint ?? 0xb86a48, 0.72 + 0.07 * (i % 3), 0.3);
-    /* a plain octagonal clay pot: a moulded rim at the top, sooted black-brown over the rim and a hand's width below
+    /* a plain round clay pot: a moulded rim at the top, sooted black-brown over the rim and a hand's width below
        it, grimy where it is bedded in the flaunching. The pot stays fired clay; its skin is drawn in a plain matte
-       finish with hairline arrises (a faceted cylinder's chamfers read as a cage of stripes). */
+       finish as a 24-sided prism, whose facets meet shallowly enough to carry no arris chamfer (a chamfer is drawn
+       as a worn, pale edge, and eight of them read as a cage of white dashes). */
     const rim = y1 - 0.05, soot = rim - Math.min(0.14, (y1 - top - 0.15) * 0.25), bed = top + 0.2;
     const pot = cyl('terracotta', rimD, [top + 0.15, y1], x, zc, { tint: clay, group: s.group });
-    const skin = (d: number, y: Range, tint: number): PieceSpec => ({ ...cyl('drywall', d, y, x, zc, { tint }), shape: 'prism', sides: 8 });
+    const skin = (d: number, y: Range, tint: number): PieceSpec => ({ ...cyl('drywall', d, y, x, zc, { tint }), shape: 'prism', sides: 24 });
     ps.push(withDetail(pot, [skin(bodyD, [top + 0.15, bed], 0x3e3833), skin(bodyD, [bed, soot], clay), skin(bodyD, [soot, rim], shadeTint(clay, 0.42)),
       skin(rimD * 0.92, [rim, y1], 0x2e2824)]));
   }
