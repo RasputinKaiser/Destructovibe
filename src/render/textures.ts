@@ -373,9 +373,12 @@ function plaster(n: number): Img {
     const v = (y + 0.5) / n;
     for (let x = 0; x < n; x++) {
       const u = (x + 0.5) / n, o = y * n + x, g = hash(x, y, 19);
-      const dirt = smooth(0.6, 0.85, nz(f1, u, v, 1)) * 0.12;
-      const crack = (1 - smooth(0.003, 0.009, Math.abs(nz(f1, u, v, 4) - 0.5))) * smooth(0.58, 0.72, nz(f3, u, v, 3));
-      const k = (0.94 + 0.07 * nz(f0, u, v, 2) + (g - 0.5) * 0.04) * (1 - dirt) * (1 - crack * 0.35);
+      /* no feature larger than a few centimetres: render is laid as cells, each drawing the same patch of this
+         texture, so a blotch or crack here would repeat cell by cell (wall-scale weathering is the shader's, in world
+         space) */
+      const dirt = smooth(0.6, 0.85, nz(f1, u, v, 8)) * 0.04;
+      const crack = (1 - smooth(0.003, 0.009, Math.abs(nz(f1, u, v, 12) - 0.5))) * smooth(0.62, 0.72, nz(f3, u, v, 9));
+      const k = (0.95 + 0.04 * nz(f0, u, v, 8) + (g - 0.5) * 0.04) * (1 - dirt) * (1 - crack * 0.15);
       im.put(o, base, k);
       im.h[o] = 0.5 + 0.25 * nz(f2, u, v, 16) + 0.15 * nz(f3, u, v, 32) + (g - 0.5) * 0.06 - crack * 0.3;
       im.ro[o] = 0.88 + 0.07 * nz(f0, u, v, 6);

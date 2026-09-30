@@ -189,9 +189,16 @@ const DV_PRE = /* glsl */`
   float dvId = floor( vDvId + 0.5 );
   float dvR = dvHash( dvId );
   vec3 dvBase = diffuseColor.rgb;
-  float dvMac = texture2D( uDvNoise, vDvUv * 0.043 ).r;
-  diffuseColor.rgb *= ( 0.93 + 0.14 * dvR ) * ( 0.88 + 0.24 * dvMac )
-    * ( 1.0 + vec3( 0.03, 0.0, -0.03 ) * ( dvHash( dvId + 7.0 ) * 2.0 - 1.0 ) );
+  #ifdef DV_SMOOTH
+    // a skin laid in cells (render, plaster): its macro variation runs across the wall in world space and the
+    // per-cell tone is a hair's breadth, so the skin reads as one coat and the cells' edges do not show
+    float dvMac = texture2D( uDvNoise, ( vDvW.xz + vDvW.yy ) * 0.043 ).r;
+    diffuseColor.rgb *= ( 0.99 + 0.02 * dvR ) * ( 0.94 + 0.12 * dvMac );
+  #else
+    float dvMac = texture2D( uDvNoise, vDvUv * 0.043 ).r;
+    diffuseColor.rgb *= ( 0.93 + 0.14 * dvR ) * ( 0.88 + 0.24 * dvMac )
+      * ( 1.0 + vec3( 0.03, 0.0, -0.03 ) * ( dvHash( dvId + 7.0 ) * 2.0 - 1.0 ) );
+  #endif
   #ifdef DV_EXT
     vec3 dvN = normalize( vDvN );
     float dvG = texture2D( uDvNoise, vDvW.xz * 0.11 ).g;
@@ -229,7 +236,7 @@ let dvNoise: THREE.DataTexture | null = null;
 const sharedNoise = (): THREE.DataTexture => (dvNoise ??= noiseTex());
 
 /** shared by every piece material: per-instance heat glow, plus object-space label UVs for props */
-function patchPiece(m: THREE.MeshStandardMaterial, kind?: 'cyl' | 'box', shade?: Shade, detail?: 'ext' | 'int', ember = false): void {
+function patchPiece(m: THREE.MeshStandardMaterial, kind?: 'cyl' | 'box', shade?: Shade, detail?: 'ext' | 'int', ember = false, smooth = false): void {
   const rgb = shade === 'lamp' ? LAMP_RGB : shade === 'machine' ? '' : COLOR_RGB;
   const emit = shade === 'lamp' ? LAMP_EMIT : shade === 'machine' ? `${MACHINE_RGB}\n${HEAT_EMIT}` : ember && detail ? EMBER_EMIT : HEAT_EMIT;
   m.onBeforeCompile = (sh) => {
@@ -242,7 +249,7 @@ function patchPiece(m: THREE.MeshStandardMaterial, kind?: 'cyl' | 'box', shade?:
         .replace('#include <common>', `#include <common>\n${DV_VERT_PARS}`)
         .replace('#include <project_vertex>', `#include <project_vertex>\n${DV_VERT}`);
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', `#include <common>\n${detail === 'ext' ? '#define DV_EXT\n' : ''}${DV_FRAG_PARS}`)
+        .replace('#include <common>', `#include <common>\n${detail === 'ext' ? '#define DV_EXT\n' : ''}${smooth ? '#define DV_SMOOTH\n' : ''}${DV_FRAG_PARS}`)
         .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>\n${DV_ROUGH}\n${DV_DUST_ROUGH}`);
       pre = DV_PRE; post = `${DV_POST}\n${DV_DUST}`;
     }
@@ -251,7 +258,7 @@ function patchPiece(m: THREE.MeshStandardMaterial, kind?: 'cyl' | 'box', shade?:
       .replace('#include <color_fragment>', `${pre}\n${rgb}\n${post}`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${emit}`);
   };
-  m.customProgramCacheKey = () => `dv-piece-${kind ?? 'plain'}-${shade ?? 'std'}-${detail ?? 'none'}${ember && detail ? '-ember' : ''}`;
+  m.customProgramCacheKey = () => `dv-piece-${kind ?? 'plain'}-${shade ?? 'std'}-${detail ?? 'none'}${ember && detail ? '-ember' : ''}${smooth && detail ? '-smooth' : ''}`;
 }
 
 const _white = new THREE.Color(1, 1, 1);
@@ -441,7 +448,7 @@ export function getPieceMaterials(mat: MaterialId, tint?: number): Pair {
     const m = pbr(texSet(s.ext), s.metal, s.normal ?? 1);
     if (tint !== undefined) m.color.setHex(tint);
     if (s.shade === 'lamp') m.envMapIntensity = 1.4;
-    patchPiece(m, s.decal, s.shade, s.shade === 'lamp' ? undefined : 'ext', EMBER_MATS.has(mat));
+    patchPiece(m, s.decal, s.shade, s.shade === 'lamp' ? undefined : 'ext', EMBER_MATS.has(mat), mat === 'plaster');
     ext = m;
   }
   p = [ext, interior(mat)] as const;
