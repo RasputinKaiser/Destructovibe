@@ -24,6 +24,8 @@ export interface Job extends Contract {
 }
 
 const bp = (spawn: Vec3, ...parts: PieceSpec[][]): Blueprint => ({ pieces: parts.flat(), spawn: { pos: spawn, yaw: 0 } });
+/** a stock structure put on the fee */
+const guarded = (parts: PieceSpec[]): PieceSpec[] => parts.map((p) => ({ ...p, protected: true }));
 
 /** Free play: every tool, unlimited. */
 /* a full Record so the compiler refuses a new WeaponId that free play forgot to issue */
@@ -40,12 +42,13 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     name: 'Garden Variety',
     location: '9 Larch Avenue, back garden · 12:05',
     brief: 'The new owners want a lawn, and they want it by teatime: shed, greenhouse, outdoor facilities, the lot — and the back wall. '
-      + 'Twelve cannonballs do the heavy work: the wall is nearly half the job, and a timber shed shrugs off a sledge. '
-      + 'The hammer is on the house for the glass and whatever the cannon has loosened: hold to wind it up, let go to strike.',
-    tip: 'The back wall is nearly half the target and the shed most of the rest: put the cannonballs into them, low. The sledge only chips timber and brick.',
-    target: 0.5,
-    par: 90,
-    stars: [0, 0],
+      + 'Start with the sledge: hold to wind it up, let go to strike. The greenhouse glass goes at a tap and the privy in a few full '
+      + 'swings. The back wall is nearly half the job and the shed is most of the rest: that is cannon work, low. Every ball the '
+      + 'sledge saves you is money back.',
+    tip: 'Sledge the greenhouse and the privy first, then put the cannonballs into the back wall and the shed, low.',
+    target: 0.45,
+    par: 120,
+    stars: [2000, 3000],
     ammo: { hammer: -1, cannon: 12 },
     env: 'noon',
     build: () => bp([0, 0, 6],
@@ -67,7 +70,7 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     tip: 'Corners alone will not drop it: spread the cannonballs along the walls under the eaves, all four sides, then wait for the roof.',
     target: 0.6,
     par: 150,
-    stars: [0, 0],
+    stars: [20000, 30000],
     ammo: { hammer: -1, cannon: 18 },
     env: 'golden',
     unlockText: 'ROCKETS UNLOCKED',
@@ -84,11 +87,12 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     location: 'Kettle Lane Pumping Station · 11:15',
     brief: 'The water board has finally noticed the tower has been empty since 1987. Twelve tonnes of tank on four steel legs, and '
       + 'they are cross-braced, so losing one only makes it lean: take both legs out on the side you want it to go. Rockets are new '
-      + 'to you — put them on the leg, not the air beside it. The pump house is not precious.',
-    tip: 'Rocket both legs on one side, then a cannonball into the lean. The legs are 30 cm of steel: aim at the leg, not next to it.',
+      + 'to you, and a leg is thirty centimetres of steel: the readout over the tools says what the shot will land on, so wait for '
+      + '"on target: steel" before you fire. The pump house is not precious.',
+    tip: 'Rocket both legs on one side, then a cannonball into the lean. Fire when the readout says "on target: steel", not before.',
     target: 0.55,
     par: 120,
-    stars: [0, 0],
+    stars: [8000, 12000],
     ammo: { hammer: -1, cannon: 10, rocket: 6 },
     env: 'overcast',
     build: () => bp([0, 0, 6],
@@ -104,14 +108,14 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     name: 'Four Stacks, No Scratches',
     location: 'Old Brickworks Yard · 18:40',
     brief: 'Four boiler stacks round a yard, and parked in the middle of it the site office, the foreman\'s van and a surveyor\'s very '
-      + 'clean car. Everything tall comes down; everything with wheels or a kettle stays pristine. Knock the bottom course out and a '
-      + 'stack sits down; the yard is wide enough for that, not for one that topples in. Rockets punch through brick: never fire one '
-      + 'with the office behind the stack.',
-    tip: 'Cannon the bottom course of each stack from outside the yard. A rocket through a stack keeps going into whatever is behind it.',
-    target: 0.65,
-    par: 150,
-    stars: [0, 0],
-    ammo: { hammer: -1, cannon: 10, rocket: 4 },
+      + 'clean car. Everything tall comes down; everything with wheels or a kettle stays pristine. Work from outside the yard and '
+      + 'put the cannonballs into the bottom course: a stack goes toward the side it loses, so each one falls away from the vehicles. '
+      + 'Three or four balls a stack. The rockets stay in the van today.',
+    tip: 'Cannon the bottom course of each stack from outside the yard, three or four balls each; a stack falls toward the side you knock out.',
+    target: 0.6,
+    par: 180,
+    stars: [8000, 11000],
+    ammo: { hammer: -1, cannon: 14 },
     env: 'dusk',
     protectedNote: 'PROTECTED: site office, van and car — any damage is deducted from your fee.',
     unlockText: 'REMOTE CHARGES UNLOCKED',
@@ -133,17 +137,20 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     name: 'Hot Property',
     location: 'Unit 7, Canal Wharf · 23:10',
     brief: 'Steel shed, tin skin, and a previous tenant who stored propane like it was a hobby. It all has to go before the insurers '
-      + 'wake up. Six charges on the right columns is a job; one rocket into the gas is a shortcut. Stand well back either way.',
+      + 'wake up, and the canal trust\'s gatehouse by the road is let and staying. No guns on this one: walk in, set the charges on '
+      + 'the steel columns (the wheel sizes them), walk out, G. The gas is stacked down the gatehouse side and goes when the columns '
+      + 'do: the smaller the charges, and the further from the gas, the less of the fireball reaches the gatehouse.',
     target: 0.55,
     par: 150,
-    stars: [0, 0],
-    ammo: { hammer: -1, cannon: 6, rocket: 3, charge: 8 },
+    stars: [50000, 70000],
+    ammo: { hammer: -1, charge: 6 },
     env: 'night',
+    protectedNote: 'PROTECTED: the canal trust gatehouse by the road — let, occupied, and not insured for propane.',
     unlockText: 'TOW WINCH ISSUED',
-    tip: 'Charges go on the steel columns, within arm\'s reach; G fires them. The gas in the shed does the rest.',
+    tip: 'Charges on the steel columns within arm\'s reach, the wheel turned down, G from well back. Big charges light all the gas at once.',
     build: () => bp([0, 0, 6],
       warehouse({ x: 0, z: -20, stock: true }),
-      pumpHouse({ x: -16, z: -9, rot: 1, group: 'gatehouse' }),
+      guarded(pumpHouse({ x: -23, z: -7, rot: 1, group: 'gatehouse' })),
       dump({ x: 13, z: -9, barrels: [3, 2], propane: [2, 1] }),
     ),
   },
@@ -152,20 +159,22 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     name: 'The Tall Order',
     location: 'Bramley Mill · 07:40',
     brief: 'Twenty-six metres of Victorian chimney, a mill that should have closed with the Victorians, and a terrace of cottages '
-      + 'whose residents are watching from their front steps. Cut the stack on its east side and it lays itself down across the mill. '
-      + 'Cut it anywhere else and we will be having a conversation.',
-    tip: 'The mill is most of the target: charges on its cast-iron columns bring it down. Keep blasts off the west side of the stack.',
+      + 'whose residents are watching from their front steps. The stack is the job: the mill can go any way you like, the chimney '
+      + 'has to be on the ground and not on the terrace. Its plinth is three metres of solid brick; the shaft above it is what '
+      + 'you cut. Nobody on this crew has felled one this tall, so take it steady and watch which way it leans.',
+    tip: 'Cannon the stack\'s shaft just above the plinth, one face, from the mill side, and watch it lean before you add more. The mill goes on charges along its ground-floor piers.',
     target: 0.65,
-    par: 210,
-    stars: [0, 0],
-    ammo: { hammer: -1, cannon: 6, rocket: 4, charge: 8, winch: 2 },
+    par: 240,
+    stars: [70000, 100000],
+    goal: { fell: { group: 'chimney', what: 'the chimney', below: 6, from: 12 } },
+    ammo: { hammer: -1, cannon: 12, charge: 6, winch: 2 },
     env: 'golden',
     protectedNote: 'PROTECTED: the cottage terrace to the west is occupied. Nothing falls west.',
     unlockText: 'AIRSTRIKE UNLOCKED',
     build: () => bp([3, 0, 3],
       industrialChimney({ x: -2, z: -24 }),
-      mill({ x: 14, z: -24, stock: true }),
-      cottageRow({ x: -25, z: -24, protected: true }),
+      mill({ x: 14, z: -24 }),
+      cottageRow({ x: -31, z: -24, protected: true }),
     ),
   },
   {
@@ -173,18 +182,19 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     name: 'Road Closed',
     location: 'Junction 9 flyover · 05:30',
     brief: 'The flyover failed its inspection in several languages. We have a two-hour closure, so all four spans on the ground before '
-      + 'the rush. Piers first, deck follows; someone also abandoned a lorry-load of fuel up top. The bus shelter is council property.',
-    tip: 'Three pier bents of two columns each: a charge low on every column, then G from well back.',
-    target: 0.8,
-    par: 150,
-    stars: [0, 0],
-    ammo: { hammer: -1, cannon: 6, rocket: 4, charge: 6, airstrike: 1 },
+      + 'the rush. Piers first, deck follows. Stores sent four charges for six columns, so the rest is up to the cannon and the '
+      + 'rockets; someone also abandoned a lorry-load of fuel up top. The bus shelter is council property.',
+    tip: 'Three pier bents of two columns each: four charges low on four columns, cannon or rockets on the other two, G from well back.',
+    target: 0.75,
+    par: 180,
+    stars: [60000, 85000],
+    ammo: { hammer: -1, cannon: 8, rocket: 3, charge: 4, airstrike: 1 },
     env: 'overcast',
     protectedNote: 'PROTECTED: the bus shelter by the east abutment.',
     unlockText: 'CUTTING CHARGES UNLOCKED',
     build: () => bp([-4, 0, 6],
       overpass({ x: 0, z: -20, traffic: true }),
-      busShelter({ x: 22, z: -12 }),
+      busShelter({ x: 25, z: -10 }),
       dump({ x: -10.5, z: -14.6, crates: [1, 1, 1], barrels: [2, 1] }),
     ),
   },
@@ -193,19 +203,21 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
     name: 'Last Orders',
     location: 'Carrow Heights · 21:00',
     brief: 'Six storeys of 1960s optimism, now mostly pigeons. Bring it straight down into its own footprint: take the ground-floor '
-      + 'columns and let gravity handle the paperwork. The chip shop across the road is open until midnight, and it is staying open.',
+      + 'columns and let gravity handle the paperwork. Nine columns, five charges and four of the new cutting charges: one to a '
+      + 'column, fired together. A cutting charge goes on along the line it shows and severs the column clean, and throws next to '
+      + 'nothing: those go on the side facing the chip shop across the road, which is open until midnight and staying open.',
     target: 0.9,
     par: 240,
-    stars: [0, 0],
-    tip: 'Eight charges low on the ground-floor columns, fired together, drop it in its own footprint. Only eight can be armed at once.',
-    ammo: { hammer: -1, cannon: 6, rocket: 4, charge: 8, airstrike: 2, cutter: 4 },
+    stars: [90000, 115000],
+    tip: 'Nine ground-floor columns in a three-by-three grid, one device each, low: cutting charges on the row facing the chip shop, charges on the rest, then G.',
+    ammo: { hammer: -1, charge: 5, cutter: 4, airstrike: 1 },
     env: 'night',
     protectedNote: 'PROTECTED: the chip shop and the car outside it. Topple the tower east and you will pay for both.',
     build: () => bp([-6, 0, 4],
       towerBlock({ x: 0, z: -22 }),
       dump({ x: -2.8, z: -19.5, propane: [2, 1], group: 'props' }),
       chipShop({ x: 15, z: -12, rot: 3 }),
-      car({ x: 15.5, z: -5, tint: TINT.carTeal }),
+      car({ x: 18.5, z: -4, tint: TINT.carTeal }),
     ),
   },
 ];
