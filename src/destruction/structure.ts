@@ -3748,10 +3748,27 @@ function onRubble(p: Piece): boolean {
   return ok;
 }
 
+/* Box3D's SetType wakes the body's whole island and drops its contacts, so setting one resting brick in place used to
+   wake the resting heap it lies in (and the heap re-settled on cold contacts, jolting more of it). A brick asleep in
+   an asleep heap is at rest, and so is everything round it: after the swap, whatever lay asleep against it is put back
+   to sleep as it lay (a static brick in the same place bears the same). */
+const _frz: Piece[] = [];
 function freezeRubble(p: Piece): void {
   if (frozenSet.has(p)) return;
   frozenSet.add(p);
+  const resting = !b3.b3Body_IsAwake(p.body);
+  if (resting) {
+    b3.b3Body_ComputeAABB(_aabb2, p.body);
+    overlapAABB([_aabb2[0] - 0.05, _aabb2[1] - 0.05, _aabb2[2] - 0.05], [_aabb2[3] + 0.05, _aabb2[4] + 0.05, _aabb2[5] + 0.05], CAT.structure | CAT.debris | CAT.prop, shape => {
+      const e = entityOfShape(shape);
+      if (!e || e === p || e.kind !== 'piece') return;
+      const q = e as Piece;
+      if (!q.dead && !_frz.includes(q) && b3.b3Body_GetType(q.body) === b3.b3BodyType.b3_dynamicBody && !b3.b3Body_IsAwake(q.body)) _frz.push(q);
+    });
+  }
   b3.b3Body_SetType(p.body, b3.b3BodyType.b3_staticBody);
+  for (const q of _frz) b3.b3Body_SetAwake(q.body, false);
+  _frz.length = 0;
   if (p.debris) { p.debris = false; debrisCount--; }
   frozenList.push(p);
   counters.frozen++;
