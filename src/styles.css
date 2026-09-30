@@ -2473,6 +2473,20 @@ svg {
   color: var(--c-300);
 }
 
+/* rigging lines: tension against each line's breaking load */
+.hud-tool__lines:empty { display: none; }
+.hud-tool__lines { margin-top: 0.3rem; display: grid; gap: 0.18rem; }
+.tl { display: grid; grid-template-columns: 5.2rem 1fr 2.6rem; align-items: center; gap: 0.4rem; font-family: var(--f-mono); font-size: 0.62rem; color: var(--c-300); }
+.tl__n { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tl__b { position: relative; height: 5px; background: rgba(236, 234, 227, 0.14); }
+.tl__b i { position: absolute; inset: 0; background: #8fd18f; transform-origin: left; }
+/* the working load limit (1/5 of the break for wire rope, 1/4 for chain) is a tick; the bar's end is the break */
+.tl__b em { position: absolute; left: 20%; top: -2px; bottom: -2px; width: 1px; background: rgba(236, 234, 227, 0.55); }
+.tl__p { text-align: right; font-variant-numeric: tabular-nums; }
+.tl.is-amber .tl__b i { background: #ffb020; }
+.tl.is-red .tl__b i { background: var(--bad); }
+.tl.is-red .tl__p { color: var(--bad); font-weight: 700; }
+
 /* demolition firing plan */
 
 .hud-seq {

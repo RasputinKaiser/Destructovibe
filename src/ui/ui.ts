@@ -33,7 +33,7 @@ const controls = (): KeyRow[] => [
   ['1–6', 'Select tool'],
   ['Wheel', 'Tool setting (charge size, delay, boom, blocks…), else next tool'],
   ['Shift + Wheel', 'Detonator panel: delay in 250 ms steps'],
-  [K('bank'), 'Switch tool bank (I–IV)'],
+  [K('bank'), 'Switch tool bank (I–V)'],
   [K('xray'), 'Engineer’s x-ray (stress / thermal / services / fields)'],
   [K('bullet'), 'Bullet time (the world at 0.3×)'],
   [K('replay'), 'Replay the last 12 s: mouse orbit, wheel zoom, WASD/QE move, Space pause, 1–3 speed, ←/→ scrub, V exit'],
@@ -57,8 +57,9 @@ const BANKS: readonly (readonly WeaponId[])[] = [
   ['cutter', 'wrecker', 'winch', 'gravgun', 'incendiary', 'megabomb'],
   ['grinder', 'saw', 'drill', 'shears', 'plasma', 'torch'],
   ['planner', 'excavator', 'breaker', 'hose', 'splitter', 'wiresaw'],
+  ['grapple', 'tether', 'hoist'],
 ];
-const BANK_TAG = ['I', 'II', 'III', 'IV'];
+const BANK_TAG = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
 const BANK_OF = new Map<WeaponId, { bank: number; pos: number }>(
   BANKS.flatMap((ids, bank) => ids.map((id, pos) => [id, { bank, pos }] as const)),
 );
@@ -169,7 +170,7 @@ const TEMPLATE = () => `
   </div>
   <div class="pops" data-r="pops"></div>
   <div class="hud-bottom">
-    <div class="hud-tool" data-r="tool"><div class="hud-tool__t" data-r="toolT"></div><div class="hud-tool__bar"><i data-r="toolBar"></i></div><div class="hud-tool__d" data-r="toolD"></div></div>
+    <div class="hud-tool" data-r="tool"><div class="hud-tool__t" data-r="toolT"></div><div class="hud-tool__bar"><i data-r="toolBar"></i></div><div class="hud-tool__d" data-r="toolD"></div><div class="hud-tool__lines" data-r="toolL"></div></div>
     <div class="hud-seq" data-r="seq"><div class="hud-seq__track" data-r="seqTrack"></div><div class="hud-seq__scale" data-r="seqScale"></div></div>
     <div class="hud-charges" data-r="charges"><i class="led"></i><b data-r="chargeN">0</b><span>Armed</span></div>
     <div class="hud-hint" data-r="hint"></div>
@@ -369,7 +370,7 @@ const TEMPLATE = () => `
 const REFS = [
   'vig', 'penFlash', 'hud', 'tl', 'title', 'clock', 'par', 'demo', 'pct', 'demoLabel', 'fill', 'notch', 'notchLabel',
   'tr', 'score', 'combo', 'comboX', 'comboFill', 'penalty', 'xh', 'xhPulse', 'hit', 'pops', 'charges', 'chargeN', 'hint',
-  'weapons', 'fps', 'ptr', 'tool', 'toolT', 'toolBar', 'toolD', 'seq', 'seqTrack', 'seqScale', 'loadFill', 'loadLabel', 'loadPct', 'cards', 'bNo', 'bName', 'bLoc', 'bText', 'bProtect',
+  'weapons', 'fps', 'ptr', 'tool', 'toolT', 'toolBar', 'toolD', 'toolL', 'seq', 'seqTrack', 'seqScale', 'loadFill', 'loadLabel', 'loadPct', 'cards', 'bNo', 'bName', 'bLoc', 'bText', 'bProtect',
   'bProtectText', 'bTerms', 'bTermsLabel', 'bAmmo', 'bKeys', 'bTarget', 'bPar', 'bEnv', 'bStars', 'report', 'rTitle', 'rSub', 'rRows', 'rTotalRow', 'rTotal',
   'rStars', 'rBest', 'rUnlock', 'rRetry', 'rNext', 'sVol', 'oVol', 'sQual', 'sSens', 'oSens', 'sFov', 'oFov', 'sInv', 'oInv', 'sExp', 'oExp', 'sScale', 'sShake', 'oShake', 'sGrain', 'oGrain', 'sCA', 'oCA',
   'pauseKeys', 'sBob', 'oBob', 'sCTog', 'oCTog', 'sSTog', 'oSTog', 'sImp', 'keys', 'keyReset', 'keyNote', 'daze',
@@ -1289,6 +1290,7 @@ const hc = {
   hint: undefined as string | null | undefined,
   tool: '',
   toolBar: -1,
+  toolL: '',
   seq: '',
   fpsAcc: 1,
   fps: -1,
@@ -1511,6 +1513,17 @@ function updateTool(t: ToolReadout | null): void {
       R.tool.classList.toggle('is-warn', t.warn);
       R.tool.classList.toggle('has-bar', t.progress !== null);
     }
+  }
+  /* rigging: one bar per loaded line, its tension against its breaking load, amber past 60 %, red past 85 % */
+  const ls = t?.lines ?? [];
+  const lk = ls.map(l => `${l.label}:${Math.round(clamp(l.util, 0, 1.2) * 50)}`).join('|');
+  if (lk !== hc.toolL) {
+    hc.toolL = lk;
+    R.toolL.innerHTML = ls.map(l => {
+      const u = clamp(l.util, 0, 1);
+      const lvl = u > 0.85 ? ' is-red' : u > 0.6 ? ' is-amber' : '';
+      return `<div class="tl${lvl}"><span class="tl__n">${esc(l.label)}</span><span class="tl__b"><i style="transform:scaleX(${u.toFixed(3)})"></i><em></em></span><span class="tl__p">${Math.round(l.util * 100)}%</span></div>`;
+    }).join('');
   }
   const b = t && t.progress !== null ? Math.round(clamp(t.progress, 0, 1) * 200) / 200 : -1;
   if (b !== hc.toolBar) {

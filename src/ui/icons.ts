@@ -122,6 +122,22 @@ export const WEAPON_ICON: Record<WeaponId, string> = {
       '<path d="M4 9.7L8 11.5M4 15.3L8 13.5M17 11.5c3.2 0 3.2 2 0 2" fill="none" stroke="currentColor" stroke-width="1.2"/>' +
       '<circle cx="4" cy="12.5" r="1" fill="#000" opacity=".4"/>',
   ),
+  grapple: svg(
+    '<path d="M1.5 17.5l8.2-4.7 1.3 2.2-8.2 4.7z"/><rect x="3.2" y="18" width="2.2" height="4" rx=".5" transform="rotate(-30 4.3 20)"/>' +
+      '<path d="M11 13.7C14 11 16 8 18.2 4.6" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="1.6 1.2"/>' +
+      '<path d="M18.2 4.6l1-3M18.2 4.6c1.8-.4 3.2.4 3.8 1.8M18.2 4.6c-1.6-1-3.2-.9-4.2.2M18.2 4.6c.4 1.8 1.6 2.8 3.1 2.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  ),
+  tether: svg(
+    '<circle cx="4" cy="6" r="2.3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="20" cy="9" r="2.3" fill="none" stroke="currentColor" stroke-width="1.6"/>' +
+      '<path d="M5.8 7.6C9 15.5 14.5 16 18.3 10.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+      '<path d="M3 21h18" stroke="currentColor" stroke-width="1.4" opacity=".5"/><path d="M12 15.3v5.7" stroke="currentColor" stroke-width="1.1" stroke-dasharray="1.2 1" opacity=".6"/>',
+  ),
+  hoist: svg(
+    '<path d="M12 1.5a1.6 1.6 0 1 1 0 3.2" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="8" y="5" width="8" height="7" rx="1.2"/>' +
+      '<circle cx="12" cy="8.5" r="2" fill="#000" opacity=".35"/><path d="M13.5 7.5L21 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' +
+      '<path d="M11 12.5v1.6M13 14.4v1.6M11 16.3v1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>' +
+      '<path d="M12 18.4v1.4a1.9 1.9 0 1 1-3.4 1.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  ),
 };
 
 export const STAR = svg('<path d="M12 2.2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.4l-6.1 3.4 1.4-6.8L2.2 9.3l6.9-.8z"/>');

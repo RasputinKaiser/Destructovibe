@@ -136,3 +136,423 @@ export const ropes = {
     if (chain) chain.count = 0;
   },
 };
+
+/* ---------------- tool lines ---------------- */
+
+/* Winch lines, rigging lines, the hoist's chain and the grapple line. Each is drawn along the shape it really hangs
+   in: a catenary for the length paid out while it is slack, and once it is taut, a line straightened by its tension
+   with only its own weight bowing it (mid-span sag w·c²/8T). Wire rope is six strands laid round a core (lay length
+   ~6.5 d), fibre rope is braided in its maker's colour, chain is real interlocking links (pitch 3 d, inner width
+   1.35 d, EN 818-2 proportions). A line worked near its breaking load shows broken wires or fuzzed yarns at its weak
+   spot, and a line that parts whips back toward its anchors. */
+export type LineLook = 'wire' | 'fibre' | 'chain';
+
+const LN = 48, LS = 28, WHISK = 12, LINKS = 2400, WHIP_T = 1.1;
+let wireM: THREE.InstancedMesh | null = null, fibreM: THREE.InstancedMesh | null = null;
+let wireOff: THREE.InstancedBufferAttribute, fibreOff: THREE.InstancedBufferAttribute;
+let linkM: THREE.InstancedMesh | null = null, whiskM: THREE.InstancedMesh | null = null;
+let linkUsed = 0;
+let clock = 0;
+
+interface ToolLine {
+  on: boolean;
+  look: LineLook;
+  r: number;
+  color: number;
+  /** points of the last shape, xyz packed */
+  pts: Float32Array;
+  fray: number;
+  /** where along the line (0 at a) the weak spot is */
+  frayAt: number;
+  seed: number;
+  /** snapped: animating the two halves back toward their anchors */
+  whip: { t0: number; a: Vec3; b: Vec3; at: number; v: number; twin: number } | null;
+  links: number;
+}
+const tl: ToolLine[] = [];
+const tlFree: number[] = [];
+let tlHigh = 0;
+const pa = new THREE.Vector3(), pb = new THREE.Vector3(), seg = new THREE.Vector3(), side = new THREE.Vector3(), tan = new THREE.Vector3();
+const lq = new THREE.Quaternion(), lq2 = new THREE.Quaternion(), lm = new THREE.Matrix4(), ls = new THREE.Vector3(), lbasis = new THREE.Matrix4();
+const X = new THREE.Vector3(1, 0, 0);
+const lc = new THREE.Color();
+
+function strandShader(m: THREE.MeshStandardMaterial, key: string, frag: string): THREE.MeshStandardMaterial {
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aOff;\nvarying float vAlong;\nvarying float vR;\nvarying vec3 vLoc;')
+      .replace('#include <begin_vertex>', /* glsl */`#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vAlong = aOff + position.y * length( instanceMatrix[ 1 ].xyz );
+          vR = length( instanceMatrix[ 0 ].xyz );
+        #else
+          vAlong = position.y; vR = 1.0;
+        #endif
+        vLoc = position;`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vAlong;\nvarying float vR;\nvarying vec3 vLoc;')
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n${frag}`);
+  };
+  m.customProgramCacheKey = () => key;
+  return m;
+}
+
+/* Six strands laid right-hand round the core, their outer wires laid the other way (regular lay): the grooves between
+   strands hold dark grease and the crowns catch the light. */
+const WIRE_FRAG = /* glsl */`
+  float ang = atan( vLoc.z, vLoc.x ) / 6.28318;
+  float lay = vAlong / ( 13.0 * vR );
+  float sf = fract( ( ang - lay ) * 6.0 );
+  float crown = smoothstep( 0.0, 0.22, sf ) * smoothstep( 1.0, 0.78, sf );
+  float wires = 0.82 + 0.18 * sin( 6.28318 * ( ang + lay * 2.2 ) * 42.0 );
+  diffuseColor.rgb *= mix( 0.28, 1.0, crown ) * wires;
+  roughnessFactor = mix( 0.85, roughnessFactor, crown );`;
+/* Twelve-strand braid: yarns running both ways over and under each other. */
+const FIBRE_FRAG = /* glsl */`
+  float ang = atan( vLoc.z, vLoc.x ) / 6.28318;
+  float p = vAlong / ( 4.2 * vR );
+  float u1 = ( ang + p ) * 6.0, u2 = ( ang - p ) * 6.0;
+  float over = mod( floor( u1 ) + floor( u2 ), 2.0 );
+  float yarn = mix( sin( 3.14159 * fract( u1 ) ), sin( 3.14159 * fract( u2 ) ), over );
+  diffuseColor.rgb *= 0.5 + 0.5 * yarn;
+  roughnessFactor = min( 1.0, roughnessFactor + 0.1 * ( 1.0 - yarn ) );`;
+
+function lineMesh(mat: THREE.Material, name: string, n: number, radial: number): [THREE.InstancedMesh, THREE.InstancedBufferAttribute] {
+  const geo = new THREE.CylinderGeometry(1, 1, 1, radial, 1, true).translate(0, 0.5, 0);
+  const off = new THREE.InstancedBufferAttribute(new Float32Array(n), 1);
+  off.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('aOff', off);
+  const m = new THREE.InstancedMesh(geo, mat, n);
+  m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  for (let i = 0; i < n; i++) { m.setMatrixAt(i, ZERO); m.setColorAt(i, lc.setHex(0xffffff)); }
+  m.count = 0;
+  m.frustumCulled = false;
+  m.castShadow = true;
+  m.receiveShadow = true;
+  m.name = name;
+  return [m, off];
+}
+
+/* One G80 link, wire diameter 1: inner length 3 (the pitch), inner width 1.35, long axis along Y, in the XY plane. */
+function linkGeometry(): THREE.BufferGeometry {
+  const hl = 0.825, R = 1.175, rt = 0.5, TU = 18, RA = 6;
+  const P = 4 * hl + 2 * Math.PI * R;
+  const pos: number[] = [], nor: number[] = [], idx: number[] = [];
+  const c = new THREE.Vector3(), n = new THREE.Vector3();
+  for (let i = 0; i < TU; i++) {
+    let s = (i / TU) * P;
+    // straight right side going up, top arc, straight left side going down, bottom arc
+    if (s < 2 * hl) { c.set(R, -hl + s, 0); n.set(1, 0, 0); }
+    else if ((s -= 2 * hl) < Math.PI * R) { const a = s / R; c.set(R * Math.cos(a), hl + R * Math.sin(a), 0); n.set(Math.cos(a), Math.sin(a), 0); }
+    else if ((s -= Math.PI * R) < 2 * hl) { c.set(-R, hl - s, 0); n.set(-1, 0, 0); }
+    else { s -= 2 * hl; const a = Math.PI + s / R; c.set(R * Math.cos(a), -hl + R * Math.sin(a), 0); n.set(Math.cos(a), Math.sin(a), 0); }
+    for (let j = 0; j < RA; j++) {
+      const f = (j / RA) * Math.PI * 2, cf = Math.cos(f), sf = Math.sin(f);
+      pos.push(c.x + rt * (cf * n.x), c.y + rt * (cf * n.y), rt * sf);
+      nor.push(cf * n.x, cf * n.y, sf);
+    }
+  }
+  for (let i = 0; i < TU; i++) for (let j = 0; j < RA; j++) {
+    const a = i * RA + j, b = ((i + 1) % TU) * RA + j, cc = ((i + 1) % TU) * RA + ((j + 1) % RA), d = i * RA + ((j + 1) % RA);
+    idx.push(a, b, d, b, cc, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setIndex(idx);
+  return g;
+}
+
+export function initLines(scene: THREE.Scene): void {
+  if (wireM && fibreM && linkM && whiskM) {
+    for (const m of [wireM, fibreM, linkM, whiskM]) if (m.parent !== scene) scene.add(m);
+    return;
+  }
+  [wireM, wireOff] = lineMesh(strandShader(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.34, metalness: 0.85 }), 'dv-wirerope', WIRE_FRAG), 'lineWire', LN * LS, 8);
+  [fibreM, fibreOff] = lineMesh(strandShader(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.82, metalness: 0 }), 'dv-fibrerope', FIBRE_FRAG), 'lineFibre', LN * LS, 8);
+  linkM = new THREE.InstancedMesh(linkGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.42, metalness: 0.8 }), LINKS);
+  linkM.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  for (let i = 0; i < LINKS; i++) { linkM.setMatrixAt(i, ZERO); linkM.setColorAt(i, lc.setHex(0x3a3c3f)); }
+  linkM.count = 0;
+  linkM.frustumCulled = false;
+  linkM.castShadow = true;
+  linkM.name = 'lineChain';
+  whiskM = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 3, 1, true).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.4 }), LN * WHISK);
+  whiskM.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  for (let i = 0; i < LN * WHISK; i++) { whiskM.setMatrixAt(i, ZERO); whiskM.setColorAt(i, lc.setHex(0xffffff)); }
+  whiskM.count = 0;
+  whiskM.frustumCulled = false;
+  whiskM.name = 'lineFray';
+  scene.add(wireM, fibreM, linkM, whiskM);
+}
+
+/* ----- hanging shape ----- */
+
+/* sinh(x)/x = r for x > 0 (Newton from the small- or large-x asymptote) */
+function solveSinhc(r: number): number {
+  let x = r < 3 ? Math.sqrt(6 * (r - 1)) : Math.log(2 * r) + Math.log(Math.log(2 * r) + 1);
+  for (let i = 0; i < 12; i++) {
+    x = Math.max(x, 1e-5);
+    const sh = Math.sinh(x), ch = Math.cosh(x);
+    const f = sh / x - r, df = (x * ch - sh) / (x * x);
+    const dx = f / df;
+    x -= dx;
+    if (Math.abs(dx) < 1e-7 * x) break;
+  }
+  return Math.max(x, 1e-5);
+}
+
+/**
+ * n+1 points (xyz packed into out) of a line of unstretched length `len` hung from a to b, carrying `tension` N, weighing
+ * `w` N/m. Slack (len longer than the chord): the catenary through both ends for that length. Taut: straight but for
+ * its own weight, a parabola of mid-span sag w⊥·c²/8T (never less than a just-taut line's 3 % of the chord ... never
+ * more than a fifth of it). Returns the mid-span sag, m.
+ */
+export function hangLine(out: Float32Array, a: Vec3, b: Vec3, len: number, tension: number, w: number, n: number): number {
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+  const h = Math.hypot(dx, dz), c = Math.hypot(h, dy);
+  if (len > c + 1e-3 && h > 0.04 * c && len > Math.abs(dy) + 1e-3) {
+    const x = solveSinhc(Math.sqrt(len * len - dy * dy) / h);
+    const k = h / (2 * x);
+    const xm = h / 2 - k * Math.atanh(dy / len);
+    const c0 = a[1] - k * Math.cosh(-xm / k);
+    let sag = 0;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, y = k * Math.cosh((t * h - xm) / k) + c0;
+      out[i * 3] = a[0] + dx * t; out[i * 3 + 1] = y; out[i * 3 + 2] = a[2] + dz * t;
+      if (i * 2 === n) sag = a[1] + dy * 0.5 - y;
+    }
+    return sag;
+  }
+  let s: number;
+  if (len > c + 1e-3) s = Math.min(len * 0.5, Math.sqrt((3 * c * (len - c)) / 8));
+  else {
+    // weight across the chord: the component of gravity square to it
+    const wp = c > 1e-6 ? w * (h / c) : 0;
+    const floor = 0.03 * c * (h / Math.max(c, 1e-6));
+    s = tension > 1 ? Math.max(Math.min((wp * c * c) / (8 * tension), c * 0.2), Math.min(floor, (wp * c * c) / (8 * tension))) : floor;
+  }
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    out[i * 3] = a[0] + dx * t; out[i * 3 + 1] = a[1] + dy * t - s * 4 * t * (1 - t); out[i * 3 + 2] = a[2] + dz * t;
+  }
+  return s;
+}
+
+/* ----- drawing ----- */
+
+function hideLine(id: number): void {
+  const L = tl[id];
+  if (!wireM || !fibreM || !whiskM) return;
+  for (let i = 0; i < LS; i++) { wireM.setMatrixAt(id * LS + i, ZERO); fibreM.setMatrixAt(id * LS + i, ZERO); }
+  for (let i = 0; i < WHISK; i++) whiskM.setMatrixAt(id * WHISK + i, ZERO);
+  wireM.instanceMatrix.needsUpdate = fibreM.instanceMatrix.needsUpdate = whiskM.instanceMatrix.needsUpdate = true;
+  if (L) L.links = 0;
+}
+
+/* lay the strand along pts[0..n]: one cylinder per segment, each overlapping the next by a radius */
+function drawStrand(id: number, L: ToolLine, pts: Float32Array, n: number): void {
+  if (L.look === 'chain') return;
+  const mesh = L.look === 'wire' ? wireM! : fibreM!, off = L.look === 'wire' ? wireOff : fibreOff;
+  const r = L.r;
+  let along = 0;
+  for (let i = 0; i < LS; i++) {
+    const k = id * LS + i;
+    if (i >= n) { mesh.setMatrixAt(k, ZERO); continue; }
+    pa.set(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2]);
+    pb.set(pts[i * 3 + 3], pts[i * 3 + 4], pts[i * 3 + 5]);
+    seg.subVectors(pb, pa);
+    const l = seg.length();
+    if (l < 1e-5) { mesh.setMatrixAt(k, ZERO); continue; }
+    seg.multiplyScalar(1 / l);
+    lq.setFromUnitVectors(UP, seg);
+    lm.compose(pa.addScaledVector(seg, -r * 0.5), lq, ls.set(r, l + r, r));
+    mesh.setMatrixAt(k, lm);
+    off.setX(k, along - r * 0.5);
+    along += l;
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  off.needsUpdate = true;
+}
+
+/* links laid along the polyline at the pitch, alternate links turned a quarter round the chain's axis */
+function drawLinks(L: ToolLine, pts: Float32Array, n: number): void {
+  if (!linkM) return;
+  const d = L.r * 2, pitch = 3 * d;
+  let s = pitch * 0.5, i = 0, acc = 0, k = 0;
+  while (i < n && linkUsed < LINKS) {
+    pa.set(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2]);
+    pb.set(pts[i * 3 + 3], pts[i * 3 + 4], pts[i * 3 + 5]);
+    seg.subVectors(pb, pa);
+    const l = seg.length();
+    if (acc + l < s) { acc += l; i++; continue; }
+    tan.copy(seg).multiplyScalar(1 / Math.max(l, 1e-6));
+    pa.addScaledVector(tan, s - acc);
+    // a stable frame round the tangent (no twist along a sagging run), every other link turned 90°
+    side.crossVectors(tan, UP);
+    if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+    side.normalize();
+    const z = new THREE.Vector3().crossVectors(side, tan);
+    if (k & 1) lbasis.makeBasis(z.clone().negate(), tan, side); else lbasis.makeBasis(side, tan, z);
+    lq.setFromRotationMatrix(lbasis);
+    lm.compose(pa, lq, ls.set(d, d, d));
+    linkM.setMatrixAt(linkUsed, lm);
+    linkM.setColorAt(linkUsed, lc.setHex(L.color));
+    linkUsed++; k++;
+    s += pitch;
+  }
+  L.links = k;
+}
+
+/* broken wires or fuzzed yarns round the weak spot: more, and longer, the nearer the line came to parting */
+function drawFray(id: number, L: ToolLine, pts: Float32Array, n: number): void {
+  if (!whiskM) return;
+  const show = L.look === 'chain' ? 0 : Math.round(WHISK * Math.min(1, L.fray));
+  const j = Math.min(n - 1, Math.max(0, Math.floor(L.frayAt * n)));
+  pa.set(pts[j * 3], pts[j * 3 + 1], pts[j * 3 + 2]);
+  pb.set(pts[j * 3 + 3], pts[j * 3 + 4], pts[j * 3 + 5]);
+  tan.subVectors(pb, pa).normalize();
+  side.crossVectors(tan, UP);
+  if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+  side.normalize();
+  const z = new THREE.Vector3().crossVectors(side, tan);
+  const wire = L.look === 'wire';
+  for (let i = 0; i < WHISK; i++) {
+    const k = id * WHISK + i;
+    if (i >= show) { whiskM.setMatrixAt(k, ZERO); continue; }
+    // a fixed scatter per line (hash of its seed), so the frayed wires don't dance from frame to frame
+    const h1 = fract(Math.sin((L.seed + i) * 12.9898) * 43758.5453), h2 = fract(Math.sin((L.seed + i) * 78.233) * 12345.678);
+    const a = h1 * Math.PI * 2, t = (h2 - 0.5) * L.r * 10;
+    const base = new THREE.Vector3().copy(pa).lerp(pb, 0.5).addScaledVector(tan, t);
+    const out = new THREE.Vector3().copy(side).multiplyScalar(Math.cos(a)).addScaledVector(z, Math.sin(a));
+    base.addScaledVector(out, L.r * 0.9);
+    // broken wires spring out and back along the lay; yarns stand off the braid
+    seg.copy(out).multiplyScalar(wire ? 0.7 : 1).addScaledVector(tan, wire ? (h2 > 0.5 ? 0.7 : -0.7) : 0.3).normalize();
+    lq.setFromUnitVectors(UP, seg);
+    const len = (wire ? 2.2 : 1.6) * L.r * (0.6 + 0.8 * h1) * (0.5 + L.fray);
+    lm.compose(base, lq, ls.set(wire ? L.r * 0.07 : L.r * 0.05, len, wire ? L.r * 0.07 : L.r * 0.05));
+    whiskM.setMatrixAt(k, lm);
+    whiskM.setColorAt(k, lc.setHex(wire ? 0xb9bec3 : L.color).offsetHSL(0, 0, wire ? 0 : 0.12));
+  }
+  whiskM.instanceMatrix.needsUpdate = true;
+  if (whiskM.instanceColor) whiskM.instanceColor.needsUpdate = true;
+}
+
+const fract = (x: number) => x - Math.floor(x);
+const _pts = new Float32Array((LS + 1) * 3);
+const _wv: Vec3 = [0, 0, 0], _we: Vec3 = [0, 0, 0];
+
+/* A parted line: each half runs back past its own anchor at the recoil speed, snaking and dropping as it goes. */
+function drawWhip(id: number, L: ToolLine): boolean {
+  const w = L.whip!;
+  const t = clock - w.t0;
+  if (t > WHIP_T) return false;
+  const halves: [Vec3, number][] = [[w.a, w.at], [w.b, 1 - w.at]];
+  halves.forEach(([anchor, share], h) => {
+    const sid = h === 0 ? id : w.twin;
+    if (sid < 0) return;
+    const S = tl[sid];
+    const full = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1], w.b[2] - w.a[2]);
+    const len = full * share;
+    // the free end: out from the break toward (and past) the anchor, braking as the line piles up
+    const brk: Vec3 = [w.a[0] + (w.b[0] - w.a[0]) * w.at, w.a[1] + (w.b[1] - w.a[1]) * w.at, w.a[2] + (w.b[2] - w.a[2]) * w.at];
+    const tau = Math.max(0.05, (len / Math.max(w.v, 1)) * 1.4);
+    const travel = len * 1.25 * (1 - Math.exp(-t / tau));
+    vec3sub(_wv, anchor, brk);
+    const d = Math.hypot(_wv[0], _wv[1], _wv[2]) || 1;
+    _we[0] = brk[0] + (_wv[0] / d) * travel;
+    _we[1] = brk[1] + (_wv[1] / d) * travel - 4.9 * Math.max(0, t - tau) ** 2;
+    _we[2] = brk[2] + (_wv[2] / d) * travel;
+    const amp = Math.min(0.6, len * 0.15) * Math.exp(-t * 3);
+    for (let i = 0; i <= LS; i++) {
+      const s = i / LS;
+      const wave = amp * Math.sin(Math.PI * s) * Math.sin(Math.PI * (4 * s - t * 14));
+      _pts[i * 3] = anchor[0] + (_we[0] - anchor[0]) * s + wave * (_wv[2] / d);
+      _pts[i * 3 + 1] = anchor[1] + (_we[1] - anchor[1]) * s - 0.3 * len * s * (1 - s) * Math.min(1, t * 2) + wave * 0.5;
+      _pts[i * 3 + 2] = anchor[2] + (_we[2] - anchor[2]) * s - wave * (_wv[0] / d);
+    }
+    if (S.look === 'chain') drawLinks(S, _pts, LS); else drawStrand(sid, S, _pts, LS);
+  });
+  return true;
+}
+
+function vec3sub(o: Vec3, a: Vec3, b: Vec3): void { o[0] = a[0] - b[0]; o[1] = a[1] - b[1]; o[2] = a[2] - b[2]; }
+
+function freeLine(id: number): void {
+  const L = tl[id];
+  if (!L || !L.on) return;
+  L.on = false;
+  L.whip = null;
+  hideLine(id);
+  tlFree.push(id);
+}
+
+export const lines = {
+  /** reserves a line drawn as `look`, radius r (m), colour; -1 when all are in use */
+  add(look: LineLook, r: number, color: number): number {
+    if (!wireM) return -1;
+    const id = tlFree.pop() ?? (tlHigh < LN ? tlHigh++ : -1);
+    if (id < 0) return -1;
+    tl[id] = { on: true, look, r, color, pts: new Float32Array((LS + 1) * 3), fray: 0, frayAt: 0.85, seed: id * 7 + 1, whip: null, links: 0 };
+    if (look !== 'chain') {
+      const m = look === 'wire' ? wireM! : fibreM!;
+      for (let i = 0; i < LS; i++) m.setColorAt(id * LS + i, lc.setHex(color));
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
+    hideLine(id);
+    wireM!.count = fibreM!.count = tlHigh * LS;
+    whiskM!.count = tlHigh * WHISK;
+    return id;
+  },
+  /** Draws the line between a and b (see hangLine); fray 0..1 is how near it came to parting, at `frayAt` along it. */
+  set(id: number, a: Vec3, b: Vec3, len: number, tension: number, w: number, fray = 0, frayAt = 0.85): void {
+    const L = tl[id];
+    if (!L || !L.on || L.whip) return;
+    hangLine(L.pts, a, b, len, tension, w, LS);
+    L.fray = fray;
+    L.frayAt = frayAt;
+    if (L.look === 'chain') drawLinks(L, L.pts, LS);
+    else { drawStrand(id, L, L.pts, LS); drawFray(id, L, L.pts, LS); }
+  },
+  /** The line parted `at` (0..1 from a): it whips back at v m/s and is freed when the recoil has run out. */
+  snap(id: number, a: Vec3, b: Vec3, at: number, v: number): void {
+    const L = tl[id];
+    if (!L || !L.on) return;
+    const twin = lines.add(L.look, L.r, L.color);
+    L.whip = { t0: clock, a: [...a], b: [...b], at, v, twin };
+    L.fray = 0;
+    for (let i = 0; i < WHISK; i++) whiskM?.setMatrixAt(id * WHISK + i, ZERO);
+    if (twin >= 0) tl[twin].whip = { t0: clock, a: [...a], b: [...b], at, v, twin: -2 };
+  },
+  remove(id: number): void {
+    const L = tl[id];
+    if (!L || !L.on || L.whip) return;
+    freeLine(id);
+  },
+  /** Once a frame, before the owners' `set` calls: advances the recoils; after them the chain links are flushed. */
+  begin(dt: number): void {
+    clock += dt;
+    linkUsed = 0;
+    for (let id = 0; id < tlHigh; id++) {
+      const L = tl[id];
+      if (!L?.on || !L.whip || L.whip.twin === -2) continue;
+      if (!drawWhip(id, L)) { const t = L.whip.twin; freeLine(id); if (t >= 0) freeLine(t); }
+    }
+  },
+  flush(): void {
+    if (!linkM) return;
+    linkM.count = linkUsed;
+    linkM.instanceMatrix.needsUpdate = true;
+    if (linkM.instanceColor) linkM.instanceColor.needsUpdate = true;
+  },
+  clear(): void {
+    for (let id = 0; id < tlHigh; id++) if (tl[id]?.on) { tl[id].on = false; tl[id].whip = null; hideLine(id); }
+    tlFree.length = 0;
+    tlHigh = 0;
+    linkUsed = 0;
+    if (wireM) wireM.count = 0;
+    if (fibreM) fibreM.count = 0;
+    if (whiskM) whiskM.count = 0;
+    lines.flush();
+  },
+};

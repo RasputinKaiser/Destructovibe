@@ -66,7 +66,10 @@ export type WeaponId =
   | 'breaker'     // handheld hydraulic breaker: percussive chipping of concrete and masonry, exposes rebar
   | 'hose'        // water cannon / fire monitor: ballistic stream douses fires and shoves light debris
   | 'splitter'    // hydraulic wedge splitter in a drilled hole: cracks a block or member along the hole
-  | 'wiresaw';    // diamond wire saw looped round a member: slow, unattended cut through any section
+  | 'wiresaw'     // diamond wire saw looped round a member: slow, unattended cut through any section
+  | 'grapple'     // pneumatic grapple launcher: a grapnel on HMPE line, reeled by a powered ascender (haul in, climb)
+  | 'tether'      // rigging lines: wire rope, nylon kinetic rope or chain tied between members, vehicles, ground anchors
+  | 'hoist';      // 3.2 t lever hoist: a hand-ratcheted chain pull, slow and strong
 
 /** building-services networks: members of the same kind conduct to each other through their welds */
 export type UtilityKind = 'power' | 'gas' | 'water' | 'steam';
@@ -440,6 +443,8 @@ export interface ToolReadout {
   progress: number | null;
   detail: string;
   warn: boolean;
+  /** rigging lines: each loaded line's tension as a share of its breaking load (the HUD's tension bars) */
+  lines?: { label: string; util: number }[];
 }
 
 export interface TimelineView {

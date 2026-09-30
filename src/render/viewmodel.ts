@@ -36,6 +36,10 @@ let torchFlame: THREE.Sprite, torchCore: THREE.Sprite;
 let planBtn: THREE.Mesh, planLed: THREE.MeshStandardMaterial, planScreen: THREE.MeshStandardMaterial;
 let excStickL: THREE.Group, excStickR: THREE.Group, excLed: THREE.MeshStandardMaterial;
 let brkChisel: THREE.Group, hoseTip: THREE.Group, splitWedge: THREE.Group, wireBtn: THREE.Mesh, wireLed: THREE.MeshStandardMaterial;
+let grapHook: THREE.Group, grapSpool: THREE.Group, coilMat: THREE.MeshStandardMaterial, coilLinks: THREE.Group, coilRope: THREE.Group;
+let hoistLever: THREE.Group, hoistWheel: THREE.Group;
+/** rigging tools' state from the game, every frame: grapnel in the muzzle, reel turning (rad/s), lever stroke 0..1 */
+const rigVm = { hook: true, reel: 0, lever: 0, strokes: 0, coil: 0x7a8085, chain: false };
 const work = { on: false, load: 0, heat: 0, close: 0, lit: false, spin: 0, chain: 0 };
 /** hammer wind-up 0..1 and the bank IV tools' running state */
 const hold = { wind: 0, on: false, k: 0, run: 0, released: 1 };
@@ -613,6 +617,107 @@ function buildModels(): Record<WeaponId, Model> {
     mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.16, 8), black, 0, -0.06, 0.08),
   );
 
+  // grapple launcher: pneumatic tube along -Z over an air bottle, the grapnel's tines folded in the muzzle, the reel of
+  // white HMPE line on the left cheek
+  const hmpe = plain(0xe8e9e4, 0.8);
+  grapHook = new THREE.Group();
+  grapHook.position.set(0, 0.03, -0.3);
+  grapHook.add(mesh(alongZ(new THREE.CylinderGeometry(0.006, 0.006, 0.09, 8)), polished, 0, 0, -0.02));
+  for (let i = 0; i < 4; i++) {
+    const tine = mesh(new THREE.TorusGeometry(0.018, 0.004, 6, 10, Math.PI * 0.8), polished);
+    tine.rotation.set(0, Math.PI / 2, (i / 4) * Math.PI * 2);
+    tine.position.set(Math.cos((i / 4) * Math.PI * 2) * 0.012, Math.sin((i / 4) * Math.PI * 2) * 0.012, -0.075);
+    grapHook.add(tine);
+  }
+  grapSpool = new THREE.Group();
+  grapSpool.position.set(-0.045, 0.005, -0.06);
+  const spoolFl = new THREE.CylinderGeometry(0.038, 0.038, 0.004, 22).rotateZ(Math.PI / 2);
+  grapSpool.add(
+    mesh(new THREE.CylinderGeometry(0.031, 0.031, 0.026, 22).rotateZ(Math.PI / 2), hmpe),
+    mesh(spoolFl, black, 0.014, 0, 0), mesh(spoolFl, black, -0.014, 0, 0),
+    mesh(new THREE.BoxGeometry(0.03, 0.004, 0.012), polished, 0, 0.031, 0),
+  );
+  const gGrip = mesh(new RoundedBoxGeometry(0.034, 0.11, 0.05, 2, 0.01), rubber, 0, -0.085, 0.06);
+  gGrip.rotation.x = -0.3;
+  const grapple = new THREE.Group();
+  grapple.add(
+    mesh(alongZ(new THREE.CylinderGeometry(0.03, 0.03, 0.34, 20)), oliveDark, 0, 0.03, -0.14),
+    mesh(alongZ(new THREE.CylinderGeometry(0.033, 0.033, 0.02, 20)), black, 0, 0.03, -0.3),
+    mesh(alongZ(new THREE.CylinderGeometry(0.027, 0.027, 0.02, 20, 1, true)), bore, 0, 0.03, -0.305),
+    mesh(alongZ(new THREE.CylinderGeometry(0.024, 0.024, 0.2, 18)), yellow, 0, -0.02, -0.08),
+    mesh(new THREE.SphereGeometry(0.024, 14, 10), yellow, 0, -0.02, -0.18),
+    mesh(new THREE.BoxGeometry(0.016, 0.03, 0.03), iron, 0, 0.005, 0.02),
+    mesh(guard, iron, 0, -0.035, 0.015),
+    mesh(new THREE.BoxGeometry(0.006, 0.018, 0.008), black, 0, -0.028, 0.012),
+    mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.03, 10), polished, 0, 0.068, -0.02),
+    gGrip, grapSpool, grapHook,
+  );
+
+  // rigging lines: a coil of the chosen line over the forearm, a bow shackle in the hand
+  coilMat = plain(0x7a8085, 0.55, 0.45);
+  coilRope = new THREE.Group();
+  for (let i = 0; i < 6; i++) {
+    const r = mesh(new THREE.TorusGeometry(0.075 + (i % 2) * 0.004, 0.008, 8, 32), coilMat, 0, i * 0.011, 0);
+    r.rotation.set(Math.PI / 2 + (i - 2.5) * 0.05, 0, (i - 2.5) * 0.04);
+    coilRope.add(r);
+  }
+  // the working end off the coil, a thimble eye and the shackle on it
+  const tail = mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.1, 8), coilMat, 0.078, -0.045, 0.01);
+  tail.rotation.z = 0.2;
+  const thimble = mesh(new THREE.TorusGeometry(0.014, 0.004, 6, 14), polished, 0.085, -0.1, 0.01);
+  coilRope.add(tail, thimble);
+  coilLinks = new THREE.Group();
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    const l = mesh(new THREE.TorusGeometry(0.009, 0.0035, 6, 10), plain(0x7a1c16, 0.45, 0.7), Math.cos(a) * 0.07, 0, Math.sin(a) * 0.07);
+    l.rotation.set(i % 2 ? Math.PI / 2 : 0, -a, 0);
+    coilLinks.add(l);
+  }
+  coilLinks.visible = false;
+  const shackle = new THREE.Group();
+  shackle.add(
+    mesh(new THREE.TorusGeometry(0.02, 0.0055, 8, 16, Math.PI), polished, 0, 0.02, 0),
+    mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.03, 8), polished, 0.02, 0.005, 0),
+    mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.03, 8), polished, -0.02, 0.005, 0),
+    mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.056, 8).rotateZ(Math.PI / 2), brass, 0, -0.01, 0),
+  );
+  shackle.position.set(0.086, -0.14, 0.01);
+  shackle.rotation.set(0, 0, Math.PI);
+  const tether = new THREE.Group();
+  tether.add(coilRope, coilLinks, shackle);
+
+  // lever hoist: red frame, the ratchet wheel and pawl on the near side, the lever reaching back to the hand, top
+  // hook, a few links of load chain hanging from the sheave
+  const hRed = plain(0xa8261b, 0.45, 0.2);
+  hoistWheel = new THREE.Group();
+  hoistWheel.position.set(0.032, 0.0, -0.02);
+  hoistWheel.add(mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.006, 20).rotateZ(Math.PI / 2), iron));
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const tooth = mesh(new THREE.BoxGeometry(0.006, 0.008, 0.005), polished, 0.002, Math.cos(a) * 0.03, Math.sin(a) * 0.03);
+    tooth.rotation.x = a;
+    hoistWheel.add(tooth);
+  }
+  hoistLever = new THREE.Group();
+  hoistLever.position.set(0.04, 0, -0.02);
+  const lvBar = mesh(new THREE.BoxGeometry(0.008, 0.016, 0.2), iron, 0, 0, 0.1);
+  const lvGrip = mesh(alongZ(new THREE.CylinderGeometry(0.013, 0.013, 0.07, 12)), rubber, 0, 0, 0.2);
+  const pawl = mesh(new THREE.BoxGeometry(0.004, 0.006, 0.02), polished, -0.004, 0.032, -0.008);
+  pawl.rotation.x = 0.4;
+  hoistLever.add(lvBar, lvGrip, pawl);
+  const hoist = new THREE.Group();
+  hoist.add(
+    mesh(new RoundedBoxGeometry(0.06, 0.09, 0.07, 2, 0.008), hRed, 0, 0, -0.02),
+    mesh(new THREE.TorusGeometry(0.018, 0.005, 8, 16, Math.PI * 1.5), polished, 0, 0.065, -0.02),
+    hoistWheel, hoistLever,
+  );
+  for (let i = 0; i < 5; i++) {
+    const l = mesh(new THREE.TorusGeometry(0.008, 0.0032, 6, 10), plain(0x2e3033, 0.45, 0.8), -0.012, -0.055 - i * 0.017, -0.02);
+    l.scale.set(1, 1.6, 1);
+    l.rotation.y = i % 2 ? Math.PI / 2 : 0;
+    hoist.add(l);
+  }
+
   const mk = (group: THREE.Group, pos: Vec3, rot: Vec3, muzzle: THREE.Object3D | null, scale = 1): Model => ({ group, pos, rot, muzzle, scale });
   return {
     // framing: everything rests in the lower-right third with its working end short of the crosshair, clear of the
@@ -641,6 +746,9 @@ function buildModels(): Record<WeaponId, Model> {
     hose: mk(hose, [0.26, -0.21, -0.52], [0.03, -0.05, 0], null),
     splitter: mk(splitter, [0.26, -0.21, -0.48], [0.05, -0.05, 0], null),
     wiresaw: mk(wiresaw, [0.23, -0.19, -0.48], [0.8, -0.3, 0.06], null, 0.85),
+    grapple: mk(grapple, [0.27, -0.21, -0.5], [0.03, -0.05, 0], null),
+    tether: mk(tether, [0.24, -0.12, -0.5], [0.9, -0.5, 0.15], null, 0.62),
+    hoist: mk(hoist, [0.25, -0.1, -0.5], [0.2, -1.1, 0.05], null, 0.85),
   };
 }
 
@@ -748,6 +856,10 @@ export const viewmodel = {
       kickP.velocity[2] += 1.8; kickR.velocity[0] += 4; drumSpin = 55;
     } else if (id === 'gravgun') {
       kickP.velocity[2] += 1.2; kickR.velocity[0] += 3; prongK.velocity -= 14;
+    } else if (id === 'grapple') {
+      kickP.velocity[2] += 2.2; kickR.velocity[0] += 5;
+    } else if (id === 'tether' || id === 'hoist') {
+      kickP.velocity[2] -= 0.7; kickR.velocity[0] -= 1.5;
     } else if (id === 'wrecker' || id === 'planner' || id === 'wiresaw') {
       kickR.velocity[0] -= 0.8;
     } else if (id === 'splitter') {
@@ -864,6 +976,10 @@ export const viewmodel = {
 
   /** breaker / water cannon / excavator remote in use this frame, with its intensity 0..1 */
   hold(on: boolean, k: number): void { hold.on = on; hold.k = k; },
+
+  /** rigging tools, every frame: grapnel home in the muzzle, reel speed, hoist lever stroke 0..1 and strokes made,
+   *  the colour of the line on the coil (chain shows links) */
+  rig(s: Partial<typeof rigVm>): void { Object.assign(rigVm, s); },
 };
 
 /** dev: move a model live (position, rotation, scale) to tune its framing */
@@ -1027,6 +1143,21 @@ function animateWeapon(m: Model, dt: number): void {
     const t = firedWith === 'winch' ? fireT : 99;
     winchHook.visible = t < 0.07 || t > 1.1;
     winchHook.position.z = HOOK_Z - (t < 0.07 ? (t / 0.07) * 0.12 : 0.06 * (1 - easing.cubicOut(Math.min(1, Math.max(0, (t - 1.1) / 0.3)))));
+  } else if (current === 'grapple') {
+    grapHook.visible = rigVm.hook;
+    grapSpool.rotation.x -= rigVm.reel * dt;
+    if (rigVm.reel > 0.1) { g.position.x += (Math.random() - 0.5) * 0.0015; g.position.y += (Math.random() - 0.5) * 0.0015; }
+  } else if (current === 'tether') {
+    coilMat.color.setHex(rigVm.coil);
+    coilLinks.visible = rigVm.chain;
+    coilRope.visible = !rigVm.chain;
+  } else if (current === 'hoist') {
+    // the lever throws through its arc, the wheel turns a tooth at a time
+    const k = Math.sin(Math.PI * rigVm.lever);
+    hoistLever.rotation.x = -0.25 + 0.7 * k;
+    hoistWheel.rotation.x = -((rigVm.strokes + Math.floor(rigVm.lever * 5) / 5) * Math.PI * 2 * 5) / 12;
+    g.position.y += 0.012 * k;
+    g.rotation.x += 0.05 * k;
   } else if (current === 'gravgun') {
     spring.damp(gripK, gripping ? 1 : 0, 0.08, dt);
     spring.update(prongK, gripping ? PRONG_SHUT : PRONG_OPEN, 0.05, 0.4, dt);
