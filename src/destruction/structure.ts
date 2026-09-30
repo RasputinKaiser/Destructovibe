@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { vec3, quat, clamp, lerp } from 'math';
-import type { b3ShapeId, b3JointId } from 'box3d.js';
+import type { b3ShapeId, b3JointId, b3BodyId, Contact as B3Contact, ContactsBuffer, Manifold } from 'box3d.js';
 import type { Blueprint, MaterialId, PieceSpec, Vec3, Quat } from '../types';
 import {
   b3, world, ground, CAT, ALL, filter, register, unregister, stepCount, overlapAABB, explodeImpulse,
@@ -3007,6 +3007,7 @@ function syncRebar(alpha: number): void {
 
 function destroyPiece(p: Piece): void {
   if (p.dead) return;
+  const quiet = leavesQuietly(p);
   watchAbove(p);
   p.dead = true;
   for (const w of p.welds.slice()) killWeld(w, false);
@@ -3018,6 +3019,7 @@ function destroyPiece(p: Piece): void {
   hot.delete(p);
   unregister(p);
   if (b3.b3Body_IsValid(p.body)) b3.b3DestroyBody(p.body);
+  if (quiet) resettle(quiet);
   detachDetail(p);
   removePieceGfx(p.gfx);
   live.delete(p);
@@ -4396,6 +4398,62 @@ function freezeRubble(p: Piece): void {
 }
 /** settled rubble held static (harness) */
 export function frozenRubble(): number { return frozenList.length; }
+
+/* Box3D wakes every sleeping island a destroyed body touched or merely lay close to (its contacts include the ones
+   whose bounding boxes only overlap), and a heap is one island: a burnt-out splinter, a pulverised shard or a faded chip
+   going from a sleeping heap woke the whole heap (the chapel's burning pile: ~1000 bodies solved again for 1-2 s, five
+   times in 10 s). A heap at rest that loses a piece which held nothing up is still at rest: after the piece goes, what
+   it lay on, beside or near is put back to sleep. What it bore (a body resting on it, or pressing on it from the side,
+   with more than a twentieth of its own weight) is woken, and with it that body's island, so a heap that loses its
+   support still settles. A piece that was awake, jointed, or near anything that is not a piece leaves as before. */
+const BORE = 0.05;
+let _qcb: ContactsBuffer | null = null, _qcon: B3Contact | null = null, _qman: Manifold | null = null;
+const _qlo: Vec3 = [0, 0, 0], _qhi: Vec3 = [0, 0, 0];
+interface Leaving { sleepers: b3BodyId[]; borne: b3BodyId[] }
+function leavesQuietly(p: Piece): Leaving | null {
+  if (p.welds.length || p.rebars.length || p.ropes.length || p.mechs || p.hinged || !b3.b3Body_IsValid(p.body)) return null;
+  if (b3.b3Body_GetType(p.body) !== b3.b3BodyType.b3_dynamicBody || b3.b3Body_IsAwake(p.body)) return null;
+  const q: Leaving = { sleepers: [], borne: [] };
+  /* everything the destroy can wake: bodies whose (fattened) boxes overlap this one's */
+  b3.b3Body_ComputeAABB(_aabb, p.body);
+  for (let k = 0; k < 3; k++) { _qlo[k] = _aabb[k] - 0.25; _qhi[k] = _aabb[k + 3] + 0.25; }
+  let other = false;
+  const seen = new Set<number>();
+  overlapAABB(_qlo, _qhi, ALL, shape => {
+    const body = b3.b3Shape_GetBody(shape);
+    if (b3.b3Body_GetType(body) !== b3.b3BodyType.b3_dynamicBody || body.index1 === p.body.index1 || seen.has(body.index1)) return;
+    seen.add(body.index1);
+    const e = entityOfShape(shape);
+    if (!e || e.kind !== 'piece') { other = true; return; }
+    if (!b3.b3Body_IsAwake(body)) q.sleepers.push(body);
+  });
+  if (other) return null;
+  /* what rests or leans on it: the normal runs from shape A to shape B, so from this piece to the other when it is A */
+  const cb = _qcb ??= b3.createContactsBuffer(), con = _qcon ??= b3.createContact(), man = _qman ??= b3.createManifold();
+  b3.getBodyContactData(cb, p.body);
+  const n = b3.getNumContacts(cb);
+  for (let i = 0; i < n; i++) {
+    b3.getContactAt(con, cb, i);
+    if (con.manifoldCount === 0) continue;
+    const pa = entityOfShape(con.shapeIdA) === p, sh = pa ? con.shapeIdB : con.shapeIdA;
+    const body = b3.b3Shape_GetBody(sh);
+    if (b3.b3Body_GetType(body) !== b3.b3BodyType.b3_dynamicBody) continue;
+    let up = -1, J = 0;
+    for (let m = 0; m < con.manifoldCount; m++) {
+      const mf = b3.getManifoldAt(man, con, m);
+      up = Math.max(up, pa ? mf.normal[1] : -mf.normal[1]);
+      for (let k = 0; k < mf.pointCount; k++) J += mf.points[k].totalNormalImpulse;
+    }
+    // it lay on the other (pushing it down): the other stays where it is without it
+    if (up < -0.3) continue;
+    if (J > BORE * b3.b3Body_GetMass(body) * 9.81 / 60) q.borne.push(body);
+  }
+  return q;
+}
+function resettle(q: Leaving): void {
+  for (const b of q.sleepers) if (b3.b3Body_IsValid(b) && b3.b3Body_IsAwake(b)) b3.b3Body_SetAwake(b, false);
+  for (const b of q.borne) if (b3.b3Body_IsValid(b)) b3.b3Body_SetAwake(b, true);
+}
 
 function fadeScale(p: Piece): number {
   return p.fade > 0 ? Math.max(0.02, p.fade / 0.7) : 1;

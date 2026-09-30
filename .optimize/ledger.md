@@ -347,3 +347,40 @@ machines) fall 559 → 17-34 per step within 4 s, and those few keep the ~3400-b
 in pits below grade (y -2.5 to -3.6), plus a welded rconcrete pair that fell through the ground (y -270, the doomed
 sweep is in afterStep). Full run (MODE=plain): 131-445 over threshold per step, awake 3380-4070. So under pure physics
 the heap does not sleep either: its keepers are a few dozen jittering small or wedged bodies, not afterStep calls.
+
+### Heap re-wakes: a piece that bore nothing leaves a sleeping heap asleep (backlog #1)
+
+Diagnosis (runs/r5-probe/wake-*.txt, `.optimize/wake-probe.py`): on chapel_S45 each b3DestroyBody of a sleeping piece
+(glass shards pulverised after fire-cracking, burnt-out wood disintegrating, detail units burnt out, faded chips and
+bricks) woke 380-960 bodies. In most cases the piece bore nothing: every touching dynamic neighbour was below it (normal
+from it pointing down) or touched it with ~0 impulse, and several destroys had no touching dynamic contact at all yet
+woke an island (Box3D's destroy also wakes bodies whose boxes merely overlap it). Run 4's quiet-destroy returned "not
+quiet" for those (it required at least one touching neighbour) and only re-slept touching bodies: 1 of 5 qualified.
+
+Change (`leavesQuietly` / `resettle` in destroyPiece): for an unjointed piece that is asleep, collect the sleeping dynamic
+pieces whose boxes overlap its own grown by 0.25 m (anything else nearby: leave as before) and, from its touching
+contacts, the bodies it bore: any not below it (normal from it to them with y ≥ -0.3) whose summed totalNormalImpulse is
+over 5 % of their weight per step. After b3DestroyBody, the collected sleepers that were woken are put back to sleep
+(SetAwake(false) splits the island first), then each borne body is woken, which wakes its island: a heap that loses
+its support still settles, one that only lost a piece off its top stays asleep.
+
+A/B vs a2581ea, chapel_S45, 5 shifts (0, ±0.15, ±0.3; load 14-34; runs/20260930T-r5-ab-quietleave-chapel45.json):
+late (t 20-45 s) phys_cpu 9.27 → 7.58 ms median (per pair 18.8/14.8, 5.71/4.85, 6.23/5.56, 9.27/7.58, 15.19/14.93;
+x0.85), awake_mean_late 821 → 658 (1321/1006, 469/392, 378/378, 821/658, 1375/1375), late_after_cpu x0.99. On shift 0
+the ~1300-body island that never slept on a2581ea sleeps from t 32 to 38 s: it had been re-woken about once a second by
+glass pulverised on it. weldsLost identical on 4/5 pairs (1304/1306 on shift 0), demo identical on 4/5 (10.09/10.52).
+terrace_S60, 2 shifts (runs/…-quietleave-terrace60-tower.json): late phys_cpu x0.94, awake_mean_late 752/1084 and
+1735/1753 (its re-wakes are gas deflagrations, which this does not touch; which second they land in moves). tower_D,
+2 shifts: fingerprint SAME on shift 0; all timings x1.00-1.03.
+Realism (realism-probe, wake test = wake every loose sleeper at the default threshold for 180 steps):
+- chapel_S45 shift 0 at 45 s: base 1791 sleepers, 5 moved > 2 cm, 1 dropped > 10 cm (a brick 1.6 m into a pit), hoverN
+  272; quiet 2052 sleepers, 4 moved > 2 cm (a machine-lifted load of 3 pieces rising 0.4 m and a crate on a belt), 0
+  dropped, hoverN 342 (ray geometry over 15 % more sleepers; the wake test shows them supported). 43 quiet leaves,
+  8 of them with a borne body woken, 265 sleepers put back.
+- shift -0.15 at 45 s: identical (1570 sleepers, 5 moved, 0 dropped, hoverN 339 both; 8 quiet leaves).
+- shift +0.15 at 36 s (pile asleep; measured on the v1-drain tree, before a2581ea's oldest-first order): 1294 sleepers,
+  21 vs 22 moved > 2 cm (the same pieces), 0 dropped, hoverN 271 both. wake-probe on the same trajectory: the 4 wakes at
+  21.8-35.3 s (lamp, pvc, stone unit, glass: all lay on what they touched) no longer happen; the 37.2 s one (burning
+  wood bearing a body at 3.2x its weight) still wakes the pile, as it should.
+Idle S/H/D/R 1800: identical to main.
+The lists are per call (a destroy nested inside another cannot hand the outer one its lists); chapel_S45 shift 0 and +0.3 re-run after that refactor: fingerprints equal the A/B head's (508ab182c957c8dc, 0e71676c01da3f19).
