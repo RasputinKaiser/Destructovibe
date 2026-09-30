@@ -14,7 +14,7 @@ import { isFragile } from '../../sim/fields/index';
 import { fx } from '../../render/fx';
 import { audio } from '../../audio/audio';
 import { strikes } from '../../render/strikes';
-import { NO_HIT, fillOf } from '../tools/common';
+import { NO_HIT, fillOf, chord } from '../tools/common';
 import { punchHole } from '../tools/machining';
 
 export const HEAT84 = {
@@ -66,7 +66,8 @@ export function heatImpact(point: Vec3, dir: Vec3, entity: PhysEntity | undefine
     // the cone on the face: a crater of chips a couple of calibres across
     if (isFragile(piece)) damagePiece(piece, pos, piece.hp * 1.5, true);
     else {
-      damagePiece(piece, pos, Math.min(piece.hp * 0.2, 40e3), true);
+      // what one round takes out of a wall is a crater and a tunnel: its share of the wall goes down with thickness
+      damagePiece(piece, pos, Math.min(piece.hp * wear(piece, pos, dir), 40e3), true);
       if (!piece.dead) strikes.add(piece, pos, n, HEAT84.crater);
     }
     fx.debris(pos, 8, piece.pm.chips, 5, [-dir[0], -dir[1], -dir[2]]);
@@ -75,7 +76,7 @@ export function heatImpact(point: Vec3, dir: Vec3, entity: PhysEntity | undefine
       // stopped inside: a deep narrow hole, and the back face scabs if it came within ~30 % of going through
       res.spent = 1;
       if (Number.isFinite(need) && jet > need * 0.7 && !piece.dead) {
-        damagePiece(piece, out, Math.min(piece.hp * 0.15, 40e3), true);
+        damagePiece(piece, out, Math.min(piece.hp * wear(piece, pos, dir) * 0.75, 40e3), true);
         fx.debris(out, 10, piece.pm.chips, 6, dir);
         fx.powder(out, 0.6, piece.pm.dust);
       }
@@ -89,7 +90,7 @@ export function heatImpact(point: Vec3, dir: Vec3, entity: PhysEntity | undefine
       if (Number.isFinite(piece.pm.toughness)) punchHole(piece, pos, n, HEAT84.hole);
       // the exit face spalls out wider than the tunnel
       if (!piece.dead) {
-        damagePiece(piece, out, Math.min(piece.hp * 0.15, 40e3), true);
+        damagePiece(piece, out, Math.min(piece.hp * wear(piece, pos, dir) * 0.75, 40e3), true);
         if (!piece.dead) strikes.add(piece, out, [dir[0], dir[1], dir[2]], HEAT84.crater * 2);
       }
     }
@@ -104,6 +105,13 @@ export function heatImpact(point: Vec3, dir: Vec3, entity: PhysEntity | undefine
   heatLog.push(res);
   if (heatLog.length > 16) heatLog.shift();
   return res;
+}
+
+/* share of a wall's strength one round's crater and tunnel take: ~0.2 of a one-brick (0.23 m) wall, so a breach needs a
+   few rounds there and proportionally more in thicker walls */
+function wear(p: Piece, at: Vec3, dir: Vec3): number {
+  const t = Math.max(0.05, chord(p, at, dir));
+  return Math.min(0.3, Math.max(0.04, 0.2 * (0.23 / t)));
 }
 
 /* Behind-armour debris: the plug and the spalled back face go on as a cone of fast fragments (half-angle ~25°). */

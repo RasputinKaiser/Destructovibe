@@ -51,6 +51,18 @@ let inside = new Uint8Array(0);
 
 /** gasPower: the energy that pressurises a room it fills, when it differs from the shock's (a fuel-air charge: a low,
  * long push from far more energy than its peak pressure shows) */
+/* covered: solid somewhere above within the grid */
+function coverPass(n: number): void {
+  for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
+    let cover = 0;
+    for (let y = n - 1; y >= 0; y--) {
+      const i = x + n * (y + n * z);
+      if (occ[i]) cover = 1;
+      else roofed[i] = cover;
+    }
+  }
+}
+
 export function survey(pos: Vec3, radius: number, power: number, gasPower = power): Survey {
   const t0 = performance.now();
   const W = Math.max(0.01, power / POWER_PER_KG) * (pos[1] < 2.5 ? 1.8 : 1);
@@ -77,21 +89,20 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
   });
   for (let z = 0; z < n; z++) for (let y = 0; y < n && y0 + y < 0; y++) for (let x = 0; x < n; x++) occ[x + n * (y + n * z)] = 1;
   const cx = Math.floor(pos[0]) - x0, cy = Math.floor(pos[1]) - y0, cz = Math.floor(pos[2]) - z0;
-  const free = Math.max(FREE, radius * BREACH);
+  /* a fuel-air charge breaches nothing round itself: what covers it is the room's real ceiling, judged before the charge's
+     own breach sphere is cleared (a point charge of this size would have holed that ceiling; a cloud does not) */
+  const trueCover = gasPower !== power;
+  if (trueCover) coverPass(n);
+  // …and it holes no wall round itself either: only its own cell is cleared
+  const free = trueCover ? 0.5 : Math.max(FREE, radius * BREACH);
   const fr = Math.ceil(free);
   for (let z = -fr; z <= fr; z++) for (let y = -fr; y <= fr; y++) for (let x = -fr; x <= fr; x++) {
     if (x * x + y * y + z * z > free * free + 0.5 || y0 + cy + y < 0) continue;
-    occ[cx + x + n * (cy + y + n * (cz + z))] = 0;
+    const i = cx + x + n * (cy + y + n * (cz + z));
+    if (trueCover && occ[i]) roofed[i] = 1;
+    occ[i] = 0;
   }
-  /* covered: solid somewhere above within the grid */
-  for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
-    let cover = 0;
-    for (let y = n - 1; y >= 0; y--) {
-      const i = x + n * (y + n * z);
-      if (occ[i]) cover = 1;
-      else roofed[i] = cover;
-    }
-  }
+  if (!trueCover) coverPass(n);
   /* breadth-first reach through open cells */
   let head = 0, tail = 0;
   const c0 = cx + n * (cy + n * cz);

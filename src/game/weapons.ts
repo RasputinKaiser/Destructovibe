@@ -65,6 +65,7 @@ import { TBX, thermobaricBurst, thermobaricStep, clearThermobaric, thermobaricPe
 import { PEN, penetrate, penetratorStep, clearPenetrator, penetratorPending, approach, penClamp } from './ordnance/penetrator';
 import { backblast as blowBack, BB_ROCKET, BB_RECOILLESS, BB_THERMOBARIC } from './ordnance/backblast';
 import { shotStrike } from './ordnance/shot';
+import { contactCharge } from './ordnance/breach';
 import { young } from './ordnance/penetration';
 
 /* Ordered tool list; `bank` is the six-slot page the number keys address (Q cycles). */
@@ -1092,15 +1093,20 @@ function blowUp(p: Projectile, at: Vec3): void {
   if (p.type === 'cutter') { recordFire(p); cut(p); return; }
   if (p.type === 'megabomb') { megaBlast(p, at); return; }
   if (p.type === 'charge' || p.type === 'satchel') recordFire(p);
+  if (p.type === 'satchel') {
+    const host = p.stuck && p.host && !p.host.dead ? p.host : null;
+    const n = faceNormal(p, [0, 0, 0]);
+    removeProjectile(p);
+    const off = STICK_OFFSET.satchel ?? 0.07;
+    contactCharge(p.kg, host ? [at[0] - n[0] * off, at[1] - n[1] * off, at[2] - n[2] * off] : at, n, host);
+    return;
+  }
   removeProjectile(p);
   if (p.type === 'rocket') explode(at, ROCKET.radius, ROCKET.power, ROCKET.impulse);
   else if (p.type === 'bomb') explode(at, BOMB.radius, BOMB.power, BOMB.impulse, 1.2);
   else if (p.type === 'charge') {
     const b = blastOf(p.kg);
     explode(at, b.radius, b.power, b.impulse, CHARGE.weldReach);
-  } else if (p.type === 'satchel') {
-    const b = blastOf(p.kg);
-    explode(at, b.radius, b.power, b.impulse, CHARGE.weldReach, 30);
   }
 }
 
@@ -2329,12 +2335,21 @@ export function weaponsDebug(): { predicted: Vec3 | null; strikes: Vec3[]; flyin
 }
 
 /** Headless tests: a projectile in flight as if just fired (no player, no ammo spent). */
-export function launch(type: ProjType, pos: Vec3, vel: Vec3, head: Warhead = 'he', opt: { airburst?: number; voids?: number } = {}): void {
+export function launch(type: ProjType, pos: Vec3, vel: Vec3, head: Warhead = 'he', opt: { airburst?: number; voids?: number; kg?: number; press?: boolean } = {}): void {
   const p = spawn(type, pos, vel);
   p.warhead = head;
   if (type === 'grenade') { p.target = [...pos]; p.width = opt.airburst ?? 0; }
   if (type === 'pen') p.beat = opt.voids ?? 2;
-  if (type === 'satchel') { p.kg = SATCHEL.kg; p.delay = nextDelay(p); }
+  if (type === 'satchel') {
+    p.kg = opt.kg ?? SATCHEL.kg;
+    p.delay = nextDelay(p);
+    // pressed on by hand: stick it to the first face along its velocity
+    if (opt.press) {
+      const l = Math.hypot(vel[0], vel[1], vel[2]) || 1;
+      const hit = raycast(pos, [(vel[0] / l) * PLANT_REACH, (vel[1] / l) * PLANT_REACH, (vel[2] / l) * PLANT_REACH], NO_HIT);
+      if (hit) stick(p, hit.point as Vec3, hit.normal as Vec3, hit.entity, plantRot(pieceOf(hit.entity), hit.normal as Vec3));
+    }
+  }
   if (type === 'megabomb') { p.kg = MEGA.kg; p.armAt = now + MEGA.fuse; p.beat = Math.ceil(MEGA.fuse) + 1; }
 }
 
