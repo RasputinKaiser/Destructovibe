@@ -26,6 +26,8 @@ try {
   await phys.initPhysics();
   st.initStructures(scene);
   const DT = phys.FIXED_DT;
+  const PFB = await L('/src/levels/prefabs.ts');
+  const STAND_ = (await L('/src/levels/maps/ground.ts')).stand;
   const handlers = { hit: (a, b, p, n, s) => st.onHit(a, b, p, n, s), begin() {}, jointBroken: (id) => st.onJointBroken(id) };
 
   function world(specs, at = [0, 0, 0], yaw = 0) {
@@ -80,10 +82,27 @@ try {
     for (let i = 1; i < tr.length; i++) m = Math.max(m, Math.abs((tr[i].cy - tr[i - 1].cy) - (tr[i].y - tr[i - 1].y)));
     return r3(m);
   }
+  /** worst sudden change of camera vertical velocity between grounded frames (a pop), m per frame per frame */
+  function camPop(tr) {
+    let m = 0;
+    for (let i = 2; i < tr.length; i++) {
+      if (!tr[i].g || !tr[i - 1].g || !tr[i - 2].g) continue;
+      m = Math.max(m, Math.abs((tr[i].cy - tr[i - 1].cy) - (tr[i - 1].cy - tr[i - 2].cy)));
+    }
+    return r3(m);
+  }
   function camMaxStep(tr) {
     let m = 0;
     for (let i = 1; i < tr.length; i++) m = Math.max(m, Math.abs(tr[i].cy - tr[i - 1].cy));
     return r3(m);
+  }
+
+  /** frames where the camera moved more than the body explains: body y, eye over body, camera over eye */
+  function dump(tr) {
+    for (let i = 1; i < tr.length; i++) {
+      const a = tr[i - 1], b = tr[i], j = (b.cy - a.cy) - (b.y - a.y);
+      if (Math.abs(j) > 0.025 || process.env.ALL) console.log('TRACE', r3(b.t), 'y', r3(b.y), 'z', r3(b.z), 'eye', r3(b.ey - b.y), 'cam', r3(b.cy - b.ey), 'jerk', r3(j), b.g ? 'G' : 'air', b.c ? 'C' : '', 'v', r3(Math.hypot(b.vx, b.vz)), r3(b.vy));
+    }
   }
 
   const S = {};
@@ -186,7 +205,7 @@ try {
         const s = trace.at(-1);
         // estimate time to landing from the ballistic arc (y above floor, vy)
         if (!armed && s.vy < 0) {
-          const g = 9.81 * 1.5, tl = (s.vy + Math.sqrt(s.vy * s.vy + 2 * g * Math.max(0, s.y))) / g;
+          const g = 9.81 * 1.35, tl = (s.vy + Math.sqrt(s.vy * s.vy + 2 * g * Math.max(0, s.y))) / g;
           if (tl <= early) { armed = true; pressedAt = s.t; return ['Space']; }
         }
         return [];
@@ -210,9 +229,10 @@ try {
       world(specs, [x, 0, 0]);
       const t0 = trace.length;
       let stall = 0, reach = null;
-      run(secs, ['KeyW'], (s, t) => { if (t > 0.4 && hspeed(s) < 0.5) stall += DT; if (reach === null && s.y >= top - 0.02) reach = r3(t); });
+      run(secs, ['KeyW'], (s, t) => { if (t > 0.4 && hspeed(s) < 0.5) stall += DT; if (reach === null && s.y >= top - 0.02) reach = r3(t); if (reach !== null && t > reach + 0.4) return false; });
       const tr = trace.slice(t0);
-      o[name] = { top: r3(trace.at(-1).y), reached: reach, stall: r3(stall), camMaxStep: camMaxStep(tr), camJerk: camJerk(tr) };
+      if (process.env.TRACE === name) dump(tr);
+      o[name] = { reached: reach, stall: r3(stall), camMaxStep: camMaxStep(tr), camPop: camPop(tr) };
     };
     lane(0, 'curb15', 0.15);
     lane(4, 'stairs18', 1.44, 4);
@@ -223,7 +243,7 @@ try {
     const t0 = trace.length; let airFrames = 0;
     run(3, ['KeyW'], (s) => { if (!s.g) airFrames++; });
     const tr = trace.slice(t0);
-    o.stairsDown = { bottom: r3(trace.at(-1).y), airFrames, camMaxStep: camMaxStep(tr), camJerk: camJerk(tr) };
+    o.stairsDown = { bottom: r3(trace.at(-1).y), airFrames, camMaxStep: camMaxStep(tr), camPop: camPop(tr) };
     return o;
   };
 
@@ -233,14 +253,14 @@ try {
       world([box('concrete', [3, h, 3], [0, h / 2, -3])], [0, 0, 0]);
       let top = 0, t1 = null;
       run(3.5, (t) => ['KeyW', ...(t > 0.6 && t < 0.62 ? ['Space'] : [])], (s, t) => { top = s.y; if (t1 === null && s.y > h - 0.05 && s.g) t1 = r3(t); });
-      o[`h${h}`] = { onTop: top > h - 0.05, t: t1 };
+      o[`h${h}`] = t1;
     }
     // holding jump into the ledge (the "press space at the wall" habit)
     for (const h of [0.9, 1.1]) {
       world([box('concrete', [3, h, 3], [0, h / 2, -3])], [0, 0, 0]);
-      let top = 0;
-      run(3.5, ['KeyW', 'Space'], (s) => { top = s.y; });
-      o[`hold${h}`] = top > h - 0.05;
+      let t1 = null;
+      run(3.5, ['KeyW', 'Space'], (s, t) => { if (t1 === null && s.y > h - 0.05 && s.g) t1 = r3(t); });
+      o[`hold${h}`] = t1;
     }
     return o;
   };
@@ -283,9 +303,10 @@ try {
     let stall = 0, maxY = 0, cross = null;
     run(8, ['KeyW'], (q, t) => { if (t > 0.4 && hspeed(q) < 0.4) stall += DT; maxY = Math.max(maxY, q.y); if (cross === null && q.z < -7.5) cross = r3(t); });
     const tr = trace.slice(t0);
+    if (process.env.TRACE === 'rubble') dump(tr);
     let moved = 0, movedHeavy = 0;
     made.forEach((p, i) => { if (p.dead) return; const d = Math.hypot(p.curPos[0] - before[i][0], p.curPos[2] - before[i][2]); if (d > 0.05) { moved++; if (p.mass > 40) movedHeavy++; } });
-    o.walk = { crossT: cross, endZ: r3(trace.at(-1).z), maxY: r3(maxY), stall: r3(stall), camMaxStep: camMaxStep(tr), camJerk: camJerk(tr), piecesMoved: moved, heavyMoved: movedHeavy };
+    o.walk = { crossT: cross, endZ: r3(trace.at(-1).z), maxY: r3(maxY), stall: r3(stall), camPop: camPop(tr), piecesMoved: moved, heavyMoved: movedHeavy };
     return o;
   };
 
@@ -317,9 +338,9 @@ try {
     const o = {};
     for (const h of [1.5, 3, 5, 8, 12]) {
       world([box('concrete', [2, h, 2], [0, h / 2, 0])], [0, h, 0]);
-      let vmin = 0;
-      run(2.5, (t) => (t < 0.6 ? ['KeyW'] : []), (s) => { vmin = Math.min(vmin, s.vy); });
-      o[`h${h}`] = { impactV: r3(-vmin), after: { crouch: trace.at(-1).c, hp: P.player.health ?? null } };
+      let vmin = 0, down = 0, stag = false, black = 0;
+      run(4, (t) => (t < 0.6 ? ['KeyW'] : []), (s) => { vmin = Math.min(vmin, s.vy); down = Math.max(down, P.player.downed ?? 0); if (P.player.stagger > 0) stag = true; black = Math.max(black, P.player.black ?? 0); });
+      o[`h${h}`] = { impactV: r3(-vmin), tier: P.player.lastLanding?.tier ?? null, stagger: stag, downedS: r3(down), blackout: black > 0.5 };
     }
     return o;
   };
@@ -350,9 +371,10 @@ try {
     for (const [name, size] of [['slab', [1.2, 0.2, 1.2]], ['lump', [0.2, 0.12, 0.1]]]) {
       world([], [0, 0, 0]);
       const p = st.spawnPieces([{ mat: 'concrete', size, pos: [0.1, 4, 0], noWeld: true }])[0];
-      let vmax = 0, dmax = 0, knock = 0, down = false; const x0 = trace.at(-1).x, z0 = trace.at(-1).z;
-      run(2.5, [], (s) => { vmax = Math.max(vmax, hspeed(s), s.vy); dmax = Math.max(dmax, Math.hypot(s.x - x0, s.z - z0)); knock = Math.max(knock, P.player.knock); if (P.player.downed > 0) down = true; });
-      o[name] = { mass: r3(p.mass), peakV: r3(vmax), displaced: r3(dmax), knock: r3(knock), downed: down, crouchAfter: trace.at(-1).c, hp: P.player.health ?? null };
+      if (process.env.DBG) globalThis.DBG = (...a) => console.log('DBG', name, time.toFixed(3), r3(p.curPos[1]), ...a.map((x) => typeof x === 'number' ? r3(x) : x));
+      let vmax = 0, dmax = 0, knock = 0, down = false, stag = false, black = 0; const x0 = trace.at(-1).x, z0 = trace.at(-1).z;
+      run(2.5, [], (s) => { if (process.env.DBG && (globalThis.__n = (globalThis.__n ?? 0) + 1) % 4 === 0) console.log('POS', name, r3(s.t), p.curPos.map(r3).join(','), p.dead); vmax = Math.max(vmax, hspeed(s), Math.abs(s.vy)); dmax = Math.max(dmax, Math.hypot(s.x - x0, s.z - z0)); knock = Math.max(knock, P.player.knock); if (P.player.downed > 0) down = true; if (P.player.stagger > 0) stag = true; black = Math.max(black, P.player.black ?? 0); });
+      o[name] = { mass: r3(p.mass), peakV: r3(vmax), displaced: r3(dmax), knock: r3(knock), stagger: stag, downed: down, blackout: black > 0.5 };
     }
     return o;
   };
@@ -367,6 +389,43 @@ try {
       run(2.5, []);
       o[`d${deg}`] = { from: r3(y0), end: r3(trace.at(-1).y), grounded: trace.at(-1).g };
     }
+    return o;
+  };
+
+  S.blast = () => {
+    // a brick bungalow blown down, then walked straight through its spoil from 8 m out
+    const { PREFABS } = PFB;
+    const o = {};
+    const pf = PREFABS.find((q) => q.id === (process.env.PREFAB ?? 'bungalow'));
+    world([]);
+    st.spawnPieces(STAND_(pf.build(0, 0, 0), 0));
+    for (let i = 0; i < 120; i++) { phys.step(handlers); st.afterStep(DT); }
+    st.explode([0, 1.2, 0], +(process.env.BOOMR ?? 7), 90e3, 3200);
+    for (let i = 0; i < 480; i++) { phys.step(handlers); st.afterStep(DT); st.syncMeshes(1); st.maintain(DT); }
+    P.teleport([0.3, 0.05, 9], 0, 0);
+    let dn = 0; if (process.env.DBG) globalThis.DBG = (...a) => { if (a[0] !== "plane" && dn++ < 400) console.log('DBG', time.toFixed(3), ...a.map((x) => typeof x === 'number' ? r3(x) : x)); };
+    const t0 = trace.length;
+    let stall = 0, maxY = 0, cross = null, climbs = 0, wasM = false, stuck = 0, jumps = 0, sidesteps = 0, side = 0;
+    const zOf = [];
+    // what a player does: walk on; stuck for half a second, jump (climb); still stuck, sidestep a stride
+    run(14, () => {
+      const q = trace.at(-1), z = zOf.length > 30 ? zOf[zOf.length - 30] : 99;
+      const moving = Math.abs(q.z - z) > 0.15;
+      stuck = moving ? 0 : stuck + DT;
+      if (side > 0) { side -= DT; return ['KeyW', 'KeyD']; }
+      if (stuck > 0.5 && stuck < 0.5 + DT * 1.5) { jumps++; return ['KeyW', 'Space']; }
+      if (stuck > 1.6) { stuck = 0; side = 0.5; sidesteps++; return ['KeyW', 'KeyD']; }
+      return ['KeyW'];
+    }, (q, t) => {
+      zOf.push(q.z);
+      if (t > 0.4 && hspeed(q) < 0.4 && P.player.mantle < 0) stall += DT;
+      maxY = Math.max(maxY, q.y);
+      const m = P.player.mantle >= 0; if (m && !wasM) climbs++; wasM = m;
+      if (cross === null && q.z < -8) { cross = r3(t); return false; }
+    });
+    const tr = trace.slice(t0);
+    if (process.env.TRACE === 'blast') dump(tr);
+    o.walk = { crossT: cross, endZ: r3(trace.at(-1).z), maxY: r3(maxY), stall: r3(stall), climbs, jumps, sidesteps, camPop: camPop(tr), pieces: st.stats().pieces };
     return o;
   };
 
