@@ -296,8 +296,24 @@ function inBlast(p: Vec3): boolean {
    nothing driving it is the solver spitting it out, not a throw: nothing on a site flings a wheel at 125 m/s. */
 function overspeed(e: PhysEntity): boolean {
   const dx = e.curPos[0] - e.prevPos[0], dy = e.curPos[1] - e.prevPos[1], dz = e.curPos[2] - e.prevPos[2];
-  if (dx * dx + dy * dy + dz * dz <= (GOV_MAX * FIXED_DT) ** 2 || stepCount - (e.drivenStep ?? -99) < 30 || (blasts.length && inBlast(e.curPos))) return false;
+  const d2 = dx * dx + dy * dy + dz * dz;
+  if (d2 <= (BLAST_MAX * FIXED_DT) ** 2 || stepCount - (e.drivenStep ?? -99) < 30) return false;
+  if (blasts.length && inBlast(e.curPos)) { blastCap(e); return false; }
+  if (d2 <= (GOV_MAX * FIXED_DT) ** 2) return false;
   return runaway(e, true);
+}
+
+/* Inside a blast's reach bodies are legitimately fast, but only as fast as the blast throws them: the free-body push
+   and the panel blow-out give at most ~22-28 m/s (a pane of glass or a leaf of brick does not outrun its own shock).
+   Anything faster there is the solver spitting out a body jammed among the fragments, and loses the excess. */
+const BLAST_MAX = 30;
+function blastCap(e: PhysEntity): void {
+  b3.b3Body_GetLinearVelocity(_gv, e.body);
+  const v = Math.hypot(_gv[0], _gv[1], _gv[2]);
+  if (v <= BLAST_MAX) return;
+  const k = BLAST_MAX / v;
+  b3.b3Body_SetLinearVelocity(e.body, [_gv[0] * k, _gv[1] * k, _gv[2] * k]);
+  pumped++;
 }
 
 function governed(e: PhysEntity): boolean {
@@ -305,8 +321,9 @@ function governed(e: PhysEntity): boolean {
   const v2 = _gv[0] * _gv[0] + _gv[1] * _gv[1] + _gv[2] * _gv[2];
   const E = 0.5 * v2 + 9.81 * e.curPos[1], E0 = e.gE ?? E;
   e.gE = E;
-  if (v2 < GOV_SPEED * GOV_SPEED || (blasts.length && inBlast(e.curPos)) || stepCount - (e.drivenStep ?? -99) < 30
+  if (v2 < GOV_SPEED * GOV_SPEED || stepCount - (e.drivenStep ?? -99) < 30
     || e.ropes?.length || e.mechs?.length) { e.gRun = 0; return false; }
+  if (blasts.length && inBlast(e.curPos)) { e.gRun = 0; if (v2 > BLAST_MAX * BLAST_MAX) { blastCap(e); e.gE = undefined; } return false; }
   const v = Math.sqrt(v2);
   if (v > GOV_MAX) { e.gRun = 0; e.gE = undefined; return runaway(e, true); }
   const allowed = E0 + GOV_G * 9.81 * v * FIXED_DT + GOV_SLACK;
