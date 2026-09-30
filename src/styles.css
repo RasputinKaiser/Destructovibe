@@ -1511,6 +1511,83 @@ svg {
 
 /* settings */
 
+.keymap-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 1rem;
+  margin: 1.4rem 0 0.6rem;
+}
+
+.keymap-note {
+  flex: 1 1 14rem;
+  font-size: 0.9rem;
+  color: var(--c-300, rgba(236, 234, 227, 0.6));
+}
+
+.btn--sm {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.keymap {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr));
+  gap: 0.35rem;
+}
+
+.key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem 0.45rem 1rem;
+  border: 1px solid var(--plate-edge);
+  background: rgba(22, 22, 21, 0.66);
+}
+
+.key-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.keycap {
+  min-width: 4.6rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid rgba(236, 234, 227, 0.28);
+  border-bottom-width: 3px;
+  border-radius: 3px;
+  background: rgba(236, 234, 227, 0.06);
+  color: inherit;
+  font-family: var(--f-mono);
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background-color var(--t-fast), border-color var(--t-fast);
+}
+
+.keycap:hover {
+  background: rgba(255, 196, 0, 0.12);
+}
+
+.keycap.is-custom {
+  border-color: var(--hazard);
+  color: var(--hazard);
+}
+
+.keycap.is-waiting {
+  background: var(--hazard);
+  border-color: var(--hazard);
+  color: var(--ink);
+}
+
+.keycap:focus-visible {
+  outline: 2px solid var(--hazard);
+  outline-offset: 2px;
+}
+
 .settings {
   width: min(42rem, 100%);
 }
@@ -3384,6 +3461,33 @@ svg {
     var(--grain),
     radial-gradient(ellipse 72% 68% at 50% 50%, transparent 42%, rgba(104, 82, 58, 0.55) 76%, rgba(44, 32, 22, 0.92) 100%),
     radial-gradient(ellipse 90% 85% at 50% 50%, transparent 58%, rgba(200, 36, 22, 0.55) 100%);
+}
+
+.daze {
+  --k: 0;
+  --b: 0;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.daze::before,
+.daze::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+/* rattled: the edges close in and redden, the way a knock narrows the world */
+.daze::before {
+  opacity: var(--k);
+  background:
+    radial-gradient(ellipse 70% 62% at 50% 50%, transparent 30%, rgba(70, 12, 6, 0.55) 72%, rgba(24, 4, 2, 0.94) 100%);
+}
+
+.daze::after {
+  opacity: var(--b);
+  background: #000;
 }
 
 .pen-flash {

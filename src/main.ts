@@ -29,7 +29,7 @@ import { stand } from './levels/maps/ground';
 import { PREFABS, prefabView, type Prefab } from './levels/prefabs';
 import {
   player, createPlayer, playerPreStep, playerPostStep, updateCamera, applyLook, toggleFly, addTrauma, kickFov,
-  knockback, eyePosition, forward, respawn, teleport as teleportPlayer, setPlayerEnabled, vfov,
+  knockback, eyePosition, forward, respawn, teleport as teleportPlayer, setPlayerEnabled, vfov, padLook,
 } from './game/player';
 import {
   initWeapons, setLoadout, select, cycle, tryFire, detonate, weaponsPreStep, weaponsAfterStep, syncProjectiles,
@@ -41,7 +41,7 @@ import * as scoring from './game/scoring';
 import { driving, vehicleNear, enterVehicle, exitVehicle, driveControls, driveLook, driveCamera, driveHud } from './vehicles/drive';
 import { operating, machineNear, enterMachine, exitMachine, operateControls, operateLook, operateCamera, operateHud, vehicleGear, releaseVehicleGear } from './vehicles/operate';
 import { svcInfo, svcNearestGate, svcOperate } from './destruction/services';
-import { input, initInput, requestLock, releaseLock, endFrame } from './core/input';
+import { input, initInput, requestLock, releaseLock, endFrame, hit as tapped, pollPad, canonical, setBindings, keyLabel } from './core/input';
 import { loadSave, writeSave, WORLD_DEFAULTS, type SaveData } from './core/save';
 import {
   initRenderer, setQuality, setEnvironment, setShadowFocus, renderFrame, setRenderScale, setPostFx, onDetailTier, renderStats, type Gfx,
@@ -367,7 +367,7 @@ function beginPlay(title: string): void {
   if (!input.locked) requestLock();
   ui.setPointerHint(!input.locked);
   clockOn = mode === 'sandbox';
-  flashHint(mode === 'sandbox' ? 'F — fly · R — rebuild site' : `Target ${Math.round(active.target * 100)}% · the clock starts when you move or fire · Enter calls it early`, 6);
+  flashHint(mode === 'sandbox' ? `${keyLabel('fly')} — fly · ${keyLabel('restart')} — rebuild site` : `Target ${Math.round(active.target * 100)}% · the clock starts when you move or fire · Enter calls it early`, 6);
   ui.toast(title.toUpperCase(), 'info', 1800);
 }
 
@@ -719,7 +719,7 @@ let frameDt = 1 / 60;
 /* E takes the nearest vehicle's wheel or machine's controls (whichever is closer) and leaves them again; while
    driving or operating, keys and mouse go to it. */
 function handleDriving(): boolean {
-  if (input.pressed.has('KeyE')) {
+  if (tapped('interact')) {
     if (driving.vehicle || operating.machine) {
       if (driving.vehicle) releaseVehicleGear(driving.vehicle.chassis);
       const at = driving.vehicle ? exitVehicle() : exitMachine();
@@ -734,13 +734,14 @@ function handleDriving(): boolean {
     if (m) { enterMachine(m.m); setPlayerEnabled(false); cancelSpawn(); flashHint(`At the controls: ${m.m.name}`, 2); return true; }
   }
   if (operating.machine) {
-    operateControls(input.down, frameDt);
+    operateControls(canonical(input.down), frameDt);
     if (input.mouseDX || input.mouseDY) operateLook(input.mouseDX * 0.002 * player.sensitivity, -input.mouseDY * 0.002 * player.sensitivity);
     return true;
   }
   if (!driving.vehicle) return false;
-  driveControls(input.down, input.pressed, frameDt);
-  gearHint = vehicleGear(driving.vehicle.chassis, input.down);
+  const down = canonical(input.down);
+  driveControls(down, canonical(input.pressed, true), frameDt);
+  gearHint = vehicleGear(driving.vehicle.chassis, down);
   if (input.mouseDX || input.mouseDY) driveLook(-input.mouseDX * 0.002 * player.sensitivity, -input.mouseDY * 0.002 * player.sensitivity);
   return true;
 }
@@ -770,7 +771,7 @@ function aimService(): void {
   const p = pieceOf(hit.entity);
   const q = p?.svc ? p : svcNearestGate(hit.point, 1.2);
   const info = q ? svcInfo(q) : null;
-  if (info) svcHint = `${info.title} · ${info.detail}${info.action ? ` · U — ${info.action}` : ''}`;
+  if (info) svcHint = `${info.title} · ${info.detail}${info.action ? ` · ${keyLabel('use')} — ${info.action}` : ''}`;
 }
 
 let fireHeld = false;
@@ -795,10 +796,15 @@ function endReplay(): void {
 }
 
 function handleInput(): void {
+  // Start on a pad pauses, like Esc (the lock goes and the pause menu comes up)
+  if (pollPad()) { releaseLock(); return; }
   if (!clockOn && (input.pressed.size || input.clicked || input.buttons)) startClock();
   if (handleDriving()) return;
   if (input.mouseDX || input.mouseDY) applyLook(input.mouseDX, input.mouseDY);
-  if (input.pressed.has('KeyQ')) { bank = (bank + 1) % BANK_COUNT; audio.ui('click'); }
+  padLook(frameDt);
+  // hands busy: climbing, lying on the ground, blacked out
+  const busy = player.mantle >= 0 || player.downed > 0 || player.black > 0.3;
+  if (tapped('bank')) { bank = (bank + 1) % BANK_COUNT; audio.ui('click'); }
   for (let k = 1; k <= 6; k++) {
     if (!input.pressed.has(`Digit${k}`)) continue;
     const w = WEAPONS[bank * 6 + k - 1];
@@ -807,29 +813,29 @@ function handleInput(): void {
   if (!updatePlacement()) {
     // the wheel sets the tool's own parameter where it has one (scroll up = more), else cycles tools
     if (input.wheel && !toolWheel(input.wheel > 0 ? -1 : 1)) cycle(input.wheel > 0 ? 1 : -1);
-    if (input.buttons & 1) tryFire();
+    if ((input.buttons & 1) && !busy) tryFire();
     else if (fireHeld) releaseFire();
     fireHeld = (input.buttons & 1) !== 0;
     const rmb = (input.clicked & 4) !== 0 && !toolSecondary();
-    if (rmb || input.pressed.has('KeyG')) {
+    if (rmb || tapped('detonate')) {
       if (detonate()) flashHint('Detonating', 1);
       else if (loadout.current === 'charge' || loadout.current === 'planner') flashHint('No charges placed', 1.5);
     }
   }
-  if (input.pressed.has('Tab')) openSandboxPanel();
-  if (input.pressed.has('KeyB')) openSpawnPalette();
+  if (tapped('panel')) openSandboxPanel();
+  if (tapped('palette')) openSpawnPalette();
   if ((input.pressed.has('Backspace') || input.pressed.has('Delete')) && mode === 'sandbox') deleteAimed();
-  if (input.pressed.has('KeyR')) restart();
-  if (input.pressed.has('KeyF') && mode === 'sandbox') flashHint(toggleFly() ? 'Fly mode — Space up, C down' : 'Fly mode off', 2);
+  if (tapped('restart')) restart();
+  if (tapped('fly') && mode === 'sandbox') flashHint(toggleFly() ? `Fly mode — ${keyLabel('jump')} up, ${keyLabel('crouch')} down` : 'Fly mode off', 2);
   if (input.pressed.has('Enter') && mode === 'campaign') finish(scoring.goalMet(active.target));
-  if (input.pressed.has('KeyP')) respawn();
-  if (input.pressed.has('KeyU')) useService();
-  if (input.pressed.has('KeyT')) {
+  if (tapped('respawn')) respawn();
+  if (tapped('use')) useService();
+  if (tapped('bullet')) {
     audio.ui('click');
-    flashHint(toggleBulletTime() ? 'Bullet time — T to return to real time' : 'Real time', 1.6);
+    flashHint(toggleBulletTime() ? `Bullet time — ${keyLabel('bullet')} to return to real time` : 'Real time', 1.6);
   }
-  if (input.pressed.has('KeyV')) startReplay();
-  if (input.pressed.has('KeyX')) {
+  if (tapped('replay')) startReplay();
+  if (tapped('xray')) {
     const next = ({ off: 'stress', stress: 'thermal', thermal: 'services', services: 'fields', fields: 'off' } as const)[xrayMode()];
     setXrayMode(next);
     audio.ui('click');
@@ -953,15 +959,15 @@ function updateHudState(): void {
   const oh = operateHud();
   hud.hint = hintT > 0 ? hint
     : oh ? oh
-    : dh ? `${Math.round(dh.kmh)} km/h · ${dh.gear < 0 ? 'R' : dh.gear === 0 ? 'N' : dh.gear} · ${Math.round(dh.rpm)} rpm${dh.flat ? ` · ${dh.flat} flat` : ''} · W/S drive · Space handbrake · C view${gearHint ? ` · ${gearHint}` : ''} · E exit`
-    : nearVehicle ? 'E — drive'
-    : nearMachine ? 'E — operate'
+    : dh ? `${Math.round(dh.kmh)} km/h · ${dh.gear < 0 ? 'R' : dh.gear === 0 ? 'N' : dh.gear} · ${Math.round(dh.rpm)} rpm${dh.flat ? ` · ${dh.flat} flat` : ''} · ${keyLabel('forward')}/${keyLabel('back')} drive · ${keyLabel('jump')} handbrake · ${keyLabel('crouch')} view${gearHint ? ` · ${gearHint}` : ''} · ${keyLabel('interact')} exit`
+    : nearVehicle ? `${keyLabel('interact')} — drive`
+    : nearMachine ? `${keyLabel('interact')} — operate`
     : svcHint ? svcHint
     : xrayMode() === 'stress' ? 'X-RAY · joints: green idle · yellow loaded · red at capacity · magenta yielding · X to cycle'
     : xrayMode() === 'thermal' ? 'X-RAY · thermal: blue ambient → purple → orange 500 °C → white 1000 °C · X to cycle'
     : xrayMode() === 'fields' ? 'X-RAY · fields: temperature, smoke and fuel gas around the action · X to cycle'
     : xrayMode() === 'services' ? 'X-RAY · services: yellow power · orange gas · blue water · white steam · grey dead · beads run from supply to load · red shut (blinking: tripped) · amber standby set · white on battery · pulsing = live break · green = running machine'
-    : hud.chargesPlaced > 0 ? `${hud.chargesPlaced} charge${hud.chargesPlaced > 1 ? 's' : ''} armed — G${loadout.current === 'charge' || loadout.current === 'cutter' || loadout.current === 'planner' ? ' / right-click' : ''} to detonate` : null;
+    : hud.chargesPlaced > 0 ? `${hud.chargesPlaced} charge${hud.chargesPlaced > 1 ? 's' : ''} armed — ${keyLabel('detonate')}${loadout.current === 'charge' || loadout.current === 'cutter' || loadout.current === 'planner' ? ' / right-click' : ''} to detonate` : null;
   hud.fps = Math.round(fpsAvg);
   hud.tool = driving.vehicle || operating.machine ? null : toolReadout();
   hud.timeline = timelineView();
@@ -992,7 +998,7 @@ function frame(dt: number): void {
   const cam = gfx.camera;
 
   if (state === 'playing' && replay.playing) {
-    if (input.pressed.has('KeyV') || input.pressed.has('Escape')) endReplay();
+    if (tapped('replay') || input.pressed.has('Escape')) endReplay();
     else {
       replay.update(dt, cam);
       ui.setReplay(replay.view());
@@ -1035,7 +1041,8 @@ function frame(dt: number): void {
     if (driveCamera(alpha, _ce, _cl) || operateCamera(_ce, _cl)) { cam.position.set(_ce[0], _ce[1], _ce[2]); cam.lookAt(_cl[0], _cl[1], _cl[2]); }
     updateXray(dt);
     setServiceViewer([cam.position.x, cam.position.y, cam.position.z]);
-    viewmodel.update(dt * fxScale, { move: player.move, grounded: player.grounded, sprint: player.sprint, lookDelta: player.lookDelta });
+    viewmodel.update(dt * fxScale, { move: player.move, grounded: player.grounded, sprint: player.sprint, lookDelta: player.lookDelta, busy: player.mantle >= 0 || player.downed > 0 ? 1 : player.zoom });
+    ui.setDaze(player.daze, player.black);
     player.lookDelta[0] = player.lookDelta[1] = 0;
   } else if (state === 'title' || state === 'contracts' || state === 'briefing' || (state === 'settings' && settingsReturn !== 'paused') || state === 'loading') {
     orbitT += dt * 0.05;
@@ -1082,14 +1089,23 @@ function frame(dt: number): void {
 function applySettings(s: Settings): void {
   const rebuild = s.explosives !== save.settings.explosives && mode === 'sandbox';
   save.settings = { ...s };
-  if (rebuild) flashHint(`Sandbox explosives ${s.explosives ? 'on' : 'off'} — R to rebuild the site`, 4);
+  if (rebuild) flashHint(`Sandbox explosives ${s.explosives ? 'on' : 'off'} — ${keyLabel('restart')} to rebuild the site`, 4);
   writeSave(save);
   audio.setVolume(s.volume);
   setQuality(s.quality);
   applyDisplay(s);
+  applyControls(s);
+}
+
+function applyControls(s: Settings): void {
   player.sensitivity = s.sensitivity;
   player.invertY = s.invertY;
   player.baseFov = s.fov;
+  player.headBob = s.headBob;
+  player.crouchToggle = s.crouchToggle;
+  player.sprintToggle = s.sprintToggle;
+  player.impacts = s.impacts;
+  setBindings(s.keys);
 }
 
 function applyDisplay(s: Settings): void {
@@ -1186,9 +1202,7 @@ async function boot(): Promise<void> {
   viewmodel.setVisible(false);
   audio.init();
   audio.setVolume(save.settings.volume);
-  player.sensitivity = save.settings.sensitivity;
-  player.invertY = save.settings.invertY;
-  player.baseFov = save.settings.fov;
+  applyControls(save.settings);
   gfx.camera.fov = vfov(save.settings.fov);
   gfx.camera.updateProjectionMatrix();
 

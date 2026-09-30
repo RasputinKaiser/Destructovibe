@@ -9,7 +9,7 @@ export interface SaveData {
 const KEY = 'destructovibe.v2';
 
 export const DEFAULT_SETTINGS: Settings = { volume: 0.8, quality: 'high', sensitivity: 1, fov: 100, fovH: true, invertY: false, explosives: true,
-  shake: true, grain: true, aberration: true, renderScale: 0,
+  shake: true, grain: true, aberration: true, renderScale: 0, headBob: true, crouchToggle: false, sprintToggle: false, impacts: 'real', keys: {},
 };
 
 /** world knobs every level starts from; the sandbox panel edits a copy */
@@ -22,6 +22,7 @@ export function loadSave(): SaveData {
       const d = JSON.parse(raw) as Partial<SaveData>;
       if (d.version === 2) {
         const settings = { ...DEFAULT_SETTINGS, ...d.settings };
+        settings.keys = { ...(d.settings?.keys ?? {}) };
         /* fov used to be vertical degrees; saves from then read far too narrow as horizontal */
         if (!d.settings?.fovH) { settings.fov = DEFAULT_SETTINGS.fov; settings.fovH = true; }
         return { version: 2, settings, progress: d.progress ?? {} };

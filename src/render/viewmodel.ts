@@ -52,7 +52,7 @@ let current: WeaponId = 'hammer', target: WeaponId = 'hammer';
 let swapping = false, swapT = 1;
 let fireT = 99, firedWith: WeaponId = 'hammer', flashT = 99;
 let time = 0, bobPhase = 0, airTime = 0, wasGrounded = true;
-const bobAmp = spring.create(0), sprintK = spring.create(0);
+const bobAmp = spring.create(0), sprintK = spring.create(0), busyK = spring.create(0);
 const kickP = spring3.create(), kickR = spring3.create(), sway = spring3.create();
 const ZERO: Vec3 = [0, 0, 0];
 const LOOK_RAD = 0.0022;
@@ -764,7 +764,8 @@ export const viewmodel = {
     }
   },
 
-  update(dt: number, s: { move: number; grounded: boolean; sprint: boolean; lookDelta: [number, number] }): void {
+  /** busy 0..1: the hands are needed elsewhere (climbing, down on the ground) or the eye is at the zoom: tool dips out of the way */
+  update(dt: number, s: { move: number; grounded: boolean; sprint: boolean; lookDelta: [number, number]; busy?: number }): void {
     if (!scene) return;
     dt = Math.min(Math.max(dt, 0), 0.1);
     time += dt;
@@ -781,7 +782,8 @@ export const viewmodel = {
       }
       if (swapT >= 1) { swapT = 1; swapping = false; }
     }
-    const lower = swapping ? (swapT < 0.5 ? easing.cubicIn(swapT * 2) : 1 - easing.cubicOut((swapT - 0.5) * 2)) : 0;
+    spring.damp(busyK, s.busy ?? 0, 0.1, dt);
+    const lower = Math.max(swapping ? (swapT < 0.5 ? easing.cubicIn(swapT * 2) : 1 - easing.cubicOut((swapT - 0.5) * 2)) : 0, busyK.value);
 
     const moving = s.grounded ? Math.min(1, Math.max(0, s.move)) : 0;
     spring.damp(bobAmp, moving * (s.sprint ? 1.5 : 1), 0.12, dt);

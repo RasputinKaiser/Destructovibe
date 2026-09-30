@@ -6,41 +6,47 @@ import { clamp } from 'math';
 import { easing, spring } from 'math/time';
 import { audio } from '../audio/audio';
 import { DEFAULT_SETTINGS, WORLD_DEFAULTS } from '../core/save';
+import { ACTIONS, RESERVED, captureKey, codeLabel, bindingOf, type Action as KeyAction } from '../core/input';
 import { WEAPON_ICON, STAR, LOCK, MOUSE, WARN, SEARCH } from './icons';
 
 /* ---------------- static copy ---------------- */
 
 type KeyRow = readonly [string, string];
 
-const CONTROLS: readonly KeyRow[] = [
-  ['W A S D', 'Move'],
+/** the full list on the pause screen, in the keys the player has chosen */
+const K = (a: KeyAction): string => codeLabel(bindingOf(a));
+const controls = (): KeyRow[] => [
+  [`${K('forward')} ${K('left')} ${K('back')} ${K('right')}`, 'Move'],
   ['Mouse', 'Look'],
-  ['Space', 'Jump'],
-  ['Shift', 'Sprint (stamina)'],
-  ['C / Ctrl', 'Crouch'],
-  ['E', 'Drive a vehicle / operate a machine (crane, excavator) / get out'],
+  [K('jump'), 'Jump · at a wall or ledge up to chest height: climb it (walk into anything knee-high to scramble over)'],
+  [K('sprint'), 'Sprint (stamina; jumps cost some too)'],
+  [`${K('crouch')} / Ctrl`, 'Crouch (stands back up only where there is headroom)'],
+  [K('careful'), `Careful: slow, quiet walk · with ${K('left')}/${K('right')}, lean round a corner`],
+  [`${K('zoom')} / MMB`, 'Zoom (hold)'],
+  [K('interact'), 'Drive a vehicle / operate a machine (crane, excavator) / get out'],
   ['At the controls', 'A/D slew · W/S boom, luff, trolley · R/F stick, mast · T/G bucket · Space/C hoist'],
-  ['U', 'Work the breaker, valve, meter or standby set you aim at'],
-  ['P', 'Back to spawn'],
+  [K('use'), 'Work the breaker, valve, meter or standby set you aim at'],
+  [K('respawn'), 'Back to spawn'],
   ['LMB', 'Fire / use tool (hold the sledge to wind up)'],
   ['RMB', 'Tool’s second action, else detonate'],
-  ['G', 'Detonate charges / fire the sequence'],
+  [K('detonate'), 'Detonate charges / fire the sequence'],
   ['1–6', 'Select tool'],
   ['Wheel', 'Tool setting (charge size, delay, boom, blocks…), else next tool'],
   ['Shift + Wheel', 'Detonator panel: delay in 250 ms steps'],
-  ['Q', 'Switch tool bank (I–IV)'],
-  ['X', 'Engineer’s x-ray (stress / thermal / services / fields)'],
-  ['T', 'Bullet time (the world at 0.3×)'],
-  ['V', 'Replay the last 12 s: mouse orbit, wheel zoom, WASD/QE move, Space pause, 1–3 speed, ←/→ scrub, V exit'],
+  [K('bank'), 'Switch tool bank (I–IV)'],
+  [K('xray'), 'Engineer’s x-ray (stress / thermal / services / fields)'],
+  [K('bullet'), 'Bullet time (the world at 0.3×)'],
+  [K('replay'), 'Replay the last 12 s: mouse orbit, wheel zoom, WASD/QE move, Space pause, 1–3 speed, ←/→ scrub, V exit'],
   ['Enter', 'Call the job early'],
-  ['R', 'Restart'],
-  ['Esc', 'Pause'],
+  [K('restart'), 'Restart'],
+  ['Esc', 'Pause · every key can be changed in Settings'],
+  ['Gamepad', 'Sticks move/look · A jump · B crouch · X drive · Y detonate · RT/LT fire/second · LB/RB tool · L3 sprint · R3 zoom · Start pause'],
 ];
 
-const FREE_CONTROLS: readonly KeyRow[] = [
-  ['Tab', 'Site control panel'],
-  ['B', 'Spawn menu'],
-  ['F', 'Fly (Space up, C down)'],
+const freeControls = (): KeyRow[] => [
+  [K('panel'), 'Site control panel'],
+  [K('palette'), 'Spawn menu'],
+  [K('fly'), `Fly (${K('jump')} up, ${K('crouch')} down)`],
   ['LMB / RMB', 'Place / cancel spawn'],
   ['Wheel', 'Rotate spawn'],
   ['Backspace', 'Remove the structure you aim at'],
@@ -105,8 +111,8 @@ const stars = (n: number) =>
   `<span class="stars" role="img" aria-label="${n} of 3 stars">${[0, 1, 2].map(i => `<i class="${i < n ? 'on' : ''}">${STAR}</i>`).join('')}</span>`;
 const keyRows = (rows: readonly KeyRow[]) => rows.map(([k, d]) => `<dt><span class="kbd">${k}</span></dt><dd>${d}</dd>`).join('');
 const keys = (free: boolean) =>
-  `<dl class="keys">${keyRows(CONTROLS)}</dl>` +
-  (free ? `<h3 class="label">Free play</h3><dl class="keys">${keyRows(FREE_CONTROLS)}</dl>` : '');
+  `<dl class="keys">${keyRows(controls())}</dl>` +
+  (free ? `<h3 class="label">Free play</h3><dl class="keys">${keyRows(freeControls())}</dl>` : '');
 const windLabel = (w: number) => (w < 0.05 ? 'Calm' : w < 0.3 ? 'Breeze' : w < 0.55 ? 'Gusty' : w < 0.8 ? 'Gale' : 'Storm');
 const btn = (act: string, label: string, cls = '', key = '') =>
   `<button type="button" class="btn ${cls}" data-act="${act}"><span class="btn__l">${label}</span>${key ? `<span class="btn__k">${key}</span>` : ''}</button>`;
@@ -129,6 +135,7 @@ function shake(el: HTMLElement, px = 5, ms = 260): void {
 
 const TEMPLATE = () => `
 <div class="vig" data-r="vig" aria-hidden="true"></div>
+<div class="daze" data-r="daze" aria-hidden="true"></div>
 <div class="pen-flash" data-r="penFlash" aria-hidden="true"></div>
 
 <div class="hud" data-r="hud" aria-hidden="true">
@@ -296,7 +303,7 @@ const TEMPLATE = () => `
         ${btn('quit', 'Quit to title', 'btn--danger')}
       </nav>
     </div>
-    <div class="panel pause__keys"><h3 class="label">Controls</h3>${keys(true)}</div>
+    <div class="panel pause__keys" data-r="pauseKeys"><h3 class="label">Controls</h3>${keys(true)}</div>
   </div>
 </section>
 
@@ -337,9 +344,21 @@ const TEMPLATE = () => `
       <div class="set-row"><label for="dv-fov">Field of view</label><input class="range" id="dv-fov" type="range" min="70" max="120" step="1" data-r="sFov"><output data-r="oFov"></output></div>
       <div class="set-row"><label for="dv-inv">Invert Y</label><input class="switch" id="dv-inv" type="checkbox" data-r="sInv"><output data-r="oInv"></output></div>
       <div class="set-row"><label for="dv-shake">Camera shake</label><input class="switch" id="dv-shake" type="checkbox" data-r="sShake"><output data-r="oShake"></output></div>
+      <div class="set-row"><label for="dv-bob">Head bob</label><input class="switch" id="dv-bob" type="checkbox" data-r="sBob"><output data-r="oBob"></output></div>
+      <div class="set-row"><label for="dv-ctog">Toggle crouch</label><input class="switch" id="dv-ctog" type="checkbox" data-r="sCTog"><output data-r="oCTog"></output></div>
+      <div class="set-row"><label for="dv-stog">Toggle sprint</label><input class="switch" id="dv-stog" type="checkbox" data-r="sSTog"><output data-r="oSTog"></output></div>
+      <div class="set-row"><span class="set-name" title="What falls and falling debris do to you">Impacts</span>
+        <div class="seg" role="radiogroup" aria-label="Impacts" data-r="sImp">
+          ${IMPACTS.map(([v, l, t]) => `<label title="${t}"><input type="radio" name="dv-impacts" value="${v}"><span>${l}</span></label>`).join('')}
+        </div><output></output></div>
       <div class="set-row"><label for="dv-grain">Film grain</label><input class="switch" id="dv-grain" type="checkbox" data-r="sGrain"><output data-r="oGrain"></output></div>
       <div class="set-row"><label for="dv-ca">Chromatic aberration</label><input class="switch" id="dv-ca" type="checkbox" data-r="sCA"><output data-r="oCA"></output></div>
       <div class="set-row"><label for="dv-exp">Sandbox explosives</label><input class="switch" id="dv-exp" type="checkbox" data-r="sExp"><output data-r="oExp"></output></div>
+    </div>
+    <div class="keymap-head"><div class="eyebrow">Controls</div><span class="keymap-note" data-r="keyNote">Click a key to change it · Esc cancels · a gamepad works once the mouse is captured</span>
+      <button type="button" class="btn btn--ghost btn--sm" data-r="keyReset"><span class="btn__l">Reset keys</span></button></div>
+    <div class="keymap" data-r="keys">
+      ${ACTIONS.map(a => `<div class="key-row"><span class="key-name">${a.label}</span><button type="button" class="keycap" data-key="${a.id}" aria-label="${a.label}: change key"></button></div>`).join('')}
     </div>
   </div>
 </section>
@@ -353,6 +372,7 @@ const REFS = [
   'weapons', 'fps', 'ptr', 'tool', 'toolT', 'toolBar', 'toolD', 'seq', 'seqTrack', 'seqScale', 'loadFill', 'loadLabel', 'loadPct', 'cards', 'bNo', 'bName', 'bLoc', 'bText', 'bProtect',
   'bProtectText', 'bTerms', 'bTermsLabel', 'bAmmo', 'bKeys', 'bTarget', 'bPar', 'bEnv', 'bStars', 'report', 'rTitle', 'rSub', 'rRows', 'rTotalRow', 'rTotal',
   'rStars', 'rBest', 'rUnlock', 'rRetry', 'rNext', 'sVol', 'oVol', 'sQual', 'sSens', 'oSens', 'sFov', 'oFov', 'sInv', 'oInv', 'sExp', 'oExp', 'sScale', 'sShake', 'oShake', 'sGrain', 'oGrain', 'sCA', 'oCA',
+  'pauseKeys', 'sBob', 'oBob', 'sCTog', 'oCTog', 'sSTog', 'oSTog', 'sImp', 'keys', 'keyReset', 'keyNote', 'daze',
   'toasts', 'slow', 'slowX', 'rp', 'rpSpeed', 'rpTime', 'rpBar', 'ovl', 'sbx', 'pal', 'palSearch', 'palCount', 'palBody', 'xTime', 'xGrav', 'oGrav', 'xJoint', 'oJoint',
   'xWind', 'oWind', 'xFire', 'oFire', 'xDebris', 'oDebris',
 ] as const;
@@ -532,6 +552,7 @@ function act(a: string, el: HTMLElement): void {
 export function showScreen(s: ScreenId | null): void {
   current = s;
   if (!root) return;
+  if (s === 'pause') R.pauseKeys.innerHTML = `<h3 class="label">Controls</h3>${keys(true)}`;
   root.dataset.view = s ?? 'game';
   const target = s ? screens.get(s) : undefined;
   const ae = document.activeElement;
@@ -604,7 +625,7 @@ function jobKeys(ids: WeaponId[]): KeyRow[] {
   const has = (...w: WeaponId[]) => w.some(id => ids.includes(id));
   const banks = new Set(ids.map(id => BANK_OF.get(id)?.bank ?? 0)).size;
   const rows: KeyRow[] = [
-    ['W A S D', 'Move · mouse to look · Shift sprint · Space jump'],
+    [`${K('forward')} ${K('left')} ${K('back')} ${K('right')}`, `Move · mouse to look · ${K('sprint')} sprint · ${K('jump')} jump / climb`],
     ['LMB', has('hammer') ? 'Fire / use the tool · hold the sledge to wind up, release to strike' : 'Fire / use the tool'],
     [banks > 1 ? '1–6 · Q' : '1–6', banks > 1 ? 'Pick a tool · Q switches bank' : 'Pick a tool (wheel steps through them)'],
   ];
@@ -798,7 +819,11 @@ function bindSettings(): void {
   const exp = R.sExp as HTMLInputElement;
   const toggles = [
     [R.sShake, R.oShake, 'shake'], [R.sGrain, R.oGrain, 'grain'], [R.sCA, R.oCA, 'aberration'],
-  ] as [HTMLInputElement, HTMLElement, 'shake' | 'grain' | 'aberration'][];
+    [R.sBob, R.oBob, 'headBob'], [R.sCTog, R.oCTog, 'crouchToggle'], [R.sSTog, R.oSTog, 'sprintToggle'],
+  ] as [HTMLInputElement, HTMLElement, 'shake' | 'grain' | 'aberration' | 'headBob' | 'crouchToggle' | 'sprintToggle'][];
+  const impacts = Array.from(R.sImp.querySelectorAll<HTMLInputElement>('input[type=radio]'));
+  const caps = Array.from(R.keys.querySelectorAll<HTMLButtonElement>('button[data-key]'));
+  let waiting: HTMLButtonElement | null = null;
   const radios = Array.from(R.sQual.querySelectorAll<HTMLInputElement>('input[type=radio]'));
   const scales = Array.from(R.sScale.querySelectorAll<HTMLInputElement>('input[type=radio]'));
   const paint = () => {
@@ -809,7 +834,14 @@ function bindSettings(): void {
     R.oExp.textContent = S.explosives ? 'On' : 'Off';
     for (const r of radios) r.parentElement!.classList.toggle('is-on', r.checked);
     for (const r of scales) r.parentElement!.classList.toggle('is-on', r.checked);
+    for (const r of impacts) { r.checked = r.value === S.impacts; r.parentElement!.classList.toggle('is-on', r.checked); }
     for (const [, o, k] of toggles) o.textContent = S[k] ? 'On' : 'Off';
+    for (const b of caps) {
+      const a = b.dataset.key as KeyAction;
+      b.textContent = b === waiting ? 'Press a key…' : codeLabel(keyOf(a));
+      b.classList.toggle('is-waiting', b === waiting);
+      b.classList.toggle('is-custom', !!S.keys[a] && S.keys[a] !== defKey(a));
+    }
     for (const el of [vol, sens, fov]) fillRange(el);
     if (root) root.dataset.quality = S.quality;
   };
@@ -875,6 +907,54 @@ function bindSettings(): void {
       audio.ui('click');
       emit();
     });
+  for (const r of impacts)
+    r.addEventListener('change', () => {
+      if (!r.checked) return;
+      S.impacts = r.value as Settings['impacts'];
+      audio.ui('click');
+      emit();
+    });
+  // rebinding: the next key pressed goes to the action; a key another action had is swapped over to it
+  const stop = () => { waiting = null; captureKey(null); paint(); };
+  for (const b of caps)
+    b.addEventListener('click', () => {
+      if (waiting === b) { stop(); return; }
+      waiting = b;
+      audio.ui('click');
+      paint();
+      captureKey(code => {
+        waiting = null;
+        if (RESERVED.has(code)) { paint(); return; }
+        const a = b.dataset.key as KeyAction, was = keyOf(a);
+        const other = ACTIONS.find(x => x.id !== a && keyOf(x.id) === code);
+        const keys = { ...S.keys, [a]: code };
+        if (other) keys[other.id] = was;
+        for (const x of ACTIONS) if (keys[x.id] === x.key) delete keys[x.id];
+        S.keys = keys;
+        audio.ui('click');
+        emit();
+      });
+    });
+  R.keyReset.addEventListener('click', () => { S.keys = {}; audio.ui('click'); stop(); emit(); });
+}
+
+const IMPACTS: [Settings['impacts'], string, string][] = [
+  ['off', 'Off', 'Falls and debris shake you up at most'],
+  ['stumble', 'Stumble', 'Big falls and heavy debris knock you down for a moment'],
+  ['real', 'Real', 'Knockdowns, and a blackout and respawn from a lethal fall or crush'],
+];
+const defKey = (a: KeyAction): string => ACTIONS.find(x => x.id === a)!.key;
+const keyOf = (a: KeyAction): string => S.keys[a] ?? defKey(a);
+
+/** hurt vignette (0..1, a knock or a fall) and blackout (0..1) over the view */
+let dazeK = -1, blackK = -1;
+export function setDaze(k: number, black: number): void {
+  if (!root) return;
+  const a = Math.round(k * 100) / 100, b = Math.round(black * 100) / 100;
+  if (a === dazeK && b === blackK) return;
+  dazeK = a; blackK = b;
+  R.daze.style.setProperty('--k', String(a));
+  R.daze.style.setProperty('--b', String(b));
 }
 
 /* ---------------- free-play overlays ---------------- */
