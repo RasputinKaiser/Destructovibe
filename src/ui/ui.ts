@@ -719,7 +719,9 @@ export function showScreen(s: ScreenId | null): void {
   if (target && s !== 'loading') {
     // the job board starts on the next job to do (the first issued one not yet cleared)
     const first = (s === 'contracts' ? target.querySelector<HTMLElement>('.card:not(.is-locked):not(.is-cleared)') ?? target.querySelector<HTMLElement>('.card:not(.is-locked)') : null)
-      ?? target.querySelector<HTMLElement>('.btn--primary:not([hidden])') ?? controlsOf(target)[0];
+      ?? target.querySelector<HTMLElement>('.btn--primary:not([hidden])')
+      // a failed report's way forward is another go
+      ?? (s === 'results' ? target.querySelector<HTMLElement>('[data-act="retry"]') : null) ?? controlsOf(target)[0];
     if (first) requestAnimationFrame(() => { if (current === s && !target.contains(document.activeElement)) focusEl(first, usingPad()); });
   }
   if (s === 'results') {
