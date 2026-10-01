@@ -9,10 +9,10 @@ import {
 import { stepBrick, spill, emitters, sparks, defl, setPour, gasStats, FIRE_CLOCK, CH4, C3H8, PYRO, FLAME_MEMORY } from './gas';
 import { convect, thermalTick, thermalStats, SOLID_CLOCK } from './thermal';
 import { addWaterAt, stepWater, clearWater, waterStats, tiles } from './water';
-import { survey as blastSurvey, pso, POWER_PER_KG, type Survey } from './blast';
+import { survey as blastSurvey, clearRoomGas, pso, POWER_PER_KG, type Survey } from './blast';
 
 export { thermalStrain, thermalStress, flameOf, charRate, recOf, surfaceArea } from './thermal';
-export { loadFactors, paneLoad, glassRange, glassBreaks, paneCapacity, inRoom, pso, POWER_PER_KG, type Survey } from './blast';
+export { loadFactors, paneLoad, glassRange, glassBreaks, paneCapacity, inRoom, vent, reverb, pso, iso, cr, POWER_PER_KG, type Survey } from './blast';
 export { isFragile } from './grid';
 export { depthAt, tiles as waterTiles, CELL as WATER_CELL, TN as WATER_TN } from './water';
 export { FIRE_CLOCK, SOLID_CLOCK };
@@ -149,8 +149,8 @@ export function fieldsHeatTick(dt: number, burning: ReadonlySet<Piece>, hot: Set
 }
 
 /** Blast survey round a charge (see blast.ts), timed. */
-export function survey(pos: Vec3, radius: number, power: number, gasPower = power): Survey {
-  const s = blastSurvey(pos, radius, power, gasPower);
+export function survey(pos: Vec3, radius: number, power: number, gasPower = power, cloud = false, now = 0, face: Vec3 | null = null): Survey {
+  const s = blastSurvey(pos, radius, power, gasPower, cloud, now, face);
   fieldCost.blastMs += s.ms;
   fieldCost.blasts++;
   return s;
@@ -261,7 +261,7 @@ function deflagrations(dt: number): void {
     for (const h of deflHooks) h(pos, V, ev.pyro > 0.5 * E);
     /* what it throws is the gas pressure's impulse on loose things, not the point charge's: tens of kPa held for tens
        of ms under a ceiling is ~10³ Pa·s however little fuel made it */
-    if (power >= 1.5e3) explode(pos, Math.min(10, Math.max(3, 2 + 1.5 * Math.cbrt(V * 10 * k))), power, Math.min(6000, Math.max(150, 600 * cov * cov, 700 * V * k)), 1.2);
+    if (power >= 1.5e3) explode(pos, Math.min(10, Math.max(3, 2 + 1.5 * Math.cbrt(V * 10 * k))), power, Math.min(6000, Math.max(150, 600 * cov * cov, 700 * V * k)), 1.2, undefined, 0);
   }
   ev.E = ev.x = ev.y = ev.z = ev.pyro = ev.cov = 0;
 }
@@ -502,6 +502,7 @@ export function fieldStats(): { bricks: number; voxels: number; water: number; w
 export const waterPours = (): number => waterStats.pours;
 
 export function clearFields(): void {
+  clearRoomGas();
   clearBricks();
   clearWater();
   emitters.clear();

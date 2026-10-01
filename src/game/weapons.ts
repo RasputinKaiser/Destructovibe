@@ -195,6 +195,9 @@ interface Projectile extends PhysEntity {
   kg: number;
   /** firing delay in the demolition sequence, ms */
   delay: number;
+  /** where it was planted and the outward normal of that face (kept when the member breaks under it) */
+  plantAt?: Vec3;
+  plantN?: Vec3;
   /** quadratic drag per unit mass, 1/m */
   drag: number;
   warhead: Warhead;
@@ -1163,14 +1166,16 @@ function removeProjectile(p: Projectile): void {
 
 function blowUp(p: Projectile, at: Vec3): void {
   if (p.type === 'cutter') { recordFire(p); cut(p); return; }
-  if (p.type === 'megabomb') { megaBlast(p, at); return; }
+  if (p.type === 'megabomb') { megaBlast(p, at, plantFace(p, at)); return; }
   if (p.type === 'charge' || p.type === 'satchel') recordFire(p);
   if (p.type === 'satchel') {
     const host = p.stuck && p.host && !p.host.dead ? p.host : null;
-    const n = faceNormal(p, [0, 0, 0]);
+    // the face it was pressed on, also when its member broke under it a moment before
+    const pf = plantFace(p, at);
+    const n = pf ?? faceNormal(p, [0, 0, 0]);
     removeProjectile(p);
     const off = STICK_OFFSET.satchel ?? 0.07;
-    contactCharge(p.kg, host ? [at[0] - n[0] * off, at[1] - n[1] * off, at[2] - n[2] * off] : at, n, host);
+    contactCharge(p.kg, host ? [at[0] - n[0] * off, at[1] - n[1] * off, at[2] - n[2] * off] : at, n, host, pf);
     return;
   }
   removeProjectile(p);
@@ -1178,7 +1183,8 @@ function blowUp(p: Projectile, at: Vec3): void {
   else if (p.type === 'bomb') explode(at, BOMB.radius, BOMB.power, BOMB.impulse, 1.2);
   else if (p.type === 'charge') {
     const b = blastOf(p.kg);
-    explode(at, b.radius, b.power, b.impulse, CHARGE.weldReach);
+    // planted: it goes off on the face it was put on
+    explode(at, b.radius, b.power, b.impulse, CHARGE.weldReach, undefined, b.power, false, plantFace(p, at));
   }
 }
 
@@ -1196,6 +1202,8 @@ function stick(p: Projectile, point: Vec3, normal: Vec3, target: PhysEntity | un
   copy3(p.curPos, pos); copy3(p.prevPos, pos);
   p.curRot = [...rot]; p.prevRot = [...rot];
   p.stuck = true;
+  p.plantAt = [pos[0], pos[1], pos[2]];
+  p.plantN = [normal[0], normal[1], normal[2]];
   const piece = pieceOf(target);
   p.host = piece;
   const jd = b3.b3DefaultWeldJointDef();
@@ -1216,6 +1224,13 @@ function stick(p: Projectile, point: Vec3, normal: Vec3, target: PhysEntity | un
   p.joint = b3.b3CreateWeldJoint(world, jd);
   if (p.type === 'thermite' && p.armAt < 0) p.armAt = now + THERMITE.delay;
   audio.chargeStick(pos);
+}
+
+/* The face a device goes off on: the one it was planted on, while it is still where it was planted (its member may have
+   broken under it a moment before, in the same sequence); none once it has fallen away or was never planted. */
+function plantFace(p: Projectile, at: Vec3): Vec3 | null {
+  if (!p.plantN || !p.plantAt) return null;
+  return vec3.distance(p.plantAt, at) < 0.3 ? p.plantN : null;
 }
 
 /* Outward face normal of a planted device (its local +Y), or straight up once it has come loose. */
@@ -1293,6 +1308,7 @@ function cut(p: Projectile): void {
   const n = vec3.transformQuat([0, 0, 0], [0, 1, 0], rot) as Vec3;
   const across = vec3.transformQuat([0, 0, 0], [1, 0, 0], rot) as Vec3;
   const host = p.host && !p.host.dead ? p.host : nearestPiece(pos, 0.4);
+  const face = plantFace(p, pos);
   let width = p.width;
   removeProjectile(p);
   const at: Vec3 = [pos[0] - n[0] * 0.03, pos[1] - n[1] * 0.03, pos[2] - n[2] * 0.03];
@@ -1311,7 +1327,7 @@ function cut(p: Projectile): void {
   }
   fx.cutter(at, across, clamp(width, 0.3, 3));
   audio.cutter(at);
-  explode(pos, CUTTER.radius, CUTTER.power, CUTTER.impulse, 0.5, 2);
+  explode(pos, CUTTER.radius, CUTTER.power, CUTTER.impulse, 0.5, 2, CUTTER.power, false, face);
 }
 
 /* ---------------- thermite ---------------- */
@@ -1431,10 +1447,10 @@ function shatter(p: Projectile, at: Vec3, normal: Vec3): void {
 
 /* ---------------- megabomb ---------------- */
 
-function megaBlast(p: Projectile, at: Vec3): void {
+function megaBlast(p: Projectile, at: Vec3, face: Vec3 | null): void {
   removeProjectile(p);
   const b = blastOf(MEGA.kg);
-  explode(at, b.radius, b.power, b.impulse, MEGA.weldReach, MEGA.fractures);
+  explode(at, b.radius, b.power, b.impulse, MEGA.weldReach, MEGA.fractures, b.power, false, face);
   fx.megablast(at, b.radius * 1.4);
   audio.megabomb(at);
   for (const { p: q, d } of piecesNear(at, MEGA.fireball)) {
@@ -1713,7 +1729,9 @@ export function weaponsAfterStep(dt: number): void {
         const q = nearestPiece(p.curPos, 0.5);
         if (q) {
           const off = STICK_OFFSET[p.type] ?? 0.05;
+          const keep = p.plantN && p.plantAt ? [...p.plantN] as Vec3 : null, keepAt = p.plantAt;
           stick(p, [p.curPos[0] - n[0] * off, p.curPos[1] - n[1] * off, p.curPos[2] - n[2] * off], n, q, [...p.curRot] as Quat);
+          if (keep && keepAt) { p.plantN = keep; p.plantAt = keepAt; }
         } else {
           const a = loadout.ammo[p.type];
           if (a !== undefined && a >= 0) loadout.ammo[p.type] = a + 1;

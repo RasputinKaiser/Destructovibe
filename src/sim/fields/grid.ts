@@ -161,13 +161,16 @@ const _aabb: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 
    once its glass has gone. Hulls and wedges are trimmed to within half a cell of the real solid. Pieces thin in two
    directions (studs, joists, rods) or small ones only obstruct; loose, moving ones are ignored. */
 export const COVER = 32, SEAL = 16;
+/* shards, splinters and small rubble let gas through the gaps between them */
+function solidOf(p: Piece, hx: number, hy: number, hz: number): boolean {
+  const thick = (hx >= 0.15 ? 1 : 0) + (hy >= 0.15 ? 1 : 0) + (hz >= 0.15 ? 1 : 0);
+  return thick >= 2 && Math.max(hx, hy, hz) >= 0.3 && p.volume >= 0.015 && !(p.depth > 0 && p.demolished && p.volume < 0.08);
+}
 export function rasterize(p: Piece, x0: number, y0: number, z0: number, n: number, visit: (x: number, y: number, z: number, frac: number) => void): boolean {
   const [mn, mx] = polyBox(p.poly);
   const hx = (mx[0] - mn[0]) / 2, hy = (mx[1] - mn[1]) / 2, hz = (mx[2] - mn[2]) / 2;
   const cx = (mx[0] + mn[0]) / 2, cy = (mx[1] + mn[1]) / 2, cz = (mx[2] + mn[2]) / 2;
-  const thick = (hx >= 0.15 ? 1 : 0) + (hy >= 0.15 ? 1 : 0) + (hz >= 0.15 ? 1 : 0);
-  /* shards, splinters and small rubble let gas through the gaps between them */
-  const solid = thick >= 2 && Math.max(hx, hy, hz) >= 0.3 && p.volume >= 0.015 && !(p.depth > 0 && p.demolished && p.volume < 0.08);
+  const solid = solidOf(p, hx, hy, hz);
   const hull = p.poly.faces.length > 6;
   const tAx = hx <= hy && hx <= hz ? 0 : hy <= hz ? 1 : 2;
   b3.b3Body_ComputeAABB(_aabb, p.body);
@@ -182,6 +185,36 @@ export function rasterize(p: Piece, x0: number, y0: number, z0: number, n: numbe
     if (fz <= 0) continue;
     if (hull && !P.contains(p.poly, _l, -0.5)) continue;
     visit(x, y, z, fx * fy * fz);
+  }
+  return solid;
+}
+
+/* A compound by its parts (each part's world box, the same coverage rule): a stair tower's or a chimney's course is
+   hollow, not its envelope. Single solids go to rasterize. */
+const _pb: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
+export function rasterizeParts(p: Piece, x0: number, y0: number, z0: number, n: number, visit: (x: number, y: number, z: number, frac: number) => void): boolean {
+  if (!p.parts) return rasterize(p, x0, y0, z0, n, visit);
+  const [mn, mx] = polyBox(p.poly);
+  const solid = solidOf(p, (mx[0] - mn[0]) / 2, (mx[1] - mn[1]) / 2, (mx[2] - mn[2]) / 2);
+  for (const q of p.parts) {
+    b3.b3Shape_GetAABB(_pb, q.shape);
+    const lo = [_pb[0], _pb[1], _pb[2]], hi = [_pb[3], _pb[4], _pb[5]];
+    const ex = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]], t = ex[0] <= ex[1] && ex[0] <= ex[2] ? 0 : ex[1] <= ex[2] ? 1 : 2;
+    const ax = Math.max(x0, Math.floor(lo[0] - 0.5)), bx = Math.min(x0 + n - 1, Math.floor(hi[0] + 0.5));
+    const ay = Math.max(y0, Math.floor(lo[1] - 0.5)), by = Math.min(y0 + n - 1, Math.floor(hi[1] + 0.5));
+    const az = Math.max(z0, Math.floor(lo[2] - 0.5)), bz = Math.min(z0 + n - 1, Math.floor(hi[2] + 0.5));
+    for (let z = az; z <= bz; z++) {
+      const fz = span((hi[2] - lo[2]) / 2, Math.abs(z + 0.5 - (lo[2] + hi[2]) / 2), t === 2);
+      if (fz <= 0) continue;
+      for (let y = ay; y <= by; y++) {
+        const fy = span((hi[1] - lo[1]) / 2, Math.abs(y + 0.5 - (lo[1] + hi[1]) / 2), t === 1);
+        if (fy <= 0) continue;
+        for (let x = ax; x <= bx; x++) {
+          const fx = span((hi[0] - lo[0]) / 2, Math.abs(x + 0.5 - (lo[0] + hi[0]) / 2), t === 0);
+          if (fx > 0) visit(x, y, z, fx * fy * fz);
+        }
+      }
+    }
   }
   return solid;
 }
@@ -209,7 +242,7 @@ export function markPiece(b: Brick, p: Piece): void {
   if (old) { unmark(b, p, old); b.rast.delete(p); }
   if (!markable(p)) return;
   const vox: number[] = [], amt: number[] = [];
-  const solid = rasterize(p, b.ox, b.oy, b.oz, N, (x, y, z, f) => {
+  const solid = rasterizeParts(p, b.ox, b.oy, b.oz, N, (x, y, z, f) => {
     const a = Math.round(f * COVER);
     if (a <= 0) return;
     vox.push((x - b.ox) + N * ((y - b.oy) + N * (z - b.oz)));

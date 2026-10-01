@@ -5,7 +5,7 @@ import {
   spiralFolly, towerBlock, van, warehouse, waterTower, TINT,
 } from './structures.ts';
 import { poleLineSite, windTurbineSite } from './plant.ts';
-import { raise } from './kit.ts';
+import { block, raise, weldParts } from './kit.ts';
 import { clearanceZone } from './maps/clearance.ts';
 import { heritageYard } from './maps/heritage.ts';
 import { downtown } from './maps/downtown.ts';
@@ -148,7 +148,7 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + 'wake up, and the canal trust\'s gatehouse by the road is let and staying. No guns on this one: walk in, set the charges on '
       + 'the steel columns (the wheel sizes them), walk out, G. The gas is stacked down the gatehouse side and goes when the columns '
       + 'do: the smaller the charges, and the further from the gas, the less of the fireball reaches the gatehouse.',
-    target: 0.55,
+    target: 0.45,
     par: 80,
     stars: [0, 0],
     primary: 'charge',
@@ -172,7 +172,7 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + 'has to be on the ground and not on the terrace. Its plinth is three metres of solid brick; the shaft above it is what '
       + 'you cut. Nobody on this crew has felled one this tall, so take it steady and watch which way it leans.',
     tip: 'Cannon the stack\'s shaft just above the plinth, one face, from the mill side, and watch it lean before you add more. The mill goes on charges along its ground-floor piers.',
-    target: 0.5,
+    target: 0.42,
     par: 130,
     stars: [0, 0],
     primary: 'cannon',
@@ -254,6 +254,31 @@ function scoped(bp: Blueprint, o: { clear?: string[]; retag?: [string, (p: Piece
 }
 
 const low = (p: PieceSpec) => pieceAabb(p).min[1];
+
+/* Pay and Display's stair tower as a stair tower is built: a street door at the foot of its south face, a window on every
+   flight above it and a door onto each deck in its east face. It is the one closed room on the site, and a thermobaric
+   round in through the street door fills the whole shaft. (The free-play car park keeps its blind tower.) */
+function stairTowerOpenings(bp: Blueprint): Blueprint {
+  const pieces = bp.pieces.map((p) => {
+    if (p.group !== 'stairtower' || p.mat !== 'cinderblock' || !p.parts || Math.abs(p.size[0] - 3.2) > 0.01 || Math.abs(p.size[2] - 3.2) > 0.01) return p;
+    const [cx, cy, cz] = p.pos, a = 1.6, b = 1.35, y0 = cy - p.size[1] / 2, y1 = cy + p.size[1] / 2;
+    const o = { tint: p.tint };
+    const x = (u: number, v: number): [number, number] => [cx + u, cx + v], z = (u: number, v: number): [number, number] => [cz + u, cz + v];
+    const foot = y0 < 1, wy: [number, number] = foot ? [y0, y0 + 2.1] : [y0 + 1.0, y0 + 2.2], dy = y0 + 2.1, ww = foot ? 0.6 : 0.5;
+    const faces = [
+      block('cinderblock', x(-a, a), [y0, y1], z(b, a), o),                       // north
+      block('cinderblock', x(-a, -b), [y0, y1], z(-b, b), o),                     // west
+      // south, round a 1.0 x 1.2 m window (at the foot, a 1.2 x 2.1 m street door)
+      block('cinderblock', x(-a, -ww), [y0, y1], z(-a, -b), o), block('cinderblock', x(ww, a), [y0, y1], z(-a, -b), o),
+      ...(foot ? [] : [block('cinderblock', x(-ww, ww), [y0, wy[0]], z(-a, -b), o)]), block('cinderblock', x(-ww, ww), [wy[1], y1], z(-a, -b), o),
+      // east, the door beside the deck-level landing
+      block('cinderblock', x(b, a), [y0, y1], z(-0.4, b), o), block('cinderblock', x(b, a), [dy, y1], z(-b, -0.4), o),
+    ];
+    const { pos: _p, size: _s, parts: _q, ...rest } = p;
+    return weldParts(faces, rest);
+  });
+  return { ...bp, pieces };
+}
 const DT_BLOCKS = ['tower', 'skyscraper2', 'office', 'stand', 'store', 'carpark', 'flats', 'flats2', 'gasholder'];
 const except = (all: string[], ...keep: string[]) => all.filter((g) => !keep.includes(g));
 
@@ -477,18 +502,23 @@ const DOWNTOWN_JOBS: Job[] = [
     name: 'Pay and Display',
     location: 'Level Street multi-storey, Downtown · 05:30',
     brief: 'Three decks of flat-slab concrete car park, and asbestos board in every soffit: nobody goes inside, so nothing gets '
-      + 'placed. From the street you have two penetrating bombs on the laser (the fuze counts the decks it passes; fire it in '
-      + 'the middle one) and thermobaric rounds to put through the stair-core windows. The tower behind you is occupied, and '
-      + 'the recoilless rifle throws its backblast five metres.',
-    target: 0.55,
-    par: 300,
+      + 'placed. From the street you have one penetrating bomb on the laser (the fuze counts the decks it passes; fire it in '
+      + 'the middle one). The decks are open-sided and will not hold a blast, and the stair tower on the west end will not '
+      + 'fall with them: it has to come down, and it will hold a blast. Put a thermobaric round in through its street door '
+      + 'before the decks come down in front of it; the recoilless is for what is left standing. The tower behind you is '
+      + 'occupied, and the recoilless rifle throws its backblast five metres.',
+    target: 0.85,
+    par: 120,
     stars: [0, 0],
-    ammo: { hammer: -1, buster: 2, thermobaric: 3, recoilless: 4 },
+    ammo: { hammer: -1, buster: 1, thermobaric: 3, recoilless: 2 },
     env: 'dusk',
     protectedNote: 'PROTECTED: the tower south of the car park, behind the firing point.',
-    goal: { groups: ['carpark'], what: 'the car park' },
-    tip: 'A penetrator that goes off under the roof only lifts it: count two voids and let it fire inside the decks.',
-    build: () => scoped(downtown(), { clear: except(DT_BLOCKS, 'carpark', 'skyscraper2'), protect: ['skyscraper2'], spawn: [-15, 0, -30, 0] }),
+    goal: { groups: ['carpark', 'stairtower'], what: 'the car park', fell: { group: 'stairtower', what: 'the stair tower', below: 7.2, from: 6 } },
+    tip: 'The stair tower first: a thermobaric round through its street door fills the shaft, and once the decks are down their rubble covers that door. Then the penetrator, two voids, into the middle deck.',
+    build: () => stairTowerOpenings(scoped(downtown(), {
+      clear: except(DT_BLOCKS, 'carpark', 'skyscraper2'), protect: ['skyscraper2'], spawn: [-15, 0, -30, Math.PI],
+      retag: [['stairtower', (p) => p.group === 'carpark' && p.pos[0] < -24.3]],
+    })),
   },
 ];
 
