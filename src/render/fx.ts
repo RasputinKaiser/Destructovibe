@@ -5,9 +5,9 @@
 import * as THREE from 'three';
 import { random } from 'math/random';
 import type { Vec3, MaterialId, WeaponId } from '../types';
-import { makeRng, scorchTex, smokeAtlas } from './textures';
+import { makeRng, noiseTex, scorchTex, smokeAtlas } from './textures';
 import { animateMaterials } from './materials';
-import { CLOUDS, COVER_EXTENT, COVER_N, DV_ATMOS_GLSL, DV_CLOUD_GLSL, FX_LAYER, FX_SOFT_LAYER, atmosU, comfort, coverage, dustU, flashAtCamera, lighting, pendRange, softU, view } from './shared';
+import { CLOUDS, COVER_EXTENT, COVER_N, DV_ATMOS_GLSL, DV_CLOUD_GLSL, FX_DUST_LAYER, FX_LAYER, FX_SOFT_LAYER, atmosU, comfort, coverage, dustU, flashAtCamera, lighting, pendRange, roomU, softU, view } from './shared';
 import { lampPool } from './lights';
 import { floodlights } from './scenery';
 
@@ -54,6 +54,9 @@ varying float vOcc;
 varying float vViewZ;
 varying float vSoftR;
 varying vec3 vWP;
+varying vec3 vVd;
+varying vec2 vNz;
+varying float vT;
 #include <fog_pars_vertex>
 vec3 dvSwirl( vec3 p ) {
   return vec3(
@@ -71,7 +74,9 @@ void main() {
   vec3 p = aA.xyz + aB.xyz * k + uWind * ( aF.y * age );
   p.y += aE.z * age + aF.z * age * age;
   float it = 1.0 - t;
-  float s = mix( aC.x, aC.y, 1.0 - it * it * it );
+  // aG.z > 0: grows on its own time constant (s), so a long-lived billow swells out in seconds and then drifts,
+  // instead of creeping to full size over its whole life
+  float s = mix( aC.x, aC.y, aG.z > 0.0 ? 1.0 - exp( - age / aG.z ) : 1.0 - it * it * it );
   float ph = aA.w * 7.13 + aC.z;
   p.x += sin( age * 0.8 + ph ) * 0.1 * s * t;
   p.z += cos( age * 0.6 + ph * 1.7 ) * 0.1 * s * t;
@@ -81,15 +86,18 @@ void main() {
     vec3 sw = dvSwirl( q0 ) + 0.4 * dvSwirl( q0 * 2.3 + 5.1 );
     p += sw * ( aG.x * s * ( 1.0 - exp( - age * 0.18 ) ) );
   }
-  p.y = max( p.y, s * 0.3 );
+  // aG.y > 0: a bank of dust rolling along the ground reads wider than it is tall
+  vec2 sq = vec2( 1.0 + aG.y, inversesqrt( 1.0 + aG.y ) );
+  p.y = max( p.y, s * 0.3 * sq.y );
   vec2 q = position.xy * 2.0;
   vec4 mvPosition = modelViewMatrix * vec4( p, 1.0 );
   float dist = -mvPosition.z;
   // a puff wider than the screen costs a full-screen fill for almost no information: fade it out and let
   // the camera-in-dust fog carry the look
-  float bigFade = 1.0 - smoothstep( 1.1, 2.4, s * 0.5 * projectionMatrix[ 1 ][ 1 ] / max( dist, 0.05 ) );
+  float bigFade = 1.0 - smoothstep( 1.1, 2.4, s * 0.5 * sq.x * projectionMatrix[ 1 ][ 1 ] / max( dist, 0.05 ) );
   if ( bigFade <= 0.0 ) { ${DEAD_VERT} }
-  mvPosition.xy += q * ( s * 0.5 );
+  mvPosition.xy += q * sq * ( s * 0.5 );
+  vVd = mvPosition.xyz;
   gl_Position = projectionMatrix * mvPosition;
   float rot = aC.z + aC.w * age;
   float cr = cos( rot );
@@ -97,6 +105,9 @@ void main() {
   vec2 rq = vec2( cr * q.x - sr * q.y, sr * q.x + cr * q.y );
   vec2 cell = vec2( mod( aF.x, 2.0 ), floor( aF.x * 0.5 ) );
   vUv = ( cell + rq * 0.5 + 0.5 ) * 0.5;
+  // erosion noise in the puff's own frame, sliding slowly so the edge keeps boiling as it thins
+  vNz = rq * 0.32 + vec2( aC.z * 0.159 + aA.w * 0.0731, aF.x * 0.27 + aC.w * 0.5 ) + vec2( 0.011, - 0.007 ) * age;
+  vT = t;
   vQ = q;
   float fin = aF.w > 0.0 ? clamp( age / aF.w, 0.0, 1.0 ) : 1.0;
   float fout = 1.0 - smoothstep( 0.3, 1.0, t );
@@ -131,7 +142,7 @@ void main() {
   vViewZ = dist;
   vSoftR = max( 0.3, s * 0.4 );
   vWP = p;
-  vY = p.y + ( q.x * viewMatrix[ 1 ][ 0 ] + q.y * viewMatrix[ 1 ][ 1 ] ) * s * 0.5;
+  vY = p.y + ( q.x * sq.x * viewMatrix[ 1 ][ 0 ] + q.y * sq.y * viewMatrix[ 1 ][ 1 ] ) * s * 0.5;
   #include <fog_vertex>
 }`;
 
@@ -144,6 +155,8 @@ const FOG_FACTOR = /* glsl */`
 
 const PUFF_FS = /* glsl */`
 uniform sampler2D uTex;
+uniform sampler2D uNoise;
+uniform float uErode;
 uniform vec3 uSunCol;
 uniform vec3 uAmbTop;
 uniform vec3 uAmbBot;
@@ -163,27 +176,49 @@ varying float vOcc;
 varying float vViewZ;
 varying float vSoftR;
 varying vec3 vWP;
+varying vec3 vVd;
+varying vec2 vNz;
+varying float vT;
 #include <fog_pars_fragment>
+// Henyey-Greenstein, scaled so isotropic scattering is 1
+float dvHG( float mu, float g ) {
+  float d = 1.0 + g * g - 2.0 * g * mu;
+  return ( 1.0 - g * g ) / ( d * sqrt( d ) );
+}
 void main() {
   float r2 = dot( vQ, vQ );
   if ( r2 >= 1.0 ) discard;
   vec4 tx = texture2D( uTex, vUv );
   // thin, ragged margins and a less even core: dust is a haze with structure, not a ball of wool
   float dens = tx.r * mix( 0.7, 1.15, tx.g ) * ( 1.0 - 0.45 * smoothstep( 0.35, 1.0, r2 ) );
+  // noise eats the puff from its rim inward as it ages, so neighbouring puffs merge into one ragged mass
+  // instead of each keeping a round outline
+  float nz = texture2D( uNoise, vNz ).r * 0.62 + texture2D( uNoise, vNz * 2.7 + 0.31 ).g * 0.38;
+  float er = uErode * ( 0.2 + 0.55 * vT ) * ( 0.45 + 0.55 * smoothstep( 0.05, 0.85, r2 ) );
+  dens = clamp( ( dens - er * ( 1.0 - nz ) * 1.25 ) / ( 1.0 - 0.5 * er ), 0.0, 1.0 );
   float ground = smoothstep( 0.0, 0.35, vY );
   float soft = 1.0;
   if ( uSoft > 0.5 ) soft = clamp( ( texture2D( uDepth, gl_FragCoord.xy / uRes ).r - vViewZ ) / vSoftR, 0.0, 1.0 );
   float a = clamp( dens * vCol.a, 0.0, 1.0 ) * ground * soft;
   vec3 emit = vEmit * dens * ground * soft;
   if ( a < 0.002 && dot( emit, emit ) < 1e-6 ) discard;
-  // a flattened normal: the puff is lit as a patch of a larger cloud, not shaded as a sphere
-  vec3 n = normalize( vec3( vQ * 0.45, sqrt( 1.0 - r2 ) + 0.9 ) );
+  // a flattened normal: the puff is lit as a patch of a larger cloud, not shaded as a sphere; the density's own
+  // gradient tilts it, so each lobe of a billow has a lit flank and a shaded one (the cauliflower look)
+  // (screen derivatives are in the billboard's own frame, so no texture rotation to undo)
+  vec2 dvG = clamp( vec2( dFdx( dens ), dFdy( dens ) ) / max( vec2( fwidth( vQ.x ), fwidth( vQ.y ) ), vec2( 1e-3 ) ), - 4.0, 4.0 );
+  vec3 n = normalize( vec3( vQ * 0.45 - dvG * 0.35, sqrt( 1.0 - r2 ) + 0.9 ) );
   float wrap = clamp( dot( n, vSunV ) * 0.45 + 0.55, 0.0, 1.0 );
-  // forward scatter with the sun behind the puff is strongest through thin edges (the silver lining)
-  float fwd = pow( max( -vSunV.z, 0.0 ), 4.0 ) * ( 1.15 - dens );
-  vec3 amb = mix( uAmbBot, uAmbTop, n.y * 0.5 + 0.5 ) * mix( 0.45, 1.0, vOcc );
+  // local optical thickness: dense cores shadow themselves on the side away from the sun
+  float tau = dens * vCol.a * 3.0;
+  float self = exp( - tau * ( 1.1 - 0.75 * wrap ) );
+  // mineral dust scatters strongly forward (g ~ 0.7) with a weak back lobe: with a low sun behind the cloud its thin
+  // margins glow and the light leaks through, while the thick core stays dark
+  float mu = dot( normalize( vVd ), vSunV );
+  float phase = 0.8 * dvHG( mu, 0.72 ) + 0.2 * dvHG( mu, - 0.25 );
+  float fwd = min( max( phase - 1.0, 0.0 ) * 0.5, 6.0 ) * exp( - tau * 0.9 );
+  vec3 amb = mix( uAmbBot, uAmbTop, n.y * 0.5 + 0.5 ) * mix( 0.45, 1.0, vOcc ) * mix( 0.62, 1.0, exp( - tau * 0.8 ) );
   // shadowed interior still glows a little from light scattered in from the lit side
-  vec3 light = amb + uSunCol * ( vSun * ( wrap * wrap + fwd ) + 0.12 * vOcc * ( 1.0 - vSun ) ) + vLoc;
+  vec3 light = amb + uSunCol * ( vSun * ( wrap * wrap * mix( 0.5, 1.0, self ) + fwd ) + 0.12 * vOcc * ( 1.0 - vSun ) ) + vLoc;
   vec3 outc = vCol.rgb * light * mix( 0.72, 1.12, tx.g ) * a + emit;
   #ifdef USE_FOG
     ${FOG_FACTOR}
@@ -616,12 +651,12 @@ const _cd = new THREE.Vector3(), _cu = new THREE.Vector3(), _cw = new THREE.Vect
 
 /* ---------------- spawn templates (mutated in place, never allocated) ---------------- */
 
-const P = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 1, s0: 1, s1: 2, rot: 0, spin: 0, r: 0.5, g: 0.5, b: 0.5, a: 0.5, heat: 0, heatDur: 0, rise: 0, drag: 1, variant: 0, wind: 1, accel: 0, fadeIn: 0.1, delay: 0, curl: 0 };
+const P = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 1, s0: 1, s1: 2, rot: 0, spin: 0, r: 0.5, g: 0.5, b: 0.5, a: 0.5, heat: 0, heatDur: 0, rise: 0, drag: 1, variant: 0, wind: 1, accel: 0, fadeIn: 0.1, delay: 0, curl: 0, stretch: 0, grow: 0 };
 function pAt(x: number, y: number, z: number): void {
   P.x = x; P.y = y; P.z = z; P.vx = P.vy = P.vz = 0;
   P.life = 1; P.s0 = 1; P.s1 = 2; P.rot = rf(0, 6.283); P.spin = rf(-0.6, 0.6);
   P.a = 0.5; P.heat = 0; P.heatDur = 0; P.rise = 0; P.drag = 1;
-  P.variant = Math.floor(rng() * 3); P.wind = 1; P.accel = 0; P.fadeIn = 0.1; P.delay = 0; P.curl = 0;
+  P.variant = Math.floor(rng() * 3); P.wind = 1; P.accel = 0; P.fadeIn = 0.1; P.delay = 0; P.curl = 0; P.stretch = 0; P.grow = 0;
 }
 function pColor(hex: number, k = 1): void {
   _c.setHex(hex);
@@ -638,7 +673,7 @@ function emit(ring?: Ring): void {
   a[3][o] = P.r; a[3][o + 1] = P.g; a[3][o + 2] = P.b; a[3][o + 3] = P.a;
   a[4][o] = P.heat; a[4][o + 1] = P.heatDur; a[4][o + 2] = P.rise; a[4][o + 3] = P.drag;
   a[5][o] = P.variant; a[5][o + 1] = P.wind; a[5][o + 2] = P.accel; a[5][o + 3] = P.fadeIn;
-  a[6][o] = P.curl; a[6][o + 1] = 0; a[6][o + 2] = 0; a[6][o + 3] = 0;
+  a[6][o] = P.curl; a[6][o + 1] = P.stretch; a[6][o + 2] = P.grow; a[6][o + 3] = 0;
 }
 
 const S = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 1, r: 1, g: 0.7, b: 0.3, w: 0.012, grav: 1, drag: 1, streak: 0.03, bounce: 0.3, delay: 0 };
@@ -734,6 +769,10 @@ function updateLights(dt: number): void {
     lightPos[i].copy(l.position);
     const k = l.intensity * 0.02;
     lightCol[i].set(l.color.r * k, l.color.g * k, l.color.b * k);
+    roomU.uDvFlashP.value[i].copy(l.position);
+    // the rooms take the detonation's own brief pulse, not the fireball's half-second glow
+    const fl = flashes[i], pulse = fl.prio > 0 ? Math.pow(Math.max(0, 1 - fl.t / Math.min(fl.dur, 0.25)), 2) : 0.4;
+    roomU.uDvFlashC.value[i].copy(lightCol[i]).multiplyScalar(6 * pulse);
     if (l.intensity > 0) {
       const d2 = l.position.distanceToSquared(cam.position);
       const w = (l.intensity * 0.12) / (d2 + 1);
@@ -861,6 +900,11 @@ export const dustLedger = { fed: 0, smoke: 0, box: null as null | [number, numbe
 const CLOUD_SHARE = 0.15;
 /** overall dust amount (owner's taste: 40 % less than the physically scaled figure read as too much on screen) */
 const DUST_AMOUNT = 0.6;
+/** the dust amount in play: the owner's figure times the player's Settings choice (1 = as the owner set it) */
+const dustK = (): number => DUST_AMOUNT * comfort.dust;
+/* A cloud is drawn as many thin, large, overlapping billows rather than a few dense ones: the same total opacity, but
+   the billows merge into one rolling mass instead of reading as separate puffs. */
+const BILLOW_DEPTH = 1.8, BILLOW_ALPHA = 0.62;
 function feedCloud(x: number, y: number, z: number, vol: number, hex: number): void {
   vol *= CLOUD_SHARE;
   if (!ready || !(vol > 0)) return;
@@ -892,27 +936,32 @@ function feedCloud(x: number, y: number, z: number, vol: number, hex: number): v
   const q = DUSTQ[view.quality];
   // enough final-size billows to cover the cloud's silhouette `layers` deep, fewer for small clouds
   const cover = baseRadius(m) / (billowSize(m) * 0.95), layers = q.layers * clamp(cbrt(m) / 6, 0.3, 1);
-  c.owed = m < 2.5 ? 0 : Math.min(Math.floor(q.cap * 0.5), Math.floor(layers * 1.3 * cover * cover * DUST_AMOUNT));
+  c.owed = m < 2.5 ? 0 : Math.min(Math.floor(q.cap * 0.5), Math.floor(layers * 1.3 * cover * cover * dustK() * BILLOW_DEPTH));
 }
 
 function spawnBillow(c: Cloud, R: number, life: number): void {
   const ps = billowSize(c.mass);
   const grounded = c.y < R * 1.2;
-  if (grounded && rng() < 0.55) {
-    const ang = rf(0, 6.283), ca = Math.cos(ang), sa = Math.sin(ang), r0 = R * rf(0, 0.35), sp = R * rf(0.3, 0.75);
-    pAt(c.x + ca * r0, ps * rf(0.15, 0.5), c.z + sa * r0);
-    P.vx = ca * sp; P.vy = rf(0.1, 0.5); P.vz = sa * sp; P.drag = 0.45;
-    P.rise = rf(0.05, 0.25); P.s0 = ps * rf(0.45, 0.7); P.s1 = ps * rf(1.5, 2.3);
+  let a = rf(0.5, 0.68);
+  if (grounded && rng() < 0.6) {
+    // the density current: a low bank that rolls out along the ground and swallows what it reaches; the leading
+    // billows are the thickest and lowest, the ones behind ride up over them
+    const ang = rf(0, 6.283), ca = Math.cos(ang), sa = Math.sin(ang), r0 = R * rf(0, 0.35), front = rng(), sp = R * (0.3 + 0.5 * front);
+    pAt(c.x + ca * r0, ps * (0.12 + 0.35 * (1 - front) * rng()), c.z + sa * r0);
+    P.vx = ca * sp; P.vy = rf(0.1, 0.4); P.vz = sa * sp; P.drag = 0.5;
+    P.rise = rf(0.03, 0.2) * (1.2 - front); P.s0 = ps * rf(0.5, 0.75); P.s1 = ps * rf(1.8, 2.7);
+    P.stretch = rf(0.3, 0.75);
+    a *= 0.85 + 0.3 * front;
   } else {
     const ang = rf(0, 6.283), r0 = R * 0.35 * Math.sqrt(rng());
     pAt(c.x + Math.cos(ang) * r0, Math.max(ps * 0.4, c.y * rf(0.3, 1) + rf(0, R * 0.5)), c.z + Math.sin(ang) * r0);
     P.vx = rf(-0.6, 0.6); P.vy = rf(0.4, 1.8); P.vz = rf(-0.6, 0.6); P.drag = 0.6;
-    P.rise = rf(0.2, 0.6); P.accel = -0.003; P.s0 = ps * rf(0.5, 0.8); P.s1 = ps * rf(1.6, 2.6);
+    P.rise = rf(0.2, 0.6); P.accel = -0.003; P.s0 = ps * rf(0.55, 0.85); P.s1 = ps * rf(1.9, 3.0);
   }
   const k = rf(0.86, 1.08);
   _cc.setRGB(c.r, c.g, c.b).lerp(_cg, 0.45);
   P.r = _cc.r * k; P.g = _cc.g * k; P.b = _cc.b * k;
-  P.life = life * rf(0.55, 1); P.a = rf(0.5, 0.68); P.fadeIn = rf(0.8, 2.2);
+  P.life = life * rf(0.55, 1); P.a = a * BILLOW_ALPHA; P.fadeIn = rf(0.3, 0.9); P.grow = rf(2.5, 5);
   P.wind = rf(0.8, 1.1); P.spin = rf(-0.12, 0.12); P.curl = rf(0.35, 0.6);
   emit(dustR);
   dustAlive++;
@@ -978,7 +1027,7 @@ function updateClouds(dt: number): void {
       c.paid++; c.acc--; dustRate--;
     }
     const fade = (1 - THREE.MathUtils.smoothstep(idle / life, 0.45, 1)) * THREE.MathUtils.smoothstep(age, 0, 1.5);
-    const ext = clamp(0.015 + cbrt(c.mass) * 0.006, 0.015, 0.08) * fade * DUST_AMOUNT;
+    const ext = clamp(0.015 + cbrt(c.mass) * 0.006, 0.015, 0.08) * fade * dustK();
     const cy = Math.max(R * 0.3, c.y * 0.7);
     cl[i].set(c.x, cy, c.z, R);
     cp[i].set(ext, SQUASH, 0, 0);
@@ -987,7 +1036,7 @@ function updateClouds(dt: number): void {
     if (c.dep > 0.5 && c.mass > 2) {
       c.dep = 0;
       // a film, not a white-out: most of what settles comes down in the first half minute
-      splatCover(c.x, c.z, R * 1.15, clamp(0.003 * cbrt(c.mass), 0.002, 0.012) * fade * (age < 30 ? 1 : 0.3) * DUST_AMOUNT, c.r, c.g, c.b);
+      splatCover(c.x, c.z, R * 1.15, clamp(0.003 * cbrt(c.mass), 0.002, 0.012) * fade * (age < 30 ? 1 : 0.3) * dustK(), c.r, c.g, c.b);
     }
     // camera inside this cloud: ellipsoid-normalised distance
     const ex = (cam3.x - c.x) / R, ey = ((cam3.y - cy) * SQUASH) / R, ez = (cam3.z - c.z) / R;
@@ -1005,6 +1054,7 @@ function updateClouds(dt: number): void {
     const sk = (lighting.sunIntensity / Math.PI) * 0.55 * vis * Math.max(sd.y, 0.1), at = lighting.ambTop, sc = lighting.sunColor;
     df.set((fr / fogK) * (at.r * 0.9 + sc.r * sk), (fg / fogK) * (at.g * 0.9 + sc.g * sk), (fb / fogK) * (at.b * 0.9 + sc.b * sk), fogK);
     atmosU.uDustFogR.value = Math.max(4, (fogR / fogK) * 1.2);
+    atmosU.uAtmT.value = clock;
   } else df.set(0, 0, 0, 0);
   coverClock += dt;
   if (coverage.dirty && coverClock > 0.25) {
@@ -1031,7 +1081,7 @@ export function initFx(scene: THREE.Scene, camera: THREE.Camera): void {
   const puffMat = fxMaterial(Object.assign({
     uTime: { value: 0 }, uWind: { value: wind }, uSunDir: { value: new THREE.Vector3(0, 1, 0) },
     uLPos: { value: lightPos }, uLCol: { value: lightCol }, uSPos: { value: spotPos }, uSDir: { value: spotDir }, uSCol: { value: spotCol },
-    uTex: { value: smokeAtlas() },
+    uTex: { value: smokeAtlas() }, uNoise: { value: noiseTex() }, uErode: { value: 1 },
     uSunCol: { value: new THREE.Color() }, uAmbTop: { value: new THREE.Color() }, uAmbBot: { value: new THREE.Color() },
   }, dustU, softU, atmosU), PUFF_VS, PUFF_FS, false);
   puffU = puffMat.uniforms;
@@ -1082,7 +1132,8 @@ export function initFx(scene: THREE.Scene, camera: THREE.Camera): void {
     flashes.push({ light, t: 0, dur: 1, peak: 0, prio: 0, owner: -1 });
     root.add(light);
   }
-  for (const m of [dustMesh, puffMesh]) m.layers.set(FX_SOFT_LAYER);
+  puffMesh.layers.set(FX_SOFT_LAYER);
+  dustMesh.layers.set(FX_DUST_LAYER);
   for (const m of [sparkMesh, ringMesh]) m.layers.set(FX_LAYER);
   root.add(scorchMesh, chips.mesh, splinterChips.mesh, shardChips.mesh, diceChips.mesh, fineChips.mesh, ringMesh, dustMesh, puffMesh, sparkMesh);
   scene.add(root);
@@ -1094,6 +1145,10 @@ export const fx = {
   explosion(pos: Vec3, radius: number): void {
     if (!ready) return;
     const [x, y, z] = pos, R = clamp(radius, 1, 10), b = budget(), grow = 1 / Math.sqrt(b);
+    // the detonation itself: a white-hot flash for a few frames, smaller than the fireball that follows (dimmed with
+    // the flash comfort setting like the lights)
+    pAt(x, y, z); P.variant = 3; P.life = 0.07; P.s0 = R * 0.7; P.s1 = R * 1.1; P.a = 0; P.heat = 140 * comfort.flash; P.heatDur = 0.07; P.drag = 0; P.fadeIn = 0; P.spin = 0;
+    emit();
     pAt(x, y, z); P.variant = 3; P.life = 0.14; P.s0 = R * 1.6; P.s1 = R * 2.6; P.a = 0; P.heat = 40; P.heatDur = 0.14; P.drag = 0; P.fadeIn = 0; P.spin = 0;
     emit();
     for (let i = 0; i < 2; i++) {
@@ -1186,23 +1241,23 @@ export const fx = {
     const smokeV = R * R * R * (y < R * 0.9 ? 0.9 : 0.35);
     dustLedger.smoke += smokeV;
     feedCloud(x, y, z, smokeV, y < R * 0.9 ? 0x8a7c68 : 0x5d554c);
-    flash(x, y + R * 0.3, z, 0xffa858, 260 * R * R, 0.6, R * 8, 3);
+    flash(x, y + R * 0.3, z, 0xffb468, 320 * R * R, 0.6, Math.max(R * 10, 28), 3);
   },
 
   dust(pos: Vec3, size: number, color = 0xb8b0a0): void {
     if (!ready) return;
     const sz = clamp(size, 0.3, 10), b = budget(), grow = 1 / Math.sqrt(b);
-    const n = Math.min(40, Math.round((3 + sz * 3.5) * b * DUST_AMOUNT));
+    const n = Math.min(40, Math.round((3 + sz * 3.5) * b * dustK()));
     for (let i = 0; i < n; i++) {
       dirAround(0, 0.3, 0, 1);
       const r = rf(0, sz * 0.5);
       pAt(pos[0] + _v.x * r, pos[1] + _v.y * r * 0.5, pos[2] + _v.z * r);
       P.vx = rf(-0.6, 0.6); P.vy = rf(0.2, 0.6); P.vz = rf(-0.6, 0.6); P.drag = 1.2;
       P.rise = rf(0.15, 0.35); P.life = rf(4, 6) + sz * rf(0.3, 0.6);
-      P.s0 = sz * rf(0.35, 0.6); P.s1 = sz * rf(1.0, 1.7) * grow;
+      P.s0 = sz * rf(0.45, 0.7); P.s1 = sz * rf(1.8, 2.9) * grow;
       // what hangs in the air reads grey-tan whatever it came off: the fine fraction is mostly mortar and grit
       _cc.setHex(color).lerp(_cg, 0.35); const k = rf(0.9, 1.06); P.r = _cc.r * k; P.g = _cc.g * k; P.b = _cc.b * k;
-      P.a = clamp(0.5 - sz * 0.03, 0.28, 0.46); P.fadeIn = rf(0.25, 0.6); P.delay = (i / n) * 0.35; P.curl = 0.35;
+      P.a = clamp(0.5 - sz * 0.03, 0.28, 0.46) * 0.5; P.fadeIn = rf(0.25, 0.6); P.delay = (i / n) * 0.35; P.curl = 0.35;
       emit();
     }
     feedCloud(pos[0], pos[1], pos[2], sz * sz * sz * 0.5, color);
@@ -1245,7 +1300,7 @@ export const fx = {
       _cc.copy(base).multiplyScalar(rf(0.78, 1.1));
       fineChips.spawn(pos[0] + Math.cos(a) * r, pos[1] + rf(0.05, 0.3), pos[2] + Math.sin(a) * r, rf(-0.4, 0.4), rf(0, 0.8), rf(-0.4, 0.4), sc, rf(150, 240), _cc, floor);
     }
-    splatCover(pos[0], pos[2], radius * 1.6 + Math.cbrt(vol), clamp(0.05 + vol * 0.4, 0.05, 0.3) * DUST_AMOUNT, base.r, base.g, base.b);
+    splatCover(pos[0], pos[2], radius * 1.6 + Math.cbrt(vol), clamp(0.05 + vol * 0.4, 0.05, 0.3) * dustK(), base.r, base.g, base.b);
   },
 
   sparks(pos: Vec3, normal: Vec3, count: number): void {
@@ -1319,7 +1374,7 @@ export const fx = {
   /** crumbling drywall / adobe / sandstone: fine dust that sinks and settles, plus sand-grain chips */
   powder(pos: Vec3, size: number, color = 0xe6e2d8): void {
     if (!ready) return;
-    const sz = clamp(size, 0.2, 6), b = budget(), n = Math.min(30, Math.round((4 + sz * 4) * b * DUST_AMOUNT));
+    const sz = clamp(size, 0.2, 6), b = budget(), n = Math.min(30, Math.round((4 + sz * 4) * b * dustK()));
     for (let i = 0; i < n; i++) {
       dirAround(0, 0.2, 0, 1);
       const r = rf(0, sz * 0.4), sp = rf(0.5, 2) * Math.sqrt(sz);

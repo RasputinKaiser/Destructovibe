@@ -1271,6 +1271,7 @@ function applyControls(s: Settings): void {
 
 function applyDisplay(s: Settings): void {
   comfort.flash = s.reduceFlash ? 0.3 : 1;
+  comfort.dust = s.dust;
   setAimPalette(s.colorblind);
   setLampPalette(s.colorblind, s.reduceFlash);
   setXrayPalette(s.colorblind);

@@ -45,12 +45,14 @@ export const view = { width: 1, height: 1, quality: 'medium' as Quality };
 
 /** light arriving at the camera from explosion / fire lights this frame (linear), for the viewmodel */
 export const flashAtCamera = new THREE.Color(0, 0, 0);
-/** comfort settings the renderer honours: `flash` scales every flash light (blasts, arc flashes, muzzles) */
-export const comfort = { flash: 1 };
+/** comfort settings the renderer honours: `flash` scales every flash light (blasts, arc flashes, muzzles), `dust` the
+    demolition dust (1 = the game's own amount) */
+export const comfort = { flash: 1, dust: 1 };
 
-/** fx meshes drawn after the opaque pass: depth-tested sparks and rings, and the soft smoke/dust puffs
-    (which may go to a half-resolution target and occlude only through the soft depth test) */
-export const FX_LAYER = 3, FX_SOFT_LAYER = 4;
+/** fx meshes drawn after the opaque pass: depth-tested sparks and rings, the soft smoke/dust puffs (which may go to a
+    half-resolution target and occlude only through the soft depth test), and the big lingering dust billows, which
+    always draw at half resolution under the puffs */
+export const FX_LAYER = 3, FX_SOFT_LAYER = 4, FX_DUST_LAYER = 5;
 
 /* ---------------- dust clouds ---------------- */
 
@@ -119,7 +121,12 @@ export const envU = { uDvWet: { value: 0 } };
 export const qualU = { uDvQ: { value: 1 } };
 
 /** light inside the fake rooms behind glazing: rgb daylight arriving through the window, a = night (office lights) */
-export const roomU = { uDvRoom: { value: new THREE.Vector4(0.6, 0.65, 0.7, 0) } };
+export const roomU = {
+  uDvRoom: { value: new THREE.Vector4(0.6, 0.65, 0.7, 0) },
+  /** fx's flash and fire lights (position, linear colour × power): a charge going off inside lights the rooms round it */
+  uDvFlashP: { value: Array.from({ length: 3 }, () => new THREE.Vector3(0, -1e4, 0)) },
+  uDvFlashC: { value: Array.from({ length: 3 }, () => new THREE.Vector3()) },
+};
 
 /* ---------------- atmosphere ---------------- */
 
@@ -138,6 +145,8 @@ export const atmosU = {
   /** camera inside a dust cloud: rgb lit dust colour, a extinction per metre */
   uDustFog: { value: new THREE.Vector4() },
   uDustFogR: { value: 20 },
+  /** fx clock, for the drift of the dust the camera stands in */
+  uAtmT: { value: 0 },
   uAtmSun: { value: new THREE.Vector3(0, 1, 0) },
 };
 
@@ -149,8 +158,10 @@ uniform vec3 uHFogCol;
 uniform vec3 uHFogSun;
 uniform vec4 uDustFog;
 uniform float uDustFogR;
+uniform float uAtmT;
 uniform vec3 uAtmSun;
-vec4 dvAtmos( vec3 cam, vec3 wp, float sky ) {
+// dustK scales the optical depth of the dust round the camera (1 = even; the full-screen pass varies it with noise)
+vec4 dvAtmosK( vec3 cam, vec3 wp, float sky, float dustK ) {
   vec3 d = wp - cam;
   float L = length( d );
   vec3 dir = d / max( L, 1e-4 );
@@ -159,6 +170,7 @@ vec4 dvAtmos( vec3 cam, vec3 wp, float sky ) {
   float T = sky > 0.5 ? 1.0 : exp( - od );
   float mu = max( dot( dir, uAtmSun ), 0.0 );
   vec3 col = uHFogCol + uHFogSun * uHFog.w * ( pow( mu, 6.0 ) * 0.6 + pow( mu, 40.0 ) * 1.4 );
-  float Td = exp( - uDustFog.a * min( L, uDustFogR ) );
+  float Td = exp( - uDustFog.a * dustK * min( L, uDustFogR ) );
   return vec4( col * ( 1.0 - T ) * Td + uDustFog.rgb * ( 1.0 - Td ), T * Td );
-}`;
+}
+vec4 dvAtmos( vec3 cam, vec3 wp, float sky ) { return dvAtmosK( cam, wp, sky, 1.0 ); }`;

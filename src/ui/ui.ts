@@ -360,6 +360,7 @@ const TEMPLATE = () => `
       <div class="set-row"><label for="dv-fov">Field of view</label><input class="range" id="dv-fov" type="range" min="70" max="120" step="1" data-r="sFov"><output data-r="oFov"></output></div>
       <div class="set-row"><label for="dv-grain">Film grain</label><input class="switch" id="dv-grain" type="checkbox" data-r="sGrain"><output data-r="oGrain"></output></div>
       <div class="set-row"><label for="dv-ca">Chromatic aberration</label><input class="switch" id="dv-ca" type="checkbox" data-r="sCA"><output data-r="oCA"></output></div>
+      <div class="set-row"><label for="dv-dust" title="How much dust a collapse raises and how thick it hangs">Dust amount</label><input class="range" id="dv-dust" type="range" min="0.4" max="1.5" step="0.05" data-r="sDust"><output data-r="oDust"></output></div>
       <h3 class="set-group">Controls</h3>
       <div class="set-row"><label for="dv-sens">Mouse sensitivity</label><input class="range" id="dv-sens" type="range" min="0.2" max="3" step="0.05" data-r="sSens"><output data-r="oSens"></output></div>
       <div class="set-row"><label for="dv-inv">Invert Y</label><input class="switch" id="dv-inv" type="checkbox" data-r="sInv"><output data-r="oInv"></output></div>
@@ -400,7 +401,7 @@ const REFS = [
   'weapons', 'fps', 'ptr', 'tool', 'toolT', 'toolBar', 'toolD', 'toolL', 'toolK', 'bottom', 'dock', 'wheel', 'twDial', 'twKeys', 'seq', 'seqTrack', 'seqScale', 'loadFill', 'loadLabel', 'loadPct', 'cards', 'bNo', 'bName', 'bLoc', 'bText', 'bProtect',
   'bProtectText', 'bTerms', 'bTermsLabel', 'bAmmo', 'bKeys', 'bTarget', 'bPar', 'bEnv', 'bStars', 'report', 'rTitle', 'rSub', 'rRows', 'rTotalRow', 'rTotal',
   'rStars', 'rBest', 'rUnlock', 'rRetry', 'rNext', 'sVol', 'oVol', 'sQual', 'sSens', 'oSens', 'sFov', 'oFov', 'sInv', 'oInv', 'sExp', 'oExp', 'sScale', 'sShake', 'oShake', 'sGrain', 'oGrain', 'sCA', 'oCA',
-  'pauseKeys', 'sUi', 'oUi', 'sCb', 'oCb', 'sFl', 'oFl', 'sRm', 'oRm', 'sPr', 'sBob', 'oBob', 'sCTog', 'oCTog', 'sSTog', 'oSTog', 'sImp', 'keys', 'keyReset', 'keyNote', 'daze',
+  'pauseKeys', 'sUi', 'oUi', 'sDust', 'oDust', 'sCb', 'oCb', 'sFl', 'oFl', 'sRm', 'oRm', 'sPr', 'sBob', 'oBob', 'sCTog', 'oCTog', 'sSTog', 'oSTog', 'sImp', 'keys', 'keyReset', 'keyNote', 'daze',
   'toasts', 'slow', 'slowX', 'rp', 'rpSpeed', 'rpTime', 'rpBar', 'ovl', 'sbx', 'pal', 'palSearch', 'palCount', 'palBody', 'xTime', 'xGrav', 'oGrav', 'xJoint', 'oJoint',
   'xWind', 'oWind', 'xFire', 'oFire', 'xDebris', 'oDebris',
 ] as const;
@@ -1019,6 +1020,7 @@ function bindSettings(): void {
     [R.sCb, R.oCb, 'colorblind'], [R.sFl, R.oFl, 'reduceFlash'], [R.sRm, R.oRm, 'reduceMotion'],
   ] as [HTMLInputElement, HTMLElement, 'shake' | 'grain' | 'aberration' | 'headBob' | 'crouchToggle' | 'sprintToggle' | 'colorblind' | 'reduceFlash' | 'reduceMotion'][];
   const uiScale = R.sUi as HTMLInputElement;
+  const dust = R.sDust as HTMLInputElement;
   const prompts = Array.from(R.sPr.querySelectorAll<HTMLInputElement>('input[type=radio]'));
   const impacts = Array.from(R.sImp.querySelectorAll<HTMLInputElement>('input[type=radio]'));
   const caps = Array.from(R.keys.querySelectorAll<HTMLButtonElement>('button[data-key]'));
@@ -1036,6 +1038,7 @@ function bindSettings(): void {
     for (const r of impacts) { r.checked = r.value === S.impacts; r.parentElement!.classList.toggle('is-on', r.checked); }
     for (const r of prompts) { r.checked = r.value === S.prompts; r.parentElement!.classList.toggle('is-on', r.checked); }
     R.oUi.textContent = `${Math.round(S.uiScale * 100)}%`;
+    R.oDust.textContent = `${Math.round(S.dust * 100)}%`;
     for (const [, o, k] of toggles) o.textContent = S[k] ? 'On' : 'Off';
     for (const b of caps) {
       const a = b.dataset.key as KeyAction;
@@ -1043,11 +1046,12 @@ function bindSettings(): void {
       b.classList.toggle('is-waiting', b === waiting);
       b.classList.toggle('is-custom', !!S.keys[a] && S.keys[a] !== defKey(a));
     }
-    for (const el of [vol, sens, fov, uiScale]) fillRange(el);
+    for (const el of [vol, sens, fov, uiScale, dust]) fillRange(el);
     applyLook();
   };
   vol.value = String(S.volume);
   uiScale.value = String(S.uiScale);
+  dust.value = String(S.dust);
   sens.value = String(S.sensitivity);
   fov.value = String(S.fov);
   inv.checked = S.invertY;
@@ -1089,6 +1093,10 @@ function bindSettings(): void {
       audio.ui('click');
       emit();
     });
+  dust.addEventListener('input', () => {
+    S.dust = clamp(Number(dust.value), 0.4, 1.5);
+    emit();
+  });
   fov.addEventListener('input', () => {
     S.fov = clamp(Number(fov.value), 70, 120);
     emit();

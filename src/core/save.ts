@@ -14,7 +14,7 @@ const KEY = 'destructovibe.v2';
 
 export const DEFAULT_SETTINGS: Settings = { volume: 0.8, quality: 'high', sensitivity: 1, fov: 100, fovH: true, invertY: false, explosives: true,
   shake: true, grain: true, aberration: true, renderScale: 0, headBob: true, crouchToggle: false, sprintToggle: false, impacts: 'real', keys: {},
-  uiScale: 1, colorblind: false, reduceFlash: false, reduceMotion: false, prompts: 'new',
+  uiScale: 1, colorblind: false, reduceFlash: false, reduceMotion: false, prompts: 'new', dust: 1,
 };
 export const DEFAULT_PINS: WeaponId[] = ['hammer', 'rocket', 'charge', 'planner', 'grinder', 'tether'];
 
@@ -34,6 +34,8 @@ export function loadSave(): SaveData {
         /* fields added since a save was written take their defaults; anything out of range is pulled back in */
         if (!Number.isFinite(settings.uiScale)) settings.uiScale = 1;
         settings.uiScale = Math.min(1.5, Math.max(0.8, settings.uiScale));
+        if (!Number.isFinite(settings.dust)) settings.dust = 1;
+        settings.dust = Math.min(1.5, Math.max(0.4, settings.dust));
         if (!['new', 'always', 'off'].includes(settings.prompts)) settings.prompts = 'new';
         const pins = Array.isArray(d.pins) ? d.pins.slice(0, 6).map(p => (typeof p === 'string' ? p : null)) : [...DEFAULT_PINS];
         const seen = d.seen && typeof d.seen === 'object' ? { ...d.seen } : {};
