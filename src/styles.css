@@ -288,17 +288,12 @@ svg {
 }
 
 /* driven by arrows or a pad: whatever has focus says so, however the browser judged the last input */
-#ui.nav-keys .btn:focus,
-#ui.nav-keys .card:focus,
-#ui.nav-keys .keycap:focus,
-#ui.nav-keys .switch:focus,
-#ui.nav-keys .range:focus,
-#ui.nav-keys .seg label:has(input:focus) {
+#ui.nav-keys .is-nav {
   outline: 2px solid var(--hazard);
   outline-offset: 3px;
 }
 
-#ui.nav-keys .btn:focus::before {
+#ui.nav-keys .btn.is-nav::before {
   transform: scaleY(1);
 }
 
@@ -1705,6 +1700,10 @@ svg {
   border: 1px solid var(--seg-line, rgba(236, 234, 227, 0.2));
 }
 
+.seg--5 {
+  grid-template-columns: repeat(5, 1fr);
+}
+
 .seg--4 {
   grid-template-columns: repeat(4, 1fr);
 }
@@ -1911,11 +1910,13 @@ svg {
 
 .hud-demo__label {
   margin: 0.2rem 0 0.5rem;
+  padding: 0.05rem 0.5rem;
+  background: rgba(12, 12, 11, 0.5);
   font-weight: 700;
-  font-size: 0.7rem;
+  font-size: max(11px, 0.7rem);
   letter-spacing: 0.3em;
   text-transform: uppercase;
-  color: var(--c-300);
+  color: var(--c-200);
   transition: color 0.3s;
 }
 
@@ -1956,8 +1957,10 @@ svg {
   top: 100%;
   left: 50%;
   transform: translate(-50%, 0.25rem);
+  padding: 0 0.3rem;
+  background: rgba(12, 12, 11, 0.6);
   font-family: var(--f-mono);
-  font-size: 0.6rem;
+  font-size: max(11px, 0.6rem);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -2281,6 +2284,11 @@ svg {
   background: var(--hazard);
 }
 
+/* the tool in hand warns (backblast, a line about to part, a bomb inbound): the crosshair says so where the eye is */
+.xh.is-warn i {
+  background: var(--bad);
+}
+
 /* score pops */
 
 .pops {
@@ -2368,6 +2376,7 @@ svg {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  justify-content: flex-end;
   gap: 0.45rem;
   width: var(--dock-w);
   max-height: calc(50vh - 9vmin - var(--gut));
@@ -2376,8 +2385,9 @@ svg {
 
 .hud.is-stacked .hud-dock {
   position: static;
+  justify-content: flex-end;
   width: min(30rem, 100%);
-  max-height: none;
+  max-height: calc(50vh - 9vmin - var(--gut) - var(--below, 8rem));
 }
 
 .hud.is-stacked .hud-tool {
@@ -2481,7 +2491,7 @@ svg {
 
 .hud-tool__t {
   font-weight: 800;
-  font-size: 0.86rem;
+  font-size: max(12.5px, 0.86rem);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--c-100);
@@ -2513,7 +2523,7 @@ svg {
 .hud-tool__d {
   margin-top: 0.15rem;
   font-family: var(--f-mono);
-  font-size: 0.74rem;
+  font-size: max(12px, 0.74rem);
   line-height: 1.4;
   color: var(--c-200);
 }
@@ -2528,17 +2538,17 @@ svg {
   padding-top: 0.35rem;
   border-top: 1px solid var(--line);
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: max(12px, 0.8rem);
   letter-spacing: 0.03em;
   color: var(--c-100);
 }
 .kc { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
-.kc .kbd { color: var(--hazard); opacity: 1; font-size: 0.68rem; }
+.kc .kbd { color: var(--hazard); opacity: 1; font-size: max(11px, 0.68rem); }
 
 /* rigging lines: tension against each line's breaking load */
 .hud-tool__lines:empty { display: none; }
 .hud-tool__lines { margin-top: 0.35rem; display: grid; gap: 0.22rem; }
-.tl { display: grid; grid-template-columns: 5.6rem 1fr 4.6rem; align-items: center; gap: 0.4rem; font-family: var(--f-mono); font-size: 0.7rem; color: var(--c-200); }
+.tl { display: grid; grid-template-columns: 5.6rem 1fr 4.6rem; align-items: center; gap: 0.4rem; font-family: var(--f-mono); font-size: max(11.5px, 0.7rem); color: var(--c-200); }
 .tl__n { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tl__b { position: relative; height: 6px; background: rgba(236, 234, 227, 0.14); }
 .tl__b i { position: absolute; inset: 0; background: var(--good); transform-origin: left; }
@@ -2711,7 +2721,7 @@ svg {
   top: 0.28rem;
   padding: 0 0.22rem;
   font-family: var(--f-mono);
-  font-size: 0.62rem;
+  font-size: max(11px, 0.62rem);
   font-weight: 700;
   line-height: 1.4;
   color: var(--c-300);
@@ -2722,7 +2732,7 @@ svg {
   right: 0.35rem;
   top: 0.26rem;
   font-family: var(--f-mono);
-  font-size: 0.7rem;
+  font-size: max(11px, 0.7rem);
   font-weight: 700;
   line-height: 1.4;
   color: var(--c-200);
@@ -2799,18 +2809,16 @@ svg {
 /* tool wheel: hold Q */
 
 .tw {
+  --dial: min(34rem, 84vmin, calc(100vh - 2 * var(--gut) - 17rem));
   position: absolute;
   inset: 0;
   display: none;
-  place-content: center;
-  justify-items: center;
-  gap: 1rem;
   background: radial-gradient(circle at 50% 50%, rgba(8, 8, 7, 0.7), rgba(8, 8, 7, 0.5) 45%, rgba(8, 8, 7, 0.3) 80%);
   text-shadow: none;
 }
 
 .tw.is-on {
-  display: grid;
+  display: block;
 }
 
 .hud.is-wheel .xh,
@@ -2821,10 +2829,13 @@ svg {
 }
 
 .tw__dial {
-  position: relative;
-  width: min(36rem, 84vmin);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--dial);
   aspect-ratio: 1;
   container-type: inline-size;
+  transform: translate(-50%, -50%);
 }
 
 .tw__ring {
@@ -2864,12 +2875,12 @@ svg {
   display: grid;
   justify-items: center;
   width: 7.5rem;
-  max-width: 22cqw;
+  max-width: 19cqw;
   transform: translate(-50%, -50%);
   font-weight: 800;
-  font-size: 0.74rem;
+  font-size: max(10px, min(0.74rem, 3.3cqw));
   line-height: 1.05;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-align: center;
   text-transform: uppercase;
   color: var(--c-100);
@@ -2898,7 +2909,7 @@ svg {
   justify-items: center;
   align-content: center;
   gap: 0.1rem;
-  width: min(4.4rem, 15cqw);
+  width: min(4.4rem, 12.5cqw);
   aspect-ratio: 1;
   transform: translate(-50%, -50%);
   border: 1px solid var(--plate-edge);
@@ -2920,7 +2931,7 @@ svg {
   max-width: 92%;
   overflow: hidden;
   font-weight: 800;
-  font-size: min(0.62rem, 2.5cqw);
+  font-size: max(10.5px, min(0.62rem, 2.5cqw));
   letter-spacing: 0.04em;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -2935,7 +2946,7 @@ svg {
   background: var(--ink);
   font-family: var(--f-mono);
   font-style: normal;
-  font-size: 0.56rem;
+  font-size: max(10px, 0.56rem);
   color: var(--c-300);
 }
 
@@ -3014,6 +3025,11 @@ svg {
 }
 
 .tw__keys {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + var(--dial) / 2 + 0.6rem);
+  transform: translateX(-50%);
+  width: max-content;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
@@ -4056,5 +4072,10 @@ svg {
 #ui.calm .led,
 #ui.calm .ptr__card svg,
 #ui.calm .hotbar.is-new .hb-wheel {
+  animation: none;
+}
+
+/* reduce flashing: the armed LED holds steady */
+#ui.dim-flash .led {
   animation: none;
 }

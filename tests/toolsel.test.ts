@@ -81,6 +81,20 @@ test('the wheel pointer picks a category, then along its fan', () => {
   assert.equal(w.tool, first);
 });
 
+test('sweeping the rim from one fan reaches the next wedge, not the one beyond', () => {
+  const f = fans(TABLE, ALL);
+  const w = wheelStart('hammer', f);
+  const cut = CATS.findIndex(k => k.id === 'cutting'), ord = CATS.findIndex(k => k.id === 'ordnance');
+  const at = (deg: number, r: number) => wheelAt(w, Math.sin((deg * Math.PI) / 180) * r, -Math.cos((deg * Math.PI) / 180) * r, f);
+  at(cut * SECTOR, 0.4);
+  at(cut * SECTOR, 0.95);
+  assert.equal(w.cat, cut);
+  const seen = new Set<number>();
+  for (let a = cut * SECTOR; a >= ord * SECTOR - 20; a -= 3) { at(a, 0.95); seen.add(w.cat); }
+  assert.equal(w.cat, ord);
+  assert.ok(!seen.has(CATS.findIndex(k => k.id === 'explosive')), 'never jumped past ordnance');
+});
+
 test('an empty category picks nothing', () => {
   const ammo = { hammer: -1, charge: 3 } as Partial<Record<WeaponId, number>>;
   const f = fans(TABLE, ammo);

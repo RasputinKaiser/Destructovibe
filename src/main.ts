@@ -12,7 +12,7 @@ import {
   setJointStrength, setWind, setFireSpread, setDebrisLimit, startQuake, clearDebris, extinguish, setFrozen, quakeActive,
   spawnPieces, removeConnected, pieceOf, setServiceViewer, setDetailQuality, kinetic,
 } from './destruction/structure';
-import { initXray } from './render/xray';
+import { initXray, setXrayPalette } from './render/xray';
 import { lightningStrike, setStorm, stormOn } from './destruction/electrical';
 import { initGhost, ghost } from './render/ghost';
 import { initAim, aim as marks, setAimPalette } from './render/aim';
@@ -34,7 +34,7 @@ import {
   knockback, eyePosition, forward, respawn, teleport as teleportPlayer, setPlayerEnabled, vfov, padLook,
 } from './game/player';
 import {
-  initWeapons, setLoadout, select, cycle, tryFire, detonate, weaponsPreStep, weaponsAfterStep, syncProjectiles,
+  initWeapons, setLoadout, select, tryFire, detonate, weaponsPreStep, weaponsAfterStep, syncProjectiles,
   clearWeapons, weaponViews, chargesPlaced, liveOrdnance, rangedAmmoLeft, onProjectileHit, loadout, WEAPONS,
   setWeaponHooks, weaponName, releaseFire, toolWheel, toolSecondary, toolReadout, timelineView, weaponsDebug,
   devices, setDelay, fired,
@@ -800,16 +800,21 @@ let toolFans: WeaponId[][] = [];
 let wheel: Wheel | null = null;
 /** when the wheel key went down (performance.now ms); -1 up, -2 down but already spent (a click took the pick) */
 let wheelDown = -1;
-let wheelTravel = 0;
 let heldTool: WeaponId = 'hammer', lastTool: WeaponId | null = null;
-const WHEEL_HOLD = 170, WHEEL_PX = 240;
+/* the wheel opens on time held alone (aiming while tapping must not open it), and a tap is anything shorter */
+const WHEEL_HOLD = 200, WHEEL_PX = 240;
+/** tools whose control prompt has been counted this session: scrolling past a tool again does not use up its prompts */
+const promptedNow = new Set<WeaponId>();
 
 /* a tool's control prompt comes up the first few times it is taken out (Settings: always, or never) */
 const PROMPT_USES = 3;
 function promptFor(id: WeaponId): boolean {
   if (save.settings.prompts === 'off') return false;
+  if (save.settings.prompts === 'always') return true;
   const n = save.seen[id] ?? 0;
-  if (save.settings.prompts === 'always' || n >= PROMPT_USES) return save.settings.prompts === 'always';
+  if (promptedNow.has(id)) return n <= PROMPT_USES;
+  if (n >= PROMPT_USES) return false;
+  promptedNow.add(id);
   save.seen[id] = n + 1;
   writeSave(save);
   return true;
@@ -831,9 +836,19 @@ function takeTool(id: WeaponId | null): void {
   audio.ui('click');
 }
 
+const pinnable = (): boolean => toolFans.reduce((n, f) => n + f.length, 0) > slots.length;
+
 function showWheel(): void {
   if (!wheel) return;
-  ui.setWheel({ fans: toolFans, slots, wheel, current: loadout.current, ammo: loadout.ammo, pad: usingPad() });
+  ui.setWheel({ fans: toolFans, slots, wheel, current: loadout.current, ammo: loadout.ammo, pad: usingPad(), pins: pinnable() });
+}
+
+/* the mouse wheel (and the pad's bumpers) on a tool with no setting of its own steps through the quick slots */
+function cycleSlots(dir: number): void {
+  const on = slots.filter((id): id is WeaponId => !!id);
+  if (!on.length) return;
+  const i = on.indexOf(loadout.current);
+  takeTool(i < 0 ? on[dir > 0 ? 0 : on.length - 1] : on[(i + dir + on.length) % on.length]);
 }
 
 function closeWheel(): void {
@@ -846,16 +861,15 @@ function closeWheel(): void {
 function handleTools(busy: boolean): boolean {
   if (loadout.current !== heldTool) { lastTool = heldTool; heldTool = loadout.current; ui.toolChanged(heldTool, promptFor(heldTool)); }
   const now = performance.now();
-  if (tapped('bank')) { wheelDown = now; wheelTravel = 0; }
+  if (tapped('bank')) wheelDown = now;
   const down = held('bank');
   if (wheelDown !== -1 && !down) {
     if (wheel) { const t = wheel.tool; closeWheel(); takeTool(t); }
-    else if (wheelDown >= 0 && now - wheelDown < 400 && lastTool) takeTool(lastTool);
+    else if (wheelDown >= 0 && lastTool) takeTool(lastTool);
     wheelDown = -1;
   }
   if (!wheel && wheelDown >= 0 && down && !busy) {
-    wheelTravel += Math.abs(input.mouseDX) + Math.abs(input.mouseDY) + (Math.hypot(pad.rx, pad.ry) > 0.5 ? 99 : 0);
-    if (now - wheelDown > WHEEL_HOLD || wheelTravel > 30) {
+    if (now - wheelDown > WHEEL_HOLD) {
       wheel = wheelStart(loadout.current, toolFans);
       save.seen.wheel = (save.seen.wheel ?? 0) + 1;
       writeSave(save);
@@ -871,8 +885,9 @@ function handleTools(busy: boolean): boolean {
   if (pad.connected && Math.hypot(pad.rx, pad.ry) > 0.3) wheelAt(wheel, pad.rx, pad.ry, toolFans);
   else if (input.mouseDX || input.mouseDY) wheelAt(wheel, wheel.x + input.mouseDX / WHEEL_PX, wheel.y + input.mouseDY / WHEEL_PX, toolFans);
   if (input.wheel) wheelStep(wheel, input.wheel > 0 ? 1 : -1, toolFans);
+  // pins only mean something where the slots are the player's to arrange (more tools issued than slots)
   for (let k = 1; k <= 6; k++) {
-    if (!input.pressed.has(`Digit${k}`) || !wheel.tool) continue;
+    if (!input.pressed.has(`Digit${k}`) || !wheel.tool || !pinnable()) continue;
     save.pins = pin(save.pins, k - 1, wheel.tool);
     writeSave(save);
     slots = quickSlots(WEAPONS, loadout.ammo, save.pins);
@@ -937,7 +952,7 @@ function handleInput(): void {
     // the wheel sets the tool's own parameter where it has one (scroll up = more), else cycles tools
     if (input.wheel) {
       ui.toolPoke();
-      if (!toolWheel(input.wheel > 0 ? -1 : 1)) cycle(input.wheel > 0 ? 1 : -1);
+      if (!toolWheel(input.wheel > 0 ? -1 : 1)) cycleSlots(input.wheel > 0 ? 1 : -1);
     }
     const lmb = (input.buttons & 1) !== 0 || devHold;
     if (lmb && !busy) { tryFire(); ui.toolPoke(); }
@@ -1093,7 +1108,7 @@ function updateHudState(): void {
     : nearVehicle ? `${keyLabel('interact')} — drive`
     : nearMachine ? `${keyLabel('interact')} — operate`
     : svcHint ? svcHint
-    : xrayMode() === 'stress' ? 'X-RAY · joints: green idle · yellow loaded · red at capacity · magenta yielding · X to cycle'
+    : xrayMode() === 'stress' ? (save.settings.colorblind ? 'X-RAY · joints: blue idle · teal loaded · yellow at capacity · white past it · magenta yielding · X to cycle' : 'X-RAY · joints: green idle · yellow loaded · red at capacity · magenta yielding · X to cycle')
     : xrayMode() === 'thermal' ? 'X-RAY · thermal: blue ambient → purple → orange 500 °C → white 1000 °C · X to cycle'
     : xrayMode() === 'fields' ? 'X-RAY · fields: temperature, smoke and fuel gas around the action · X to cycle'
     : xrayMode() === 'services' ? 'X-RAY · services: yellow power · orange gas · blue water · white steam · grey dead · beads run from supply to load · green ring isolated (flashing amber: tripped) · amber standby set · white on battery · pulsing = live break · green = running machine'
@@ -1183,7 +1198,7 @@ function frame(dt: number): void {
   }
 
   // menus and pause answer a pad too (in play, handleInput polls it)
-  if (state !== 'playing' && state !== 'loading') { pollPad(); if (pad.nav.size) ui.padNav(pad.nav); }
+  if (state !== 'playing' && state !== 'loading') { pollPad(); if (pad.nav.size) ui.padNav(pad.nav); if (pad.connected) ui.padScroll(pad.ry); }
   const inPlay = state === 'playing' || state === 'paused';
   audio.quake(inPlay && quakeActive() ? 1 : 0);
   audio.wind(inPlay && mode === 'sandbox' ? sandbox.wind : 0);
@@ -1245,7 +1260,8 @@ function applyControls(s: Settings): void {
 function applyDisplay(s: Settings): void {
   comfort.flash = s.reduceFlash ? 0.3 : 1;
   setAimPalette(s.colorblind);
-  setLampPalette(s.colorblind);
+  setLampPalette(s.colorblind, s.reduceFlash);
+  setXrayPalette(s.colorblind);
   setRenderScale(s.renderScale);
   setPostFx({ grain: s.grain, aberration: s.aberration });
   player.shake = s.shake ? 1 : 0;

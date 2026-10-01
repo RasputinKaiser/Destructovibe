@@ -164,7 +164,7 @@ const TEMPLATE = () => `
     <div class="hud-dock" data-r="dock">
       <div class="hud-charges" data-r="charges"><i class="led"></i><b data-r="chargeN">0</b><span>Armed</span></div>
       <div class="hud-seq" data-r="seq"><div class="hud-seq__track" data-r="seqTrack"></div><div class="hud-seq__scale" data-r="seqScale"></div></div>
-      <div class="hud-tool" data-r="tool"><div class="hud-tool__t" data-r="toolT"></div><div class="hud-tool__bar"><i data-r="toolBar"></i></div><div class="hud-tool__d" data-r="toolD"></div><div class="hud-tool__lines" data-r="toolL"></div><div class="hud-tool__keys" data-r="toolK"></div></div>
+      <div class="hud-tool" data-r="tool"><div class="hud-tool__t" data-r="toolT"></div><div class="hud-tool__bar"><i data-r="toolBar"></i></div><div class="hud-tool__lines" data-r="toolL"></div><div class="hud-tool__d" data-r="toolD"></div><div class="hud-tool__keys" data-r="toolK"></div></div>
     </div>
     <div class="hud-hint" data-r="hint"></div>
     <div class="hotbar" data-r="weapons"></div>
@@ -336,7 +336,7 @@ const TEMPLATE = () => `
           ${(['low', 'medium', 'high'] as Quality[]).map(q => `<label><input type="radio" name="dv-quality" value="${q}"><span>${q}</span></label>`).join('')}
         </div><output></output></div>
       <div class="set-row"><span class="set-name">Render scale</span>
-        <div class="seg" role="radiogroup" aria-label="Render scale" data-r="sScale">
+        <div class="seg seg--5" role="radiogroup" aria-label="Render scale" data-r="sScale">
           ${RENDER_SCALES.map(([v, l]) => `<label title="${v ? `${l} of the quality's resolution` : 'Holds 60 fps by trading resolution, then brick detail distance'}"><input type="radio" name="dv-scale" value="${v}"><span>${l}</span></label>`).join('')}
         </div><output></output></div>
       <div class="set-row"><label for="dv-fov">Field of view</label><input class="range" id="dv-fov" type="range" min="70" max="120" step="1" data-r="sFov"><output data-r="oFov"></output></div>
@@ -424,6 +424,7 @@ function applyLook(): void {
   document.documentElement.style.setProperty('--ui-scale', String(S.uiScale));
   root.classList.toggle('cb', S.colorblind);
   root.classList.toggle('calm', S.reduceMotion);
+  root.classList.toggle('dim-flash', S.reduceFlash);
   layoutDirty = true;
 }
 
@@ -559,8 +560,13 @@ function controlsOf(scope: Element): HTMLElement[] {
     .filter((el, i, a): el is HTMLElement => !!el && a.indexOf(el) === i && !(el as HTMLButtonElement).disabled && !el.closest('[hidden], [inert]') && (el.offsetParent !== null || !!el.closest('.seg')));
 }
 
+let navMark: Element | null = null;
 function focusEl(el: HTMLElement, pad: boolean): void {
   if (pad) root?.classList.add('nav-keys');
+  // the mark is a class as well as focus: it shows whether or not the page has the system's focus
+  navMark?.classList.remove('is-nav');
+  navMark = el.matches('.seg input') ? el.closest('label') : el;
+  navMark?.classList.add('is-nav');
   (el.focus as (o?: FocusOptions & { focusVisible?: boolean }) => void)({ preventScroll: false, focusVisible: pad || undefined });
   el.closest('.seg, .set-row, .card, .btn')?.scrollIntoView({ block: 'nearest' });
 }
@@ -588,6 +594,16 @@ function move(dir: 'up' | 'down' | 'left' | 'right', pad: boolean): void {
     if (d < bd) { bd = d; best = el; }
   }
   if (best) { focusEl(best, pad); audio.ui('hover'); }
+}
+
+/** the right stick scrolls a long screen (the briefing's controls, the settings, the pause list) */
+export function padScroll(dy: number): void {
+  if (!root || current === null || Math.abs(dy) < 0.2) return;
+  const scope = screens.get(current);
+  if (!scope) return;
+  for (const el of [scope, ...Array.from(scope.querySelectorAll<HTMLElement>('.sheet, .brief, .pause, .pause__keys, .chapters, .report'))]) {
+    if (el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY)) { el.scrollBy(0, dy * 22); return; }
+  }
 }
 
 /** A pad's menu input this frame (main polls the pad outside play). */
@@ -679,7 +695,9 @@ export function showScreen(s: ScreenId | null): void {
   }
   // a menu comes up with its main button in focus, so Enter, arrows or a pad work from the first press
   if (target && s !== 'loading') {
-    const first = target.querySelector<HTMLElement>('.btn--primary:not([hidden])') ?? controlsOf(target)[0];
+    // the job board starts on the next job to do (the first issued one not yet cleared)
+    const first = (s === 'contracts' ? target.querySelector<HTMLElement>('.card:not(.is-locked):not(.is-cleared)') ?? target.querySelector<HTMLElement>('.card:not(.is-locked)') : null)
+      ?? target.querySelector<HTMLElement>('.btn--primary:not([hidden])') ?? controlsOf(target)[0];
     if (first) requestAnimationFrame(() => { if (current === s && !target.contains(document.activeElement)) focusEl(first, usingPad()); });
   }
   if (s === 'results') {
@@ -1408,6 +1426,8 @@ export interface WheelView {
   current: WeaponId;
   ammo: Partial<Record<WeaponId, number>>;
   pad: boolean;
+  /** pinning to slots is on offer (the loadout is bigger than the slots) */
+  pins: boolean;
 }
 let twKey = '', twHot = '';
 const polar = (r: number, deg: number): [number, number] => [r * Math.sin((deg * Math.PI) / 180), -r * Math.cos((deg * Math.PI) / 180)];
@@ -1440,7 +1460,7 @@ export function setWheel(v: WheelView | null): void {
       `<div class="tw__hub"><b data-tw="name"></b><span data-tw="meta"></span></div><i class="tw__ptr" data-tw="ptr"></i>`;
   }
   const w = v.wheel;
-  const hot = `${w.cat}|${w.tool}|${v.pad}`;
+  const hot = `${w.cat}|${w.tool}|${v.pad}|${v.pins}`;
   const ptr = R.twDial.querySelector<HTMLElement>('[data-tw="ptr"]')!;
   ptr.style.transform = `translate(${(w.x * 50).toFixed(2)}cqw, ${(w.y * 50).toFixed(2)}cqw)`;
   if (hot === twHot) return;
@@ -1461,7 +1481,7 @@ export function setWheel(v: WheelView | null): void {
   }
   R.twKeys.innerHTML = v.pad
     ? '<span><b class="kbd">Right stick</b> point</span><span><b class="kbd">LB RB</b> step</span><span><b class="kbd">A</b> / release <b class="kbd">D-pad ↑</b> take</span><span><b class="kbd">B</b> cancel</span>'
-    : `<span><b class="kbd">Mouse</b> point</span><span><b class="kbd">Wheel</b> step</span><span>release <b class="kbd">${esc(K('bank'))}</b> / <b class="kbd">LMB</b> take</span><span><b class="kbd">1–6</b> pin to slot</span><span><b class="kbd">RMB</b> cancel</span>`;
+    : `<span><b class="kbd">Mouse</b> point</span><span><b class="kbd">Wheel</b> step</span><span>release <b class="kbd">${esc(K('bank'))}</b> / <b class="kbd">LMB</b> take</span>${v.pins ? '<span><b class="kbd">1–6</b> pin to slot</span>' : ''}<span><b class="kbd">RMB</b> cancel</span>`;
 }
 
 const hc = {
@@ -1654,6 +1674,7 @@ export function updateHud(s: HudState, dt: number): void {
   if (s.hint !== hc.hint) {
     hc.hint = s.hint;
     if (s.hint) R.hint.textContent = s.hint;
+    if (R.hint.classList.contains('is-on') !== !!s.hint) layoutDirty = true;
     R.hint.classList.toggle('is-on', !!s.hint);
   }
 
@@ -1704,6 +1725,11 @@ function btnLabel(b: Btn, pad: boolean): string {
   }
 }
 
+/* the readout's detail drops its own key hints ("LMB …", "wheel …", "RMB/G …") while the prompt row shows them, or
+   while a pad is in use (its buttons are not those keys) */
+const KEYISH = /\b(LMB|RMB|MMB|[Ww]heel)\b|\bShift ±/;
+const stripKeys = (d: string): string => d.split(' · ').filter(p => !KEYISH.test(p)).join(' · ');
+
 function updateTool(t: ToolReadout | null): void {
   const now = performance.now() / 1000;
   const gist = t ? `${t.title.replace(/[\d.,]+/g, '')}|${t.warn}|${/on target: (\w+)|lands on the ground|no landing/.exec(t.detail)?.[0] ?? ''}` : '';
@@ -1719,13 +1745,15 @@ function updateTool(t: ToolReadout | null): void {
       ? TOOL_HELP[promptTool].map(([b, what]) => `<span class="kc"><b class="kbd">${esc(btnLabel(b, pad))}</b>${esc(what)}</span>`).join('')
       : '';
   }
-  const key = t ? `${t.title}|${t.detail}|${t.warn}|${t.progress === null}` : '';
+  const strip = !!pk || pad;
+  const key = t ? `${t.title}|${t.detail}|${t.warn}|${t.progress === null}|${strip}` : '';
   if (key !== hc.tool) {
     hc.tool = key;
     R.tool.classList.toggle('is-on', !!t);
+    R.xh.classList.toggle('is-warn', !!t?.warn);
     if (t) {
       R.toolT.textContent = t.title;
-      R.toolD.textContent = t.detail;
+      R.toolD.textContent = strip ? stripKeys(t.detail) : t.detail;
       R.tool.classList.toggle('is-warn', t.warn);
       R.tool.classList.toggle('has-bar', t.progress !== null);
     }
@@ -1782,6 +1810,10 @@ function relayout(now: number): void {
   const barW = R.weapons.offsetWidth;
   const gap = 16;
   R.hud.classList.toggle('is-stacked', (W - barW) / 2 < dockW + gap);
+  // stacked, the dock gets what is left between the hint and hotbar and the crosshair's zone
+  const g = parseFloat(getComputedStyle(R.bottom).rowGap) || 8;
+  const below = R.weapons.offsetHeight + (R.hint.classList.contains('is-on') ? R.hint.offsetHeight + g : 0) + g + 6;
+  R.bottom.style.setProperty('--below', `${below}px`);
 }
 
 /** dev check: every visible HUD box, whether any overlap each other, and whether any reach the crosshair's zone (the
@@ -1790,9 +1822,14 @@ export function layoutReport(): { w: number; h: number; boxes: Record<string, nu
   const w = innerWidth, h = innerHeight, z = 0.09 * Math.min(w, h);
   const zone = { left: w / 2 - z, right: w / 2 + z, top: h / 2 - z, bottom: h / 2 + z };
   const pick: [string, string][] = [['title', '.hud-tl'], ['score', '.hud-tr'], ['meter', '.hud-demo'], ['slowmo', '.hud-slowmo.is-on'], ['tool', '.hud-tool.is-on'],
-    ['plan', '.hud-seq.is-on'], ['armed', '.hud-charges.is-on'], ['hint', '.hud-hint.is-on'], ['hotbar', '.hotbar'], ['fps', '.hud-fps'], ['toasts', '.toasts']];
+    ['plan', '.hud-seq.is-on'], ['armed', '.hud-charges.is-on'], ['hint', '.hud-hint.is-on'], ['hotbar', '.hotbar'], ['fps', '.hud-fps'], ['toasts', '.toasts'],
+    ['wheel', '.tw.is-on .tw__dial'], ['wheelKeys', '.tw.is-on .tw__keys']];
+  // the wheel stands the dock and the hint down (hidden under it), and is meant to sit on the crosshair
+  const wheelOn = R.wheel.classList.contains('is-on');
+  const hidden = new Set(wheelOn ? ['tool', 'plan', 'armed', 'hint'] : []);
   const boxes: Record<string, number[]> = {};
   for (const [k, sel] of pick) {
+    if (hidden.has(k)) continue;
     const el = root?.querySelector<HTMLElement>(sel);
     if (!el || !el.offsetParent && getComputedStyle(el).position !== 'fixed') continue;
     const r = el.getBoundingClientRect();
@@ -1803,7 +1840,7 @@ export function layoutReport(): { w: number; h: number; boxes: Record<string, nu
   const keys = Object.keys(boxes), overlaps: string[] = [], crosshair: string[] = [];
   for (let i = 0; i < keys.length; i++) {
     const a = boxes[keys[i]];
-    if (hit(a, zone)) crosshair.push(keys[i]);
+    if (hit(a, zone) && keys[i] !== 'wheel') crosshair.push(keys[i]);
     for (let j = i + 1; j < keys.length; j++) {
       const b = boxes[keys[j]];
       if (hit(a, { left: b[0], top: b[1], right: b[2], bottom: b[3] })) overlaps.push(`${keys[i]}×${keys[j]}`);

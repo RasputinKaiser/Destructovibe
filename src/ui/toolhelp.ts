@@ -23,7 +23,7 @@ export const TOOL_HELP: Record<WeaponId, Help> = {
   incendiary: [['fire', 'Throw']],
   megabomb: [['fire', 'Drop it, then run']],
   grinder: CUT, saw: CUT, drill: [['hold', 'Bore']], shears: [['hold', 'Shear / crush']], plasma: CUT, torch: [['hold', 'Preheat, then cut']],
-  planner: [['fire', 'Pick a device / auto-sequence'], ['wheel', 'Delay'], ['det', 'Fire the sequence']],
+  planner: [['fire', 'Pick a device / auto-sequence'], ['wheel', 'Delay ±50 ms (Shift ±250)'], ['det', 'Fire the sequence']],
   excavator: [['hold', 'Work the arm toward aim'], ['alt', 'Dump'], ['wheel', 'Curl the bucket']],
   breaker: [['hold', 'Break concrete or masonry']],
   hose: [['hold', 'Spray'], ['alt', 'Stream / fog']],
