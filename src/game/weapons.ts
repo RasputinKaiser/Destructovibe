@@ -23,7 +23,7 @@ import { aim as marks, obb, type AimState } from '../render/aim';
 import { viewmodel } from '../render/viewmodel';
 import { audio } from '../audio/audio';
 import { hitmarker, blastVignette } from '../ui/ui';
-import { input } from '../core/input';
+import { input, keyLabel } from '../core/input';
 import { player, forward, eyePosition, kickRecoil, addTrauma, kickFov, knockback } from './player';
 import {
   NO_HIT, GROUND_Y, piecesNear, nearestPiece, memberAxis, basisQuat, toolHooks, chord, fillOf, localBounds,
@@ -64,6 +64,7 @@ import {
   syncGrapple, clearGrapple, cut as stowGrapple,
 } from './tools/grapple';
 import { hitstop } from './timefx';
+import { ordered } from './toolsel';
 import { tags, initTags } from '../render/tags';
 import { strikes, initStrikes } from '../render/strikes';
 import { fuelStep, syncFuel, clearFuel, douseFuel, launchFuel, fuelInFlight, fuelBurning, PETROL } from './ordnance/fuel';
@@ -79,44 +80,44 @@ import { shotStrike } from './ordnance/shot';
 import { contactCharge } from './ordnance/breach';
 import { young } from './ordnance/penetration';
 
-/* Ordered tool list; `bank` is the six-slot page the number keys address (Q cycles). A new bank is a block of up to
-   six entries with the next bank number; BANK_COUNT follows the table. */
-export const WEAPONS: { id: WeaponId; name: string; key: string; bank: number; cooldown: number }[] = [
-  { id: 'hammer', name: 'Sledgehammer', key: '1', bank: 0, cooldown: 0.62 },
-  { id: 'cannon', name: 'Hand Cannon', key: '2', bank: 0, cooldown: 0.95 },
-  { id: 'rocket', name: 'Rocket Launcher', key: '3', bank: 0, cooldown: 1.25 },
-  { id: 'charge', name: 'Remote Charges', key: '4', bank: 0, cooldown: 0.4 },
-  { id: 'airstrike', name: 'Airstrike Marker', key: '5', bank: 0, cooldown: 2.5 },
-  { id: 'thermite', name: 'Thermite', key: '6', bank: 0, cooldown: 0.5 },
-  { id: 'cutter', name: 'Cutting Charge', key: '1', bank: 1, cooldown: 0.4 },
-  { id: 'wrecker', name: 'Wrecking Ball', key: '2', bank: 1, cooldown: 1.2 },
-  { id: 'winch', name: 'Tow Winch', key: '3', bank: 1, cooldown: 0.6 },
-  { id: 'gravgun', name: 'Gravity Gun', key: '4', bank: 1, cooldown: 0.25 },
-  { id: 'incendiary', name: 'Firebomb', key: '5', bank: 1, cooldown: 1.1 },
-  { id: 'megabomb', name: 'Megabomb', key: '6', bank: 1, cooldown: 2 },
-  { id: 'grinder', name: 'Disc Cutter', key: '1', bank: 2, cooldown: 0.2 },
-  { id: 'saw', name: 'Chainsaw', key: '2', bank: 2, cooldown: 0.2 },
-  { id: 'drill', name: 'Drill Rig', key: '3', bank: 2, cooldown: 0.2 },
-  { id: 'shears', name: 'Hydraulic Shears', key: '4', bank: 2, cooldown: 0.2 },
-  { id: 'plasma', name: 'Plasma Cutter', key: '5', bank: 2, cooldown: 0.2 },
-  { id: 'torch', name: 'Oxy-Fuel Torch', key: '6', bank: 2, cooldown: 0.2 },
-  { id: 'planner', name: 'Detonator Panel', key: '1', bank: 3, cooldown: 0.15 },
-  { id: 'excavator', name: 'Excavator Remote', key: '2', bank: 3, cooldown: 0.2 },
-  { id: 'breaker', name: 'Hydraulic Breaker', key: '3', bank: 3, cooldown: 0.2 },
-  { id: 'hose', name: 'Water Cannon', key: '4', bank: 3, cooldown: 0.2 },
-  { id: 'splitter', name: 'Rock Splitter', key: '5', bank: 3, cooldown: 0.6 },
-  { id: 'wiresaw', name: 'Diamond Wire Saw', key: '6', bank: 3, cooldown: 0.5 },
-  { id: 'grapple', name: 'Grapple Launcher', key: '1', bank: 4, cooldown: 0.8 },
-  { id: 'tether', name: 'Rigging Lines', key: '2', bank: 4, cooldown: 0.25 },
-  { id: 'hoist', name: 'Lever Hoist', key: '3', bank: 4, cooldown: 0.25 },
-  { id: 'flamer', name: 'Flamethrower', key: '1', bank: 5, cooldown: 0.05 },
-  { id: 'launcher', name: 'Grenade Launcher', key: '2', bank: 5, cooldown: 1.1 },
-  { id: 'recoilless', name: 'Recoilless Rifle', key: '3', bank: 5, cooldown: 2.4 },
-  { id: 'thermobaric', name: 'Thermobaric Rocket', key: '4', bank: 5, cooldown: 2.5 },
-  { id: 'buster', name: 'Bunker Buster', key: '5', bank: 5, cooldown: 4 },
-  { id: 'satchel', name: 'Satchel Charge', key: '6', bank: 5, cooldown: 0.8 },
+/* Ordered tool list. `cat` files a tool on the tool wheel (hold Q) and orders it within the wheel and the quick slots;
+   `short` is its hotbar label (unique: "Cannon" is the hand cannon, "Water" the water cannon). */
+export type ToolCat = 'impact' | 'explosive' | 'ordnance' | 'cutting' | 'rigging' | 'fire';
+export const WEAPONS: { id: WeaponId; name: string; short: string; cat: ToolCat; cooldown: number }[] = [
+  { id: 'hammer', name: 'Sledgehammer', short: 'Sledge', cat: 'impact', cooldown: 0.62 },
+  { id: 'cannon', name: 'Hand Cannon', short: 'Cannon', cat: 'impact', cooldown: 0.95 },
+  { id: 'rocket', name: 'Rocket Launcher', short: 'Rocket', cat: 'ordnance', cooldown: 1.25 },
+  { id: 'charge', name: 'Remote Charges', short: 'Charges', cat: 'explosive', cooldown: 0.4 },
+  { id: 'airstrike', name: 'Airstrike Marker', short: 'Airstrike', cat: 'ordnance', cooldown: 2.5 },
+  { id: 'thermite', name: 'Thermite', short: 'Thermite', cat: 'explosive', cooldown: 0.5 },
+  { id: 'cutter', name: 'Cutting Charge', short: 'Cutter', cat: 'explosive', cooldown: 0.4 },
+  { id: 'wrecker', name: 'Wrecking Ball', short: 'Wrecker', cat: 'impact', cooldown: 1.2 },
+  { id: 'winch', name: 'Tow Winch', short: 'Winch', cat: 'rigging', cooldown: 0.6 },
+  { id: 'gravgun', name: 'Gravity Gun', short: 'Grav gun', cat: 'rigging', cooldown: 0.25 },
+  { id: 'incendiary', name: 'Firebomb', short: 'Firebomb', cat: 'fire', cooldown: 1.1 },
+  { id: 'megabomb', name: 'Megabomb', short: 'Megabomb', cat: 'explosive', cooldown: 2 },
+  { id: 'grinder', name: 'Disc Cutter', short: 'Disc cutter', cat: 'cutting', cooldown: 0.2 },
+  { id: 'saw', name: 'Chainsaw', short: 'Chainsaw', cat: 'cutting', cooldown: 0.2 },
+  { id: 'drill', name: 'Drill Rig', short: 'Drill', cat: 'cutting', cooldown: 0.2 },
+  { id: 'shears', name: 'Hydraulic Shears', short: 'Shears', cat: 'cutting', cooldown: 0.2 },
+  { id: 'plasma', name: 'Plasma Cutter', short: 'Plasma', cat: 'cutting', cooldown: 0.2 },
+  { id: 'torch', name: 'Oxy-Fuel Torch', short: 'Torch', cat: 'cutting', cooldown: 0.2 },
+  { id: 'planner', name: 'Detonator Panel', short: 'Detonator', cat: 'explosive', cooldown: 0.15 },
+  { id: 'excavator', name: 'Excavator Remote', short: 'Excavator', cat: 'rigging', cooldown: 0.2 },
+  { id: 'breaker', name: 'Hydraulic Breaker', short: 'Breaker', cat: 'impact', cooldown: 0.2 },
+  { id: 'hose', name: 'Water Cannon', short: 'Water', cat: 'fire', cooldown: 0.2 },
+  { id: 'splitter', name: 'Rock Splitter', short: 'Splitter', cat: 'impact', cooldown: 0.6 },
+  { id: 'wiresaw', name: 'Diamond Wire Saw', short: 'Wire saw', cat: 'cutting', cooldown: 0.5 },
+  { id: 'grapple', name: 'Grapple Launcher', short: 'Grapple', cat: 'rigging', cooldown: 0.8 },
+  { id: 'tether', name: 'Rigging Lines', short: 'Rigging', cat: 'rigging', cooldown: 0.25 },
+  { id: 'hoist', name: 'Lever Hoist', short: 'Hoist', cat: 'rigging', cooldown: 0.25 },
+  { id: 'flamer', name: 'Flamethrower', short: 'Flamer', cat: 'fire', cooldown: 0.05 },
+  { id: 'launcher', name: 'Grenade Launcher', short: 'Grenades', cat: 'ordnance', cooldown: 1.1 },
+  { id: 'recoilless', name: 'Recoilless Rifle', short: 'Recoilless', cat: 'ordnance', cooldown: 2.4 },
+  { id: 'thermobaric', name: 'Thermobaric Rocket', short: 'Thermobaric', cat: 'ordnance', cooldown: 2.5 },
+  { id: 'buster', name: 'Bunker Buster', short: 'Buster', cat: 'ordnance', cooldown: 4 },
+  { id: 'satchel', name: 'Satchel Charge', short: 'Satchel', cat: 'explosive', cooldown: 0.8 },
 ];
-export const BANK_COUNT = Math.max(...WEAPONS.map(w => w.bank)) + 1;
 const DEF = Object.fromEntries(WEAPONS.map(w => [w.id, w])) as Record<WeaponId, (typeof WEAPONS)[number]>;
 
 export const MAX_CHARGES = 8;
@@ -220,7 +221,7 @@ const swings: { t: number; k: number }[] = [];
 const detonations: { t: number; p: Projectile }[] = [];
 interface Sortie { target: Vec3; heading: Vec3; start: Vec3; t0: number; release: number; dropped: number; mesh: THREE.Object3D | null; done: number }
 const sorties: Sortie[] = [];
-const views: WeaponView[] = WEAPONS.map(w => ({ id: w.id, name: w.name, key: w.key, ammo: 0, available: false, ready: 1 }));
+const views: WeaponView[] = WEAPONS.map(w => ({ id: w.id, name: w.name, ammo: 0, available: false, ready: 1 }));
 /* Frame bookkeeping: tryFire runs every frame fire is held, so a call with no call in the previous
    frame is a fresh press; the winch reels only on frames where fire is held. */
 let frame = 0;
@@ -310,10 +311,12 @@ export function select(id: WeaponId): void {
   viewmodel.setWeapon(id);
 }
 
+/* the wheel's order (by category), so the next tool is a neighbour of the last */
+const ORDER = ordered(WEAPONS);
 export function cycle(dir: number): void {
-  const i = WEAPONS.findIndex(w => w.id === loadout.current);
-  for (let k = 1; k <= WEAPONS.length; k++) {
-    const w = WEAPONS[(i + dir * k + WEAPONS.length * 2) % WEAPONS.length];
+  const i = ORDER.findIndex(w => w.id === loadout.current);
+  for (let k = 1; k <= ORDER.length; k++) {
+    const w = ORDER[(i + dir * k + ORDER.length * 2) % ORDER.length];
     if (loadout.ammo[w.id] !== undefined) { select(w.id); return; }
   }
 }
@@ -2286,8 +2289,8 @@ export function toolReadout(): ToolReadout | null {
         : '1.25 kg HE at the surface · RMB warhead · mind the backblast'),
       warn: false,
     });
-    case 'charge': return { title: `Remote charge · ${chargeKg} kg`, progress: null, detail: `lethal radius ${blastOf(chargeKg).radius.toFixed(1)} m · wheel size · RMB/G detonate${chargesPlaced() ? ` (${chargesPlaced()} armed)` : ''} · delays on the Detonator Panel`, warn: false };
-    case 'cutter': return { title: 'Linear cutting charge', progress: null, detail: 'the line shows the cut · severs the member along it · RMB/G detonate', warn: false };
+    case 'charge': return { title: `Remote charge · ${chargeKg} kg`, progress: null, detail: `lethal radius ${blastOf(chargeKg).radius.toFixed(1)} m · wheel size · RMB/${keyLabel('detonate')} detonate${chargesPlaced() ? ` (${chargesPlaced()} armed)` : ''} · delays on the Detonator Panel`, warn: false };
+    case 'cutter': return { title: 'Linear cutting charge', progress: null, detail: 'the line shows the cut · severs the member along it · RMB/' + keyLabel('detonate') + ' detonate', warn: false };
     case 'thermite': return { title: 'Thermite pot', progress: null, detail: '2500 °C: melts through steel, cast iron, aluminium · chars timber · only spalls masonry', warn: false };
     case 'airstrike': return reloading('airstrike', { title: 'Airstrike marker', progress: null, detail: `${PLANE.bombs} × 4 kg bombs onto the smoke${sorties.length ? ` · ${sorties.length} inbound` : ''}`, warn: sorties.length > 0 });
     case 'incendiary': return reloading('incendiary', { title: 'Firebomb', progress: null, detail: `${FIRE.litres} L petrol · ${FIRE.radius} m flash · the rest splashes, runs down and pools (~13 s at 2.4 MW/m²)`, warn: false });
@@ -2307,7 +2310,7 @@ export function toolReadout(): ToolReadout | null {
       return {
         title: `Detonator panel · ${list.length} device${list.length === 1 ? '' : 's'}`,
         progress: firing && (now - firing.t0) * 1000 < firing.span + 200 ? clamp(((now - firing.t0) * 1000) / Math.max(firing.span, 1), 0, 1) : null,
-        detail: `span ${span} ms${sel} · LMB device / auto-sequence toward aim · wheel ±${PLAN.step} ms (Shift ±${PLAN.big}) · RMB/G fire`,
+        detail: `span ${span} ms${sel} · LMB device / auto-sequence toward aim · wheel ±${PLAN.step} ms (Shift ±${PLAN.big}) · RMB/${keyLabel('detonate')} fire`,
         warn: false,
       };
     }
@@ -2336,7 +2339,7 @@ export function toolReadout(): ToolReadout | null {
       detail: `${lased > 0 ? `lasing ${Math.round(lased)} m` : 'no spot'} · ${PEN.mass} kg at ${PEN.v} m/s: ~${(young(PEN.mass, Math.PI * (PEN.d / 2) ** 2, PEN.v, 0.8)).toFixed(1)} m of reinforced concrete · ${Math.round(PEN.tnt)} kg TNT-eq · wheel: voids`,
       warn: busters.length > 0,
     });
-    case 'satchel': return { title: `Satchel charge · ${SATCHEL.kg.toFixed(1)} kg TNT-eq`, progress: null, detail: `9.1 kg C-4 · lethal radius ${blastOf(SATCHEL.kg).radius.toFixed(1)} m · press on within ${PLANT_REACH} m, else thrown · RMB/G detonate · delays on the Detonator Panel`, warn: false };
+    case 'satchel': return { title: `Satchel charge · ${SATCHEL.kg.toFixed(1)} kg TNT-eq`, progress: null, detail: `9.1 kg C-4 · lethal radius ${blastOf(SATCHEL.kg).radius.toFixed(1)} m · press on within ${PLANT_REACH} m, else thrown · RMB/${keyLabel('detonate')} detonate · delays on the Detonator Panel`, warn: false };
     case 'grapple': return grappleStatus();
     case 'tether': return tetherStatus();
     case 'hoist': return hoistStatus();

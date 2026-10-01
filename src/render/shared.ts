@@ -32,6 +32,8 @@ export const view = { width: 1, height: 1, quality: 'medium' as Quality };
 
 /** light arriving at the camera from explosion / fire lights this frame (linear), for the viewmodel */
 export const flashAtCamera = new THREE.Color(0, 0, 0);
+/** comfort settings the renderer honours: `flash` scales every flash light (blasts, arc flashes, muzzles) */
+export const comfort = { flash: 1 };
 
 /** fx meshes drawn after the opaque pass: depth-tested sparks and rings, and the soft smoke/dust puffs
     (which may go to a half-resolution target and occlude only through the soft depth test) */

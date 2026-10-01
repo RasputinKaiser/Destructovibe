@@ -31,7 +31,7 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'interact', label: 'Drive / operate', key: 'KeyE', alt: [], group: 'Act' },
   { id: 'use', label: 'Work service gear', key: 'KeyU', alt: [], group: 'Act' },
   { id: 'detonate', label: 'Detonate', key: 'KeyG', alt: [], group: 'Act' },
-  { id: 'bank', label: 'Next tool bank', key: 'KeyQ', alt: [], group: 'Act' },
+  { id: 'bank', label: 'Tool wheel (hold) · last tool (tap)', key: 'KeyQ', alt: [], group: 'Act' },
   { id: 'fly', label: 'Fly (free play)', key: 'KeyF', alt: [], group: 'Site' },
   { id: 'respawn', label: 'Respawn', key: 'KeyP', alt: [], group: 'Site' },
   { id: 'restart', label: 'Restart', key: 'KeyR', alt: [], group: 'Site' },
@@ -85,9 +85,20 @@ export const pad = {
   moveX: 0, moveY: 0,
   /** right stick, response-curved, -1..1 */
   lookX: 0, lookY: 0,
+  /** right stick after the deadzone, linear (the tool wheel points with it) */
+  rx: 0, ry: 0,
   held: new Set<Action>(),
   hit: new Set<Action>(),
+  /** menu navigation this frame: D-pad or left stick (repeating while held), A, B, Start */
+  nav: new Set<'up' | 'down' | 'left' | 'right' | 'ok' | 'back' | 'start'>(),
+  /** performance.now() of the last pad input, and of the last key or mouse input: prompts follow whichever was later */
+  usedAt: -1,
 };
+let kbmAt = 0;
+/** true while the pad is what the player last touched (prompts show pad buttons, the click-to-play card stands down) */
+export function usingPad(): boolean { return pad.connected && pad.usedAt > kbmAt; }
+const NAV_DELAY = 380, NAV_REPEAT = 110;
+let navDir = '', navNext = 0;
 const DEAD = 0.16;
 let padBits = 0, padPrev: boolean[] = [];
 /** standard mapping: button index → action (fire/secondary/wheel/pause handled apart) */
@@ -106,7 +117,8 @@ export function pollPad(): boolean {
   pad.hit.clear();
   const gp = typeof navigator !== 'undefined' && navigator.getGamepads ? Array.from(navigator.getGamepads()).find(g => g && g.connected && g.mapping === 'standard') : null;
   if (!gp) {
-    if (pad.connected) { pad.connected = false; pad.held.clear(); pad.moveX = pad.moveY = pad.lookX = pad.lookY = 0; padBits = 0; input.buttons = mouseBits; }
+    if (pad.connected) { pad.connected = false; pad.held.clear(); pad.moveX = pad.moveY = pad.lookX = pad.lookY = pad.rx = pad.ry = 0; padBits = 0; input.buttons = mouseBits; }
+    pad.nav.clear();
     return false;
   }
   pad.connected = true;
@@ -117,6 +129,7 @@ export function pollPad(): boolean {
   const [lx, ly] = stick(gp.axes[2] ?? 0, gp.axes[3] ?? 0);
   // a gentle curve: fine aim near the centre, full turn rate at the rim
   pad.lookX = Math.sign(lx) * lx * lx; pad.lookY = Math.sign(ly) * ly * ly;
+  pad.rx = lx; pad.ry = ly;
   pad.held.clear();
   for (const [i, a] of PAD) { if (b(i)) pad.held.add(a); if (edge(i)) pad.hit.add(a); }
   padBits = (b(7) ? 1 : 0) | (b(6) ? 4 : 0);
@@ -126,6 +139,18 @@ export function pollPad(): boolean {
   if (edge(5) || edge(15)) input.wheel += 1;
   input.buttons = mouseBits | padBits;
   const start = edge(9);
+  // menus: a direction fires once, then repeats while it is held; A, B and Start on the press
+  pad.nav.clear();
+  const sx = gp.axes[0] ?? 0, sy = gp.axes[1] ?? 0;
+  const dir = b(12) || sy < -0.6 ? 'up' : b(13) || sy > 0.6 ? 'down' : b(14) || sx < -0.6 ? 'left' : b(15) || sx > 0.6 ? 'right' : '';
+  const t = performance.now();
+  if (dir && dir !== navDir) { pad.nav.add(dir as 'up'); navNext = t + NAV_DELAY; }
+  else if (dir && t >= navNext) { pad.nav.add(dir as 'up'); navNext = t + NAV_REPEAT; }
+  navDir = dir;
+  if (edge(0)) pad.nav.add('ok');
+  if (edge(1)) pad.nav.add('back');
+  if (start) pad.nav.add('start');
+  if (gp.buttons.some(x => x.pressed) || mx || my || lx || ly) pad.usedAt = t;
   padPrev = gp.buttons.map(x => x.pressed);
   return start;
 }
@@ -196,6 +221,7 @@ export function initInput(el: HTMLElement, onLockChange: (locked: boolean) => vo
   // bubble phase: an open overlay (the spawn palette's search box) stops keys before they get here
   addEventListener('keydown', e => {
     if (e.repeat) return;
+    kbmAt = performance.now();
     input.down.add(e.code);
     input.pressed.add(e.code);
     // Alt would pull focus to the browser menu, Tab/Space/arrows scroll or move focus
@@ -204,6 +230,7 @@ export function initInput(el: HTMLElement, onLockChange: (locked: boolean) => vo
   addEventListener('keyup', e => { input.down.delete(e.code); if (input.locked && e.code.startsWith('Alt')) e.preventDefault(); });
   addEventListener('blur', () => { input.down.clear(); mouseBits = 0; input.buttons = padBits; });
   addEventListener('mousedown', e => {
+    kbmAt = performance.now();
     if (!input.locked) return;
     mouseBits |= 1 << e.button;
     input.buttons |= 1 << e.button;
@@ -211,6 +238,7 @@ export function initInput(el: HTMLElement, onLockChange: (locked: boolean) => vo
   });
   addEventListener('mouseup', e => { mouseBits &= ~(1 << e.button); input.buttons = mouseBits | padBits; });
   addEventListener('mousemove', e => {
+    if (Math.abs(e.movementX) + Math.abs(e.movementY) > 2) kbmAt = performance.now();
     if (!input.locked) return;
     input.mouseDX += e.movementX;
     input.mouseDY += e.movementY;
