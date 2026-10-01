@@ -27,6 +27,19 @@ export const lighting = {
   version: 0,
 };
 
+/** Queue [start, start + count) of an attribute for upload. three uploads (and clears) the ranges only when the mesh is
+    next drawn, so a frame that is stepped but not drawn (a hidden tab, a capture preroll) must widen what is still
+    pending rather than replace it, or what it wrote never reaches the GPU. */
+export function pendRange(at: THREE.BufferAttribute, start: number, count: number): void {
+  const r = at.updateRanges[0];
+  if (r) {
+    const end = Math.max(r.start + r.count, start + count);
+    r.start = Math.min(r.start, start);
+    r.count = end - r.start;
+  } else at.addUpdateRange(start, count);
+  at.needsUpdate = true;
+}
+
 /** drawing-buffer size in device pixels, and the active quality tier */
 export const view = { width: 1, height: 1, quality: 'medium' as Quality };
 

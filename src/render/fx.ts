@@ -7,7 +7,7 @@ import { random } from 'math/random';
 import type { Vec3, MaterialId, WeaponId } from '../types';
 import { makeRng, scorchTex, smokeAtlas } from './textures';
 import { animateMaterials } from './materials';
-import { CLOUDS, COVER_EXTENT, COVER_N, DV_ATMOS_GLSL, DV_CLOUD_GLSL, FX_LAYER, FX_SOFT_LAYER, atmosU, comfort, coverage, dustU, flashAtCamera, lighting, softU, view } from './shared';
+import { CLOUDS, COVER_EXTENT, COVER_N, DV_ATMOS_GLSL, DV_CLOUD_GLSL, FX_LAYER, FX_SOFT_LAYER, atmosU, comfort, coverage, dustU, flashAtCamera, lighting, pendRange, softU, view } from './shared';
 import { lampPool } from './lights';
 import { floodlights } from './scenery';
 
@@ -390,11 +390,7 @@ class Ring {
   }
   flush(): void {
     if (this.hi <= this.lo) return;
-    for (const at of this.attrs) {
-      at.clearUpdateRanges();
-      at.addUpdateRange(this.lo * 4, (this.hi - this.lo) * 4);
-      at.needsUpdate = true;
-    }
+    for (const at of this.attrs) pendRange(at, this.lo * 4, (this.hi - this.lo) * 4);
     this.lo = this.cap;
     this.hi = 0;
   }
@@ -522,15 +518,11 @@ class Chips {
     const im = this.mesh.instanceMatrix;
     this.mesh.count = this.n;
     if (this.n > 0) {
-      im.clearUpdateRanges();
-      im.addUpdateRange(0, this.n * 16);
-      im.needsUpdate = true;
+      pendRange(im, 0, this.n * 16);
     }
     if (this.colorDirty && this.n > 0 && this.mesh.instanceColor) {
       const ic = this.mesh.instanceColor;
-      ic.clearUpdateRanges();
-      ic.addUpdateRange(0, this.n * 3);
-      ic.needsUpdate = true;
+      pendRange(ic, 0, this.n * 3);
     }
     this.colorDirty = false;
   }

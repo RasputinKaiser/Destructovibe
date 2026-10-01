@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import type { Vec3 } from '../types';
 import { texSet } from './textures';
+import { pendRange } from './shared';
 
 const CABLES = 40, SEG = 12, RADIUS = 0.022;
 const WIRE = new THREE.Color(0x33373b);
@@ -121,9 +122,7 @@ export const cables = {
     mesh.count = hi * SEG;
     if (dirtyHi <= dirtyLo) return;
     const im = mesh.instanceMatrix;
-    im.clearUpdateRanges();
-    im.addUpdateRange(dirtyLo * 16, (dirtyHi - dirtyLo) * 16);
-    im.needsUpdate = true;
+    pendRange(im, dirtyLo * 16, (dirtyHi - dirtyLo) * 16);
     dirtyLo = CABLES * SEG;
     dirtyHi = 0;
   },
