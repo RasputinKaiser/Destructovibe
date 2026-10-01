@@ -409,8 +409,6 @@ export type ScreenId = 'loading' | 'title' | 'contracts' | 'briefing' | 'pause' 
 export interface WeaponView {
   id: WeaponId;
   name: string;
-  /** hotkey label, e.g. "1" */
-  key: string;
   /** -1 = unlimited */
   ammo: number;
   available: boolean;
@@ -428,8 +426,10 @@ export interface HudState {
   par: number | null;
   weapon: WeaponId;
   weapons: WeaponView[];
-  /** which six-slot page of the tool list the number keys address (Q cycles) */
-  bank: number;
+  /** the tools on the number keys 1–6 (null: an empty slot) */
+  slots: (WeaponId | null)[];
+  /** the tool wheel has not been found yet: its hotbar chip asks to be tried */
+  wheelNew?: boolean;
   /** free-play: 1 = real time */
   timeScale: number;
   chargesPlaced: number;
@@ -521,6 +521,16 @@ export interface Settings {
   impacts: 'off' | 'stumble' | 'real';
   /** key chosen per action (input.ts Action → KeyboardEvent.code); unset actions keep their default */
   keys: Record<string, string>;
+  /** interface text size, 1 = as designed (0.8..1.5) */
+  uiScale: number;
+  /** state colours that do not rely on red against green (blue for good, orange for bad) */
+  colorblind: boolean;
+  /** dims blast and arc flashes, the blast vignette and the damage flash */
+  reduceFlash: boolean;
+  /** stills the HUD's own motion (bumps, slides, pulses) whatever the system setting */
+  reduceMotion: boolean;
+  /** the tool's controls under its readout: for the first few uses of each tool, always, or never */
+  prompts: 'new' | 'always' | 'off';
 }
 
 export interface UiHandlers {

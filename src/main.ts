@@ -12,10 +12,11 @@ import {
   setJointStrength, setWind, setFireSpread, setDebrisLimit, startQuake, clearDebris, extinguish, setFrozen, quakeActive,
   spawnPieces, removeConnected, pieceOf, setServiceViewer, setDetailQuality, kinetic,
 } from './destruction/structure';
-import { initXray } from './render/xray';
+import { initXray, setXrayPalette } from './render/xray';
 import { lightningStrike, setStorm, stormOn } from './destruction/electrical';
 import { initGhost, ghost } from './render/ghost';
-import { initAim, aim as marks } from './render/aim';
+import { initAim, aim as marks, setAimPalette } from './render/aim';
+import { comfort } from './render/shared';
 import { replay } from './render/replay';
 import { tags } from './render/tags';
 import { hitstop, simScale, toggleBulletTime, bulletTime, resetTime } from './game/timefx';
@@ -23,7 +24,7 @@ import { initGuards, setGuards, guardAt, flagGuard, updateGuards, type Guarded }
 import { initCables, cables } from './render/cables';
 import { initLampLights, lampLights, updateLampLights } from './render/lights';
 import { initWater, updateWater, clearWaterMeshes } from './render/water';
-import { updateUtilityFx } from './render/utilityfx';
+import { updateUtilityFx, setLampPalette } from './render/utilityfx';
 import { initTerrainGfx, updateTerrainGfx } from './render/terrain';
 import { terrainStep } from './terrain/terrain';
 import { stand } from './levels/maps/ground';
@@ -33,9 +34,9 @@ import {
   knockback, eyePosition, forward, respawn, teleport as teleportPlayer, setPlayerEnabled, vfov, padLook,
 } from './game/player';
 import {
-  initWeapons, setLoadout, select, cycle, tryFire, detonate, weaponsPreStep, weaponsAfterStep, syncProjectiles,
+  initWeapons, setLoadout, select, tryFire, detonate, weaponsPreStep, weaponsAfterStep, syncProjectiles,
   clearWeapons, weaponViews, chargesPlaced, liveOrdnance, rangedAmmoLeft, onProjectileHit, loadout, WEAPONS,
-  setWeaponHooks, weaponName, BANK_COUNT, releaseFire, toolWheel, toolSecondary, toolReadout, timelineView, weaponsDebug,
+  setWeaponHooks, weaponName, releaseFire, toolWheel, toolSecondary, toolReadout, timelineView, weaponsDebug,
   devices, setDelay, fired,
 } from './game/weapons';
 import * as rigLines from './game/tools/lines';
@@ -45,7 +46,8 @@ import * as scoring from './game/scoring';
 import { driving, vehicleNear, enterVehicle, exitVehicle, driveControls, driveLook, driveCamera, driveHud } from './vehicles/drive';
 import { operating, machineNear, enterMachine, exitMachine, operateControls, operateLook, operateCamera, operateHud, vehicleGear, releaseVehicleGear } from './vehicles/operate';
 import { svcInfo, svcNearestGate, svcOperate, serviceStrikes } from './destruction/services';
-import { input, initInput, requestLock, releaseLock, endFrame, hit as tapped, pollPad, canonical, setBindings, keyLabel } from './core/input';
+import { input, initInput, requestLock, releaseLock, endFrame, hit as tapped, held, consume, pollPad, pad, usingPad, canonical, setBindings, keyName as keyLabel } from './core/input';
+import { fans, quickSlots, pin, wheelStart, wheelAt, wheelStep, type Wheel } from './game/toolsel';
 import { loadSave, writeSave, WORLD_DEFAULTS, type SaveData } from './core/save';
 import {
   initRenderer, setQuality, setEnvironment, setShadowFocus, renderFrame, setRenderScale, setPostFx, onDetailTier, renderStats, type Gfx,
@@ -146,6 +148,7 @@ async function loadLevel(c: Contract, label: string, backdrop = false): Promise<
   dmg.clear();
   toastAt = -1e9;
   setLoadout(c.ammo, c.primary);
+  refreshTools();
   replay.reset();
   resetTime();
   active = c;
@@ -217,7 +220,6 @@ async function startContract(i: number): Promise<void> {
 }
 
 let freeSite: Contract = SANDBOX;
-let bank = 0;
 const sandbox: SandboxSettings = { ...WORLD_DEFAULTS };
 
 function applyWorld(s: SandboxSettings): void {
@@ -365,13 +367,15 @@ function beginPlay(title: string): void {
   ui.showHud(true);
   ui.setHudTitle(title);
   ui.resetHud();
+  ui.toolChanged(loadout.current, promptFor(loadout.current));
   viewmodel.setVisible(true);
   viewmodel.setWeapon(loadout.current);
   audio.setPaused(false);
   if (!input.locked) requestLock();
-  ui.setPointerHint(!input.locked);
+  ui.setPointerHint(!input.locked && !usingPad());
   clockOn = mode === 'sandbox';
-  flashHint(mode === 'sandbox' ? `${keyLabel('fly')} — fly · ${keyLabel('restart')} — rebuild site` : `Target ${Math.round(active.target * 100)}% · the clock starts when you move or fire · Enter calls it early`, 6);
+  const wheelTip = (save.seen.wheel ?? 0) < 2 && toolFans.filter(f => f.length).length > 1 ? ` · hold ${keyLabel('bank')} for every tool` : '';
+  flashHint(mode === 'sandbox' ? `${keyLabel('fly')} — fly · ${keyLabel('restart')} — rebuild site${wheelTip}` : `Target ${Math.round(active.target * 100)}% · the clock starts when you move or fire · ${usingPad() ? 'Start → Sign off' : 'Enter'} calls it early${wheelTip}`, 6);
   ui.toast(title.toUpperCase(), 'info', 1800);
 }
 
@@ -387,13 +391,19 @@ function restart(): void {
 
 function pause(): void {
   if (state !== 'playing') return;
+  closeWheel();
+  wheelDown = -1;
   state = 'paused';
+  ui.setSignOff(mode === 'campaign', mode === 'campaign' && scoring.goalMet(active.target));
   audio.setPaused(true);
   ui.showScreen('pause');
 }
 
+/* the Esc that resumed (the UI acts on its keydown) must not pause again on the frame that follows */
+let escGuard = false;
 function resume(): void {
   if (state !== 'paused') return;
+  escGuard = true;
   state = 'playing';
   ui.showScreen(null);
   audio.setPaused(false);
@@ -781,6 +791,130 @@ function aimService(): void {
   if (info) svcHint = `${info.title} · ${info.detail}${info.action ? ` · ${keyLabel('use')} — ${info.action}` : ''}`;
 }
 
+/* ---------------- tool selection ----------------
+   1–6 take the quick slots. The wheel key (Q, D-pad up) held opens the tool wheel: the mouse or the right stick points
+   at a category and then along its fan of tools, the wheel or bumpers step through the category, 1–6 pin the tool
+   under the pointer to that slot, and letting go (or a click, or A) takes it; RMB, B or Esc put it away. A tap of the
+   key swaps back to the last tool. */
+let slots: (WeaponId | null)[] = [];
+let toolFans: WeaponId[][] = [];
+let wheel: Wheel | null = null;
+/** when the wheel key went down (performance.now ms); -1 up, -2 down but already spent (a click took the pick) */
+let wheelDown = -1;
+let heldTool: WeaponId = 'hammer', lastTool: WeaponId | null = null;
+/* the wheel opens on time held alone (aiming while tapping must not open it), and a tap is anything shorter */
+const WHEEL_HOLD = 200, WHEEL_PX = 240;
+/** tools whose control prompt has been counted this session: scrolling past a tool again does not use up its prompts */
+const promptedNow = new Set<WeaponId>();
+
+/* a tool's control prompt comes up the first few times it is taken out (Settings: always, or never) */
+const PROMPT_USES = 3;
+function promptFor(id: WeaponId): boolean {
+  if (save.settings.prompts === 'off') return false;
+  if (save.settings.prompts === 'always') return true;
+  const n = save.seen[id] ?? 0;
+  if (promptedNow.has(id)) return n <= PROMPT_USES;
+  if (n >= PROMPT_USES) return false;
+  promptedNow.add(id);
+  save.seen[id] = n + 1;
+  writeSave(save);
+  return true;
+}
+
+let jobPins: (WeaponId | null)[] | null = null;
+function refreshTools(): void {
+  jobPins = null;
+  slots = quickSlots(WEAPONS, loadout.ammo, save.pins);
+  toolFans = fans(WEAPONS, loadout.ammo);
+  heldTool = loadout.current;
+  lastTool = null;
+  closeWheel();
+}
+
+function takeTool(id: WeaponId | null): void {
+  if (!id || loadout.ammo[id] === undefined) { audio.ui('deny'); return; }
+  if (id === loadout.current) return;
+  select(id);
+  cancelSpawn();
+  audio.ui('click');
+}
+
+const pinnable = (): boolean => toolFans.reduce((n, f) => n + f.length, 0) > slots.length;
+
+function showWheel(): void {
+  if (!wheel) return;
+  ui.setWheel({ fans: toolFans, slots, wheel, current: loadout.current, ammo: loadout.ammo, pad: usingPad(), pins: pinnable() });
+}
+
+/* the mouse wheel (and the pad's bumpers) on a tool with no setting of its own steps through the quick slots */
+function cycleSlots(dir: number): void {
+  const on = slots.filter((id): id is WeaponId => !!id);
+  if (!on.length) return;
+  const i = on.indexOf(loadout.current);
+  takeTool(i < 0 ? on[dir > 0 ? 0 : on.length - 1] : on[(i + dir + on.length) % on.length]);
+}
+
+function closeWheel(): void {
+  if (!wheel) return;
+  wheel = null;
+  ui.setWheel(null);
+}
+
+/** Returns true while the wheel has the mouse (no looking round or firing). */
+function handleTools(busy: boolean): boolean {
+  if (loadout.current !== heldTool) { lastTool = heldTool; heldTool = loadout.current; ui.toolChanged(heldTool, promptFor(heldTool)); }
+  const now = performance.now();
+  if (tapped('bank')) wheelDown = now;
+  const down = held('bank');
+  if (wheelDown !== -1 && !down) {
+    if (wheel) { const t = wheel.tool; closeWheel(); takeTool(t); }
+    else if (wheelDown >= 0 && now - wheelDown <= WHEEL_HOLD && lastTool) takeTool(lastTool);
+    wheelDown = -1;
+  }
+  if (!wheel && wheelDown >= 0 && down && !busy) {
+    if (now - wheelDown > WHEEL_HOLD) {
+      wheel = wheelStart(loadout.current, toolFans);
+      save.seen.wheel = (save.seen.wheel ?? 0) + 1;
+      writeSave(save);
+      audio.ui('click');
+      showWheel();
+    }
+  }
+  if (!wheel) {
+    for (let k = 1; k <= 6; k++) if (input.pressed.has(`Digit${k}`)) takeTool(slots[k - 1] ?? null);
+    if (pad.slot && !busy) cycleSlots(Math.sign(pad.slot));
+    return false;
+  }
+  if (pad.slot) wheelStep(wheel, Math.sign(pad.slot), toolFans);
+  const was = `${wheel.cat}|${wheel.tool}|${wheel.lock}`;
+  if (pad.connected && Math.hypot(pad.rx, pad.ry) > 0.3) wheelAt(wheel, pad.rx, pad.ry, toolFans);
+  else if (input.mouseDX || input.mouseDY) wheelAt(wheel, wheel.x + input.mouseDX / WHEEL_PX, wheel.y + input.mouseDY / WHEEL_PX, toolFans);
+  if (input.wheel) wheelStep(wheel, input.wheel > 0 ? 1 : -1, toolFans);
+  if (pad.bump) wheelStep(wheel, Math.sign(pad.bump), toolFans);
+  // pins only mean something where the slots are the player's to arrange (more tools issued than slots)
+  for (let k = 1; k <= 6; k++) {
+    if (!input.pressed.has(`Digit${k}`) || !wheel.tool || !pinnable()) continue;
+    // free play keeps the player's pins; a contract's arrangement lasts the job (it would scramble free play's)
+    if (mode === 'sandbox') { save.pins = pin(save.pins, k - 1, wheel.tool); writeSave(save); }
+    else jobPins = pin(jobPins ?? save.pins, k - 1, wheel.tool);
+    slots = quickSlots(WEAPONS, loadout.ammo, mode === 'sandbox' ? save.pins : jobPins ?? save.pins);
+    audio.ui('click');
+  }
+  if ((input.clicked & 1) || pad.hit.has('jump')) {
+    consume('jump');
+    const t = wheel.tool;
+    closeWheel();
+    takeTool(t);
+    wheelDown = -2;
+  } else if ((input.clicked & 4) || pad.hit.has('crouch') || input.pressed.has('Escape')) {
+    consume('crouch');
+    closeWheel();
+    audio.ui('click');
+    wheelDown = -2;
+  } else if (was !== `${wheel.cat}|${wheel.tool}|${wheel.lock}` || input.pressed.size || input.mouseDX || input.mouseDY) showWheel();
+  return true;
+}
+
 let fireHeld = false;
 
 /* V: freeze the world and watch the last ~12 s back from any angle; V again (or a level change) puts it all back. */
@@ -806,28 +940,38 @@ function endReplay(): void {
 let devHold = false;
 
 function handleInput(): void {
-  // Start on a pad pauses, like Esc (the lock goes and the pause menu comes up)
-  if (pollPad()) { releaseLock(); return; }
+  // Start on a pad pauses, like Esc; so does Esc when the mouse was never captured (a pad player, a blocked lock)
+  if (escGuard) { input.pressed.delete('Escape'); escGuard = false; }
+  if (pollPad() || (input.pressed.has('Escape') && !input.locked && !wheel)) { closeWheel(); pause(); releaseLock(); return; }
+  if (pad.connected && usingPad()) ui.setPointerHint(false);
   if (!clockOn && (input.pressed.size || input.clicked || input.buttons)) startClock();
-  if (handleDriving()) return;
-  if (input.mouseDX || input.mouseDY) applyLook(input.mouseDX, input.mouseDY);
-  padLook(frameDt);
+  if (handleDriving()) { closeWheel(); return; }
   // hands busy: climbing, lying on the ground, blacked out
   const busy = player.mantle >= 0 || player.downed > 0 || player.black > 0.3;
-  if (tapped('bank')) { bank = (bank + 1) % BANK_COUNT; audio.ui('click'); }
-  for (let k = 1; k <= 6; k++) {
-    if (!input.pressed.has(`Digit${k}`)) continue;
-    const w = WEAPONS.find(x => x.bank === bank && x.key === String(k));
-    if (w) { select(w.id); cancelSpawn(); }
+  const wheelOpen = handleTools(busy);
+  if (!wheelOpen) {
+    if (input.mouseDX || input.mouseDY) applyLook(input.mouseDX, input.mouseDY);
+    padLook(frameDt);
   }
-  if (!updatePlacement()) {
+  if (wheelOpen) {
+    if (fireHeld) { releaseFire(); fireHeld = false; }
+  } else if (!updatePlacement()) {
     // the wheel sets the tool's own parameter where it has one (scroll up = more), else cycles tools
-    if (input.wheel && !toolWheel(input.wheel > 0 ? -1 : 1)) cycle(input.wheel > 0 ? 1 : -1);
+    if (input.wheel) {
+      ui.toolPoke();
+      if (!toolWheel(input.wheel > 0 ? -1 : 1)) cycleSlots(input.wheel > 0 ? 1 : -1);
+    }
+    // the pad's bumpers: RB raises the setting or takes the next slot, LB the other way
+    if (pad.bump) {
+      ui.toolPoke();
+      if (!toolWheel(Math.sign(pad.bump))) cycleSlots(Math.sign(pad.bump));
+    }
     const lmb = (input.buttons & 1) !== 0 || devHold;
-    if (lmb && !busy) tryFire();
+    if (lmb && !busy) { tryFire(); ui.toolPoke(); }
     else if (fireHeld) releaseFire();
     fireHeld = lmb;
     const rmb = (input.clicked & 4) !== 0 && !toolSecondary();
+    if (input.clicked & 4) ui.toolPoke();
     if (rmb || tapped('detonate')) {
       if (detonate()) flashHint('Detonating', 1);
       else if (loadout.current === 'charge' || loadout.current === 'planner') flashHint('No charges placed', 1.5);
@@ -940,17 +1084,11 @@ const _camDir = new THREE.Vector3();
 const _ce: Vec3 = [0, 0, 0], _cl: Vec3 = [0, 0, 0];
 const hud: HudState = {
   demolition: 0, target: null, score: 0, combo: 1, comboTime: 0, time: 0, par: null, weapon: 'hammer',
-  weapons: [], bank: 0, timeScale: 1, chargesPlaced: 0, penalty: 0, hint: null, fps: 60, tool: null, timeline: null,
+  weapons: [], slots: [], timeScale: 1, chargesPlaced: 0, penalty: 0, hint: null, fps: 60, tool: null, timeline: null,
 };
 
 let nearVehicle = false, nearMachine = false, nearT = 0;
-let bankFor: WeaponId | null = null;
 function updateHudState(): void {
-  // whatever changed the tool (wheel, a new loadout), the number keys must address the bank it sits in
-  if (loadout.current !== bankFor) {
-    bankFor = loadout.current;
-    bank = WEAPONS.find(w => w.id === bankFor)?.bank ?? bank;
-  }
   if (++nearT % 10 === 0) {
     eyePosition(_eye, 1);
     const free = !driving.vehicle && !operating.machine;
@@ -969,7 +1107,8 @@ function updateHudState(): void {
   hud.par = mode === 'campaign' ? active.par : null;
   hud.weapon = loadout.current;
   hud.weapons = weaponViews();
-  hud.bank = bank;
+  hud.slots = slots;
+  hud.wheelNew = (save.seen.wheel ?? 0) < 2 && toolFans.filter(f => f.length).length > 1;
   hud.timeScale = (mode === 'sandbox' ? sandbox.timeScale : 1) * (bulletTime() ? 0.3 : 1);
   hud.chargesPlaced = chargesPlaced();
   hud.penalty = scoring.score.penalty;
@@ -981,10 +1120,11 @@ function updateHudState(): void {
     : nearVehicle ? `${keyLabel('interact')} — drive`
     : nearMachine ? `${keyLabel('interact')} — operate`
     : svcHint ? svcHint
-    : xrayMode() === 'stress' ? 'X-RAY · joints: green idle · yellow loaded · red at capacity · magenta yielding · X to cycle'
-    : xrayMode() === 'thermal' ? 'X-RAY · thermal: blue ambient → purple → orange 500 °C → white 1000 °C · X to cycle'
-    : xrayMode() === 'fields' ? 'X-RAY · fields: temperature, smoke and fuel gas around the action · X to cycle'
+    : xrayMode() === 'stress' ? (save.settings.colorblind ? `X-RAY · joints: blue idle · teal loaded · yellow at capacity · white past it · magenta yielding · ${keyLabel('xray')} to cycle` : `X-RAY · joints: green idle · yellow loaded · red at capacity · magenta yielding · ${keyLabel('xray')} to cycle`)
+    : xrayMode() === 'thermal' ? `X-RAY · thermal: blue ambient → purple → orange 500 °C → white 1000 °C · ${keyLabel('xray')} to cycle`
+    : xrayMode() === 'fields' ? `X-RAY · fields: temperature, smoke and fuel gas around the action · ${keyLabel('xray')} to cycle`
     : xrayMode() === 'services' ? 'X-RAY · services: yellow power · orange gas · blue water · white steam · grey dead · beads run from supply to load · green ring isolated (flashing amber: tripped) · amber standby set · white on battery · pulsing = live break · green = running machine'
+      + (save.settings.colorblind ? ' · device lamps: blue isolated, vermillion live, flashing yellow tripped' : '')
     : hud.chargesPlaced > 0 ? `${hud.chargesPlaced} charge${hud.chargesPlaced > 1 ? 's' : ''} armed — ${keyLabel('detonate')}${loadout.current === 'charge' || loadout.current === 'cutter' || loadout.current === 'planner' ? ' / right-click' : ''} to detonate` : null;
   hud.fps = Math.round(fpsAvg);
   hud.tool = driving.vehicle || operating.machine ? null : toolReadout();
@@ -1069,6 +1209,8 @@ function frame(dt: number): void {
     cam.lookAt(0, 5, 0);
   }
 
+  // menus and pause answer a pad too (in play, handleInput polls it)
+  if (state !== 'playing' && state !== 'loading') { pollPad(); if (pad.nav.size) ui.padNav(pad.nav); if (pad.connected) ui.padScroll(pad.ry); }
   const inPlay = state === 'playing' || state === 'paused';
   audio.quake(inPlay && quakeActive() ? 1 : 0);
   audio.wind(inPlay && mode === 'sandbox' ? sandbox.wind : 0);
@@ -1128,6 +1270,10 @@ function applyControls(s: Settings): void {
 }
 
 function applyDisplay(s: Settings): void {
+  comfort.flash = s.reduceFlash ? 0.3 : 1;
+  setAimPalette(s.colorblind);
+  setLampPalette(s.colorblind, s.reduceFlash);
+  setXrayPalette(s.colorblind);
   setRenderScale(s.renderScale);
   setPostFx({ grain: s.grain, aberration: s.aberration });
   player.shake = s.shake ? 1 : 0;
@@ -1173,13 +1319,19 @@ async function boot(): Promise<void> {
     onStartContract: () => void startContract(contractIdx),
     onBack: () => {
       if (state === 'contracts') void showTitle();
-      else if (state === 'briefing') showContracts();
+      else if (state === 'briefing' || state === 'results') showContracts();
       else if (state === 'settings') {
         state = settingsReturn;
         ui.showScreen(settingsReturn === 'paused' ? 'pause' : 'title');
       }
     },
     onResume: () => resume(),
+    onSignOff: () => {
+      if (state !== 'paused' || mode !== 'campaign') return;
+      state = 'playing';
+      audio.setPaused(false);
+      finish(scoring.goalMet(active.target));
+    },
     onRestart: () => restart(),
     onQuit: () => void showTitle(),
     onNext: () => { if (lastWon && contractIdx < CONTRACTS.length - 1) showBriefing(contractIdx + 1); },
@@ -1202,6 +1354,7 @@ async function boot(): Promise<void> {
   }, save.settings);
   ui.showScreen('loading');
   ui.setLoading(0.05, 'Starting renderer');
+  ui.setToolNames(WEAPONS);
 
   gfx = initRenderer(ui.getViewport(), save.settings.quality);
   onDetailTier(q => setDetailQuality(q));
@@ -1231,10 +1384,11 @@ async function boot(): Promise<void> {
   initWeapons(gfx.scene);
   initInput(gfx.renderer.domElement, locked => {
     if (ui.overlayOpen()) return;
-    ui.setPointerHint(state === 'playing' && !locked);
+    ui.setPointerHint(state === 'playing' && !locked && !usingPad());
     if (!locked && state === 'playing') pause();
   }, () => {
-    if (state === 'playing' && !ui.overlayOpen()) ui.setPointerHint(true);
+    // a pad player needs no mouse: the card stands down for them
+    if (state === 'playing' && !ui.overlayOpen() && !usingPad()) ui.setPointerHint(true);
   });
   gfx.renderer.domElement.addEventListener('click', () => { if (state === 'playing' && !input.locked) requestLock(); });
   wire();
@@ -1261,6 +1415,19 @@ if (import.meta.env.DEV) window.__dv = {
   select: (id: WeaponId) => { startClock(); select(id); },
   detonate: () => detonate(),
   setPlaying: () => { if (state === 'paused') { state = 'playing'; ui.showScreen(null); } },
+  pause: () => { pause(); return state; },
+  /** tool wheel playtests: open it, point (wheel units, y down), take what it is on */
+  toolWheel: {
+    open: () => { wheel = wheelStart(loadout.current, toolFans); showWheel(); return { ...wheel }; },
+    point: (x: number, y: number) => { if (wheel) { wheelAt(wheel, x, y, toolFans); showWheel(); } return wheel && { ...wheel }; },
+    step: (d: number) => { if (wheel) { wheelStep(wheel, d, toolFans); showWheel(); } return wheel && { ...wheel }; },
+    take: () => { const t = wheel?.tool ?? null; closeWheel(); takeTool(t); return loadout.current; },
+    close: () => closeWheel(),
+  },
+  get slots() { return [...slots]; },
+  layout: () => ui.layoutReport(),
+  /** menu playtests: what a pad's D-pad / A / B / Start would do this frame */
+  padNav: (...cmds: string[]) => { ui.padNav(new Set(cmds)); return (document.activeElement as HTMLElement | null)?.textContent?.trim().slice(0, 40) ?? null; },
   get perf() { return { phys: +perf.phys.toFixed(2), render: +perf.render.toFixed(2), fx: +perf.fx.toFixed(2), sync: +perf.sync.toFixed(2), rec: +perf.rec.toFixed(3), calls: gfx.renderer.info.render.calls, tris: gfx.renderer.info.render.triangles, ...renderStats() }; },
   spawnPrefab: (id: string, x: number, z: number, quarter = 0) => {
     const prefab = PREFABS.find(p => p.id === id);

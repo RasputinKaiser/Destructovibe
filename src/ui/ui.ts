@@ -6,8 +6,10 @@ import { clamp } from 'math';
 import { easing, spring } from 'math/time';
 import { audio } from '../audio/audio';
 import { DEFAULT_SETTINGS, WORLD_DEFAULTS } from '../core/save';
-import { ACTIONS, RESERVED, captureKey, codeLabel, bindingOf, type Action as KeyAction } from '../core/input';
+import { ACTIONS, RESERVED, captureKey, codeLabel, bindingOf, usingPad, PAD_LABEL, type Action as KeyAction } from '../core/input';
 import { WEAPON_ICON, STAR, LOCK, MOUSE, WARN, SEARCH } from './icons';
+import { CATS, DEAD, LOCK as LOCK_R, TOOL_R, SECTOR, fanAngle, type Wheel } from '../game/toolsel';
+import { TOOL_HELP, type Btn } from './toolhelp';
 
 /* ---------------- static copy ---------------- */
 
@@ -30,17 +32,35 @@ const controls = (): KeyRow[] => [
   ['LMB', 'Fire / use tool (hold the sledge to wind up)'],
   ['RMB', 'Tool’s second action, else detonate'],
   [K('detonate'), 'Detonate charges / fire the sequence'],
-  ['1–6', 'Select tool'],
+  ['1–6', 'Quick slots'],
+  [`${K('bank')} (hold)`, 'Tool wheel: point at a category, then along its tools; release to take · 1–6 pins the tool to that slot'],
+  [`${K('bank')} (tap)`, 'Back to the last tool'],
   ['Wheel', 'Tool setting (charge size, delay, boom, blocks…), else next tool'],
   ['Shift + Wheel', 'Detonator panel: delay in 250 ms steps'],
-  [K('bank'), 'Switch tool bank (I–VI)'],
   [K('xray'), 'Engineer’s x-ray (stress / thermal / services / fields)'],
   [K('bullet'), 'Bullet time (the world at 0.3×)'],
   [K('replay'), 'Replay the last 12 s: mouse orbit, wheel zoom, WASD/QE move, Space pause, 1–3 speed, ←/→ scrub, V exit'],
   ['Enter', 'Call the job early'],
   [K('restart'), 'Restart'],
   ['Esc', 'Pause · every key can be changed in Settings'],
-  ['Gamepad', 'Sticks move/look · A jump · B crouch · X drive · Y detonate · RT/LT fire/second · LB/RB tool · L3 sprint · R3 zoom · Start pause'],
+  ['Gamepad', 'Sticks move/look · A jump · B crouch · X drive · Y detonate · RT/LT fire/second · LB/RB tool setting or next tool · D-pad ↑ hold: tool wheel (right stick points, A takes) · L3 sprint · R3 zoom · Start pause'],
+];
+
+/** the pause list while a pad is in use */
+const padControls = (): KeyRow[] => [
+  ['L stick · R stick', 'Move · look'],
+  ['A', 'Jump · climb what is in front'],
+  ['B', 'Crouch'],
+  ['L3 · R3', 'Sprint · zoom (hold)'],
+  ['D-pad ↓', 'Careful: slow, quiet walk · with the stick, lean'],
+  ['RT · LT', 'Fire / use the tool · the tool’s second action, else detonate'],
+  ['Y', 'Detonate charges / fire the sequence'],
+  ['LB · RB', 'Tool setting (charge size, delay…), else the previous / next quick slot'],
+  ['D-pad ← →', 'Quick slots'],
+  ['D-pad ↑', 'Hold: tool wheel (right stick points, LB RB step, A takes, B cancels) · tap: last tool'],
+  ['X', 'Drive a vehicle / operate a machine / get out'],
+  [PAD_LABEL.xray ?? 'View', 'Engineer’s x-ray'],
+  ['Start', 'Pause · Sign off the job is in this menu'],
 ];
 
 const freeControls = (): KeyRow[] => [
@@ -51,19 +71,6 @@ const freeControls = (): KeyRow[] => [
   ['Wheel', 'Rotate spawn'],
   ['Backspace', 'Remove the structure you aim at'],
 ];
-
-const BANKS: readonly (readonly WeaponId[])[] = [
-  ['hammer', 'cannon', 'rocket', 'charge', 'airstrike', 'thermite'],
-  ['cutter', 'wrecker', 'winch', 'gravgun', 'incendiary', 'megabomb'],
-  ['grinder', 'saw', 'drill', 'shears', 'plasma', 'torch'],
-  ['planner', 'excavator', 'breaker', 'hose', 'splitter', 'wiresaw'],
-  ['grapple', 'tether', 'hoist'],
-  ['flamer', 'launcher', 'recoilless', 'thermobaric', 'buster', 'satchel'],
-];
-const BANK_TAG = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
-const BANK_OF = new Map<WeaponId, { bank: number; pos: number }>(
-  BANKS.flatMap((ids, bank) => ids.map((id, pos) => [id, { bank, pos }] as const)),
-);
 
 const TIME_SCALES = [1, 0.5, 0.25, 0.1] as const;
 const RENDER_SCALES: readonly (readonly [number, string])[] = [[0, 'Auto'], [1, '100%'], [0.85, '85%'], [0.7, '70%'], [0.5, '50%']];
@@ -108,12 +115,12 @@ const clockS = (sec: number) => {
 const clockT = (tenths: number) => `${pad2(Math.floor(tenths / 600))}:${pad2(Math.floor(tenths / 10) % 60)}.${tenths % 10}`;
 const esc = (s: string) => s.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const rmq = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
-const reduced = () => rmq?.matches === true;
+const reduced = () => rmq?.matches === true || S.reduceMotion;
 const stars = (n: number) =>
   `<span class="stars" role="img" aria-label="${n} of 3 stars">${[0, 1, 2].map(i => `<i class="${i < n ? 'on' : ''}">${STAR}</i>`).join('')}</span>`;
 const keyRows = (rows: readonly KeyRow[]) => rows.map(([k, d]) => `<dt><span class="kbd">${k}</span></dt><dd>${d}</dd>`).join('');
 const keys = (free: boolean) =>
-  `<dl class="keys">${keyRows(controls())}</dl>` +
+  `<dl class="keys">${keyRows(usingPad() ? padControls() : controls())}</dl>` +
   (free ? `<h3 class="label">Free play</h3><dl class="keys">${keyRows(freeControls())}</dl>` : '');
 const windLabel = (w: number) => (w < 0.05 ? 'Calm' : w < 0.3 ? 'Breeze' : w < 0.55 ? 'Gusty' : w < 0.8 ? 'Gale' : 'Storm');
 const btn = (act: string, label: string, cls = '', key = '') =>
@@ -170,12 +177,18 @@ const TEMPLATE = () => `
     <div class="xh__hit" data-r="hit"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
   </div>
   <div class="pops" data-r="pops"></div>
-  <div class="hud-bottom">
-    <div class="hud-tool" data-r="tool"><div class="hud-tool__t" data-r="toolT"></div><div class="hud-tool__bar"><i data-r="toolBar"></i></div><div class="hud-tool__d" data-r="toolD"></div><div class="hud-tool__lines" data-r="toolL"></div></div>
-    <div class="hud-seq" data-r="seq"><div class="hud-seq__track" data-r="seqTrack"></div><div class="hud-seq__scale" data-r="seqScale"></div></div>
-    <div class="hud-charges" data-r="charges"><i class="led"></i><b data-r="chargeN">0</b><span>Armed</span></div>
+  <div class="hud-bottom" data-r="bottom">
+    <div class="hud-dock" data-r="dock">
+      <div class="hud-charges" data-r="charges"><i class="led"></i><b data-r="chargeN">0</b><span>Armed</span></div>
+      <div class="hud-seq" data-r="seq"><div class="hud-seq__track" data-r="seqTrack"></div><div class="hud-seq__scale" data-r="seqScale"></div></div>
+      <div class="hud-tool" data-r="tool"><div class="hud-tool__t" data-r="toolT"></div><div class="hud-tool__bar"><i data-r="toolBar"></i></div><div class="hud-tool__lines" data-r="toolL"></div><div class="hud-tool__d" data-r="toolD"></div><div class="hud-tool__keys" data-r="toolK"></div></div>
+    </div>
     <div class="hud-hint" data-r="hint"></div>
-    <div class="weapons" data-r="weapons"></div>
+    <div class="hotbar" data-r="weapons"></div>
+  </div>
+  <div class="tw" data-r="wheel">
+    <div class="tw__dial" data-r="twDial"></div>
+    <div class="tw__keys" data-r="twKeys"></div>
   </div>
   <div class="hud-fps" data-r="fps"></div>
 </div>
@@ -300,6 +313,7 @@ const TEMPLATE = () => `
       <h2 class="h1">Paused</h2>
       <nav class="menu">
         ${btn('resume', 'Resume', 'btn--primary', 'Esc')}
+        ${btn('signoff', 'Sign off the job')}
         ${btn('restart', 'Restart')}
         ${btn('settings', 'Settings')}
         ${btn('quit', 'Quit to title', 'btn--danger')}
@@ -333,31 +347,43 @@ const TEMPLATE = () => `
       ${btn('back', 'Back', 'btn--ghost', 'Esc')}
     </header>
     <div class="set-list">
+      <h3 class="set-group">Sound &amp; picture</h3>
       <div class="set-row"><label for="dv-vol">Volume</label><input class="range" id="dv-vol" type="range" min="0" max="1" step="0.01" data-r="sVol"><output data-r="oVol"></output></div>
       <div class="set-row"><span class="set-name">Quality</span>
         <div class="seg" role="radiogroup" aria-label="Quality" data-r="sQual">
           ${(['low', 'medium', 'high'] as Quality[]).map(q => `<label><input type="radio" name="dv-quality" value="${q}"><span>${q}</span></label>`).join('')}
         </div><output></output></div>
       <div class="set-row"><span class="set-name">Render scale</span>
-        <div class="seg" role="radiogroup" aria-label="Render scale" data-r="sScale">
+        <div class="seg seg--5" role="radiogroup" aria-label="Render scale" data-r="sScale">
           ${RENDER_SCALES.map(([v, l]) => `<label title="${v ? `${l} of the quality's resolution` : 'Holds 60 fps by trading resolution, then brick detail distance'}"><input type="radio" name="dv-scale" value="${v}"><span>${l}</span></label>`).join('')}
         </div><output></output></div>
-      <div class="set-row"><label for="dv-sens">Mouse sensitivity</label><input class="range" id="dv-sens" type="range" min="0.2" max="3" step="0.05" data-r="sSens"><output data-r="oSens"></output></div>
       <div class="set-row"><label for="dv-fov">Field of view</label><input class="range" id="dv-fov" type="range" min="70" max="120" step="1" data-r="sFov"><output data-r="oFov"></output></div>
+      <div class="set-row"><label for="dv-grain">Film grain</label><input class="switch" id="dv-grain" type="checkbox" data-r="sGrain"><output data-r="oGrain"></output></div>
+      <div class="set-row"><label for="dv-ca">Chromatic aberration</label><input class="switch" id="dv-ca" type="checkbox" data-r="sCA"><output data-r="oCA"></output></div>
+      <h3 class="set-group">Controls</h3>
+      <div class="set-row"><label for="dv-sens">Mouse sensitivity</label><input class="range" id="dv-sens" type="range" min="0.2" max="3" step="0.05" data-r="sSens"><output data-r="oSens"></output></div>
       <div class="set-row"><label for="dv-inv">Invert Y</label><input class="switch" id="dv-inv" type="checkbox" data-r="sInv"><output data-r="oInv"></output></div>
-      <div class="set-row"><label for="dv-shake">Camera shake</label><input class="switch" id="dv-shake" type="checkbox" data-r="sShake"><output data-r="oShake"></output></div>
-      <div class="set-row"><label for="dv-bob">Head bob</label><input class="switch" id="dv-bob" type="checkbox" data-r="sBob"><output data-r="oBob"></output></div>
       <div class="set-row"><label for="dv-ctog">Toggle crouch</label><input class="switch" id="dv-ctog" type="checkbox" data-r="sCTog"><output data-r="oCTog"></output></div>
       <div class="set-row"><label for="dv-stog">Toggle sprint</label><input class="switch" id="dv-stog" type="checkbox" data-r="sSTog"><output data-r="oSTog"></output></div>
+      <div class="set-row"><span class="set-name" title="Each tool's buttons under its readout">Control prompts</span>
+        <div class="seg" role="radiogroup" aria-label="Control prompts" data-r="sPr">
+          ${PROMPTS.map(([v, l]) => `<label><input type="radio" name="dv-prompts" value="${v}"><span>${l}</span></label>`).join('')}
+        </div><output></output></div>
+      <h3 class="set-group">Comfort &amp; access</h3>
+      <div class="set-row"><label for="dv-ui">Interface size</label><input class="range" id="dv-ui" type="range" min="0.8" max="1.5" step="0.05" data-r="sUi"><output data-r="oUi"></output></div>
+      <div class="set-row"><label for="dv-cb" title="Good and bad shown in blue and orange, with marks, not green against red">Colour-blind palette</label><input class="switch" id="dv-cb" type="checkbox" data-r="sCb"><output data-r="oCb"></output></div>
+      <div class="set-row"><label for="dv-fl" title="Dims blast, arc and muzzle flashes, the blast vignette and the damage flash">Reduce flashing</label><input class="switch" id="dv-fl" type="checkbox" data-r="sFl"><output data-r="oFl"></output></div>
+      <div class="set-row"><label for="dv-rm" title="Stills the HUD's own bumps, slides and pulses (the system setting does too)">Reduce motion</label><input class="switch" id="dv-rm" type="checkbox" data-r="sRm"><output data-r="oRm"></output></div>
+      <div class="set-row"><label for="dv-shake">Camera shake</label><input class="switch" id="dv-shake" type="checkbox" data-r="sShake"><output data-r="oShake"></output></div>
+      <div class="set-row"><label for="dv-bob">Head bob</label><input class="switch" id="dv-bob" type="checkbox" data-r="sBob"><output data-r="oBob"></output></div>
       <div class="set-row"><span class="set-name" title="What falls and falling debris do to you">Impacts</span>
         <div class="seg" role="radiogroup" aria-label="Impacts" data-r="sImp">
           ${IMPACTS.map(([v, l, t]) => `<label title="${t}"><input type="radio" name="dv-impacts" value="${v}"><span>${l}</span></label>`).join('')}
         </div><output></output></div>
-      <div class="set-row"><label for="dv-grain">Film grain</label><input class="switch" id="dv-grain" type="checkbox" data-r="sGrain"><output data-r="oGrain"></output></div>
-      <div class="set-row"><label for="dv-ca">Chromatic aberration</label><input class="switch" id="dv-ca" type="checkbox" data-r="sCA"><output data-r="oCA"></output></div>
+      <h3 class="set-group">Free play</h3>
       <div class="set-row"><label for="dv-exp">Sandbox explosives</label><input class="switch" id="dv-exp" type="checkbox" data-r="sExp"><output data-r="oExp"></output></div>
     </div>
-    <div class="keymap-head"><div class="eyebrow">Controls</div><span class="keymap-note" data-r="keyNote">Click a key to change it · Esc cancels · a gamepad works once the mouse is captured</span>
+    <div class="keymap-head"><div class="eyebrow">Controls</div><span class="keymap-note" data-r="keyNote">Click a key to change it · Esc cancels · a gamepad works in menus and play (Start pauses)</span>
       <button type="button" class="btn btn--ghost btn--sm" data-r="keyReset"><span class="btn__l">Reset keys</span></button></div>
     <div class="keymap" data-r="keys">
       ${ACTIONS.map(a => `<div class="key-row"><span class="key-name">${a.label}</span><button type="button" class="keycap" data-key="${a.id}" aria-label="${a.label}: change key"></button></div>`).join('')}
@@ -371,10 +397,10 @@ const TEMPLATE = () => `
 const REFS = [
   'vig', 'penFlash', 'hud', 'tl', 'title', 'clock', 'par', 'demo', 'pct', 'demoLabel', 'fill', 'notch', 'notchLabel',
   'tr', 'score', 'combo', 'comboX', 'comboFill', 'penalty', 'xh', 'xhPulse', 'hit', 'pops', 'charges', 'chargeN', 'hint',
-  'weapons', 'fps', 'ptr', 'tool', 'toolT', 'toolBar', 'toolD', 'toolL', 'seq', 'seqTrack', 'seqScale', 'loadFill', 'loadLabel', 'loadPct', 'cards', 'bNo', 'bName', 'bLoc', 'bText', 'bProtect',
+  'weapons', 'fps', 'ptr', 'tool', 'toolT', 'toolBar', 'toolD', 'toolL', 'toolK', 'bottom', 'dock', 'wheel', 'twDial', 'twKeys', 'seq', 'seqTrack', 'seqScale', 'loadFill', 'loadLabel', 'loadPct', 'cards', 'bNo', 'bName', 'bLoc', 'bText', 'bProtect',
   'bProtectText', 'bTerms', 'bTermsLabel', 'bAmmo', 'bKeys', 'bTarget', 'bPar', 'bEnv', 'bStars', 'report', 'rTitle', 'rSub', 'rRows', 'rTotalRow', 'rTotal',
   'rStars', 'rBest', 'rUnlock', 'rRetry', 'rNext', 'sVol', 'oVol', 'sQual', 'sSens', 'oSens', 'sFov', 'oFov', 'sInv', 'oInv', 'sExp', 'oExp', 'sScale', 'sShake', 'oShake', 'sGrain', 'oGrain', 'sCA', 'oCA',
-  'pauseKeys', 'sBob', 'oBob', 'sCTog', 'oCTog', 'sSTog', 'oSTog', 'sImp', 'keys', 'keyReset', 'keyNote', 'daze',
+  'pauseKeys', 'sUi', 'oUi', 'sCb', 'oCb', 'sFl', 'oFl', 'sRm', 'oRm', 'sPr', 'sBob', 'oBob', 'sCTog', 'oCTog', 'sSTog', 'oSTog', 'sImp', 'keys', 'keyReset', 'keyNote', 'daze',
   'toasts', 'slow', 'slowX', 'rp', 'rpSpeed', 'rpTime', 'rpBar', 'ovl', 'sbx', 'pal', 'palSearch', 'palCount', 'palBody', 'xTime', 'xGrav', 'oGrav', 'xJoint', 'oJoint',
   'xWind', 'oWind', 'xFire', 'oFire', 'xDebris', 'oDebris',
 ] as const;
@@ -383,7 +409,7 @@ type Ref = (typeof REFS)[number];
 /* ---------------- state ---------------- */
 
 /** the free-play sites past the three in UiHandlers, and contract cards with the chapter they are filed under */
-export type Handlers = UiHandlers & { onRailway(): void };
+export type Handlers = UiHandlers & { onRailway(): void; onSignOff(): void };
 export type JobCard = ContractCard & { chapter: string };
 /** conditions beyond the demolition target (what it counts, footprint, time limit, salvage) */
 export type JobBriefing = BriefingView & { terms?: string[] };
@@ -409,6 +435,17 @@ export function getViewport(): HTMLElement {
   return (viewport = el);
 }
 
+/** settings the page itself carries out: interface size, the palette, motion */
+function applyLook(): void {
+  if (!root) return;
+  root.dataset.quality = S.quality;
+  document.documentElement.style.setProperty('--ui-scale', String(S.uiScale));
+  root.classList.toggle('cb', S.colorblind);
+  root.classList.toggle('calm', S.reduceMotion);
+  root.classList.toggle('dim-flash', S.reduceFlash);
+  layoutDirty = true;
+}
+
 export function initUI(h: Handlers, settings: Settings): void {
   H = h;
   S = { ...settings };
@@ -428,10 +465,10 @@ export function initUI(h: Handlers, settings: Settings): void {
     R[k] = r;
   }
   root.querySelectorAll<HTMLElement>('[data-screen]').forEach(s => screens.set(s.dataset.screen as ScreenId, s));
-  root.dataset.quality = S.quality;
   bindSettings();
   bindSandbox();
   bindInput();
+  addEventListener('resize', () => { layoutDirty = true; });
   document.getElementById('boot')?.remove();
   showScreen(current);
 }
@@ -464,11 +501,13 @@ function bindInput(): void {
     if (b && !b.classList.contains('is-locked')) audio.ui('hover');
   });
 
+  // the mouse is back: focus marks return to the browser's own judgement
+  r.addEventListener('pointermove', e => { if (Math.abs(e.movementX) + Math.abs(e.movementY) > 3) { r.classList.remove('nav-keys'); if (current !== null) chipLabels(); } });
   r.addEventListener('pointerdown', e => {
     if (current === 'results' && resFinish && !(e.target as Element).closest('button')) finishResults();
   });
 
-  window.addEventListener('keydown', e => { if (e.key === 'Enter') enterHeld = true; });
+  window.addEventListener('keydown', e => { if (e.key === 'Enter') enterHeld = true; if (current !== null) chipLabels(); });
   window.addEventListener('keydown', onKey);
   window.addEventListener('keyup', e => {
     if (e.key !== 'Enter') return;
@@ -485,12 +524,22 @@ function onKey(e: KeyboardEvent): void {
     onOverlayKey(e);
     return;
   }
-  if (!root || !H || current === null || e.repeat) return;
+  if (!root || !H || current === null) return;
   const s = current;
+  if (e.key.startsWith('Arrow') && s !== 'loading') {
+    // menus: arrows move between controls (a slider or option row keeps left/right for its value)
+    const t = e.target as HTMLElement | null;
+    const valued = t instanceof HTMLInputElement && (t.type === 'range' || t.type === 'radio');
+    if (valued && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
+    e.preventDefault();
+    move(({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const)[e.key as 'ArrowUp'] ?? 'down', true);
+    return;
+  }
+  // an Enter held from "sign off" must not press the report's focused button before it has been read
+  if (e.key === 'Enter' && s === 'results' && (e.repeat || !resKeyFresh || performance.now() - resultsAt < 900)) { e.preventDefault(); return; }
+  if (e.repeat) return;
   if (e.key === 'Escape') {
-    if (s === 'contracts' || s === 'briefing' || s === 'settings') run('onBack');
-    else if (s === 'pause') run('onResume');
-    else return;
+    if (!back()) return;
     e.preventDefault();
   } else if (e.key === 'Enter') {
     if ((e.target as Element | null)?.closest?.('button, input, select, textarea, label')) return;
@@ -506,6 +555,104 @@ function onKey(e: KeyboardEvent): void {
     else return;
     e.preventDefault();
   }
+}
+
+/* ---------------- menu navigation (keys and pad) ---------------- */
+
+/** Esc / B: one screen back. False when the screen has no back. */
+function back(): boolean {
+  const s = current;
+  if (s === 'contracts' || s === 'briefing' || s === 'settings') run('onBack');
+  else if (s === 'pause') run('onResume');
+  else if (s === 'results') {
+    if (performance.now() - resultsAt < 900) return true;
+    if (resFinish) { finishResults(); return true; }
+    run('onBack');
+  } else return false;
+  return true;
+}
+
+function controlsOf(scope: Element): HTMLElement[] {
+  return Array.from(scope.querySelectorAll<HTMLElement>('button, input:not([type=radio]), .seg input:checked, .seg label'))
+    .map(el => (el.matches('.seg label') ? el.querySelector<HTMLInputElement>('input:checked') ?? el.querySelector<HTMLInputElement>('input') : el))
+    .filter((el, i, a): el is HTMLElement => !!el && a.indexOf(el) === i && !(el as HTMLButtonElement).disabled && !el.closest('[hidden], [inert]') && (el.offsetParent !== null || !!el.closest('.seg')));
+}
+
+let navMark: Element | null = null;
+function focusEl(el: HTMLElement, pad: boolean): void {
+  if (pad) root?.classList.add('nav-keys');
+  // the mark is a class as well as focus: it shows whether or not the page has the system's focus
+  navMark?.classList.remove('is-nav');
+  navMark = el.matches('.seg input') ? el.closest('label') : el;
+  navMark?.classList.add('is-nav');
+  (el.focus as (o?: FocusOptions & { focusVisible?: boolean }) => void)({ preventScroll: false, focusVisible: pad || undefined });
+  el.closest('.seg, .set-row, .card, .btn')?.scrollIntoView({ block: 'nearest' });
+}
+
+/* Spatial: the nearest control whose centre lies that way, weighted against sideways drift. */
+function move(dir: 'up' | 'down' | 'left' | 'right', pad: boolean): void {
+  const scope = current ? screens.get(current) : null;
+  if (!scope) return;
+  const list = controlsOf(scope);
+  if (!list.length) return;
+  const ae = document.activeElement as HTMLElement | null;
+  const from = ae && list.includes(ae) ? ae : null;
+  if (!from) { focusEl(scope.querySelector<HTMLElement>('.btn--primary:not([hidden])') ?? list[0], pad); return; }
+  const box = (el: HTMLElement) => (el.matches('.seg input') ? el.closest('label')! : el).getBoundingClientRect();
+  const a = box(from), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+  let best: HTMLElement | null = null, bd = Infinity;
+  for (const el of list) {
+    if (el === from) continue;
+    const b = box(el), bx = b.left + b.width / 2, by = b.top + b.height / 2;
+    const dx = bx - ax, dy = by - ay;
+    const along = dir === 'up' ? -dy : dir === 'down' ? dy : dir === 'left' ? -dx : dx;
+    const side = dir === 'up' || dir === 'down' ? Math.abs(dx) : Math.abs(dy);
+    if (along <= 2) continue;
+    const d = along + side * 2.5;
+    if (d < bd) { bd = d; best = el; }
+  }
+  if (best) { focusEl(best, pad); audio.ui('hover'); }
+}
+
+/** the right stick scrolls a long screen (the briefing's controls, the settings, the pause list) */
+export function padScroll(dy: number): void {
+  if (!root || current === null || Math.abs(dy) < 0.2) return;
+  const scope = screens.get(current);
+  if (!scope) return;
+  for (const el of [scope, ...Array.from(scope.querySelectorAll<HTMLElement>('.sheet, .brief, .pause, .pause__keys, .chapters, .report'))]) {
+    if (el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY)) { el.scrollBy(0, dy * 22); return; }
+  }
+}
+
+/** A pad's menu input this frame (main polls the pad outside play). */
+export function padNav(nav: ReadonlySet<string>): void {
+  if (!root || current === null || current === 'loading') return;
+  chipLabels();
+  if (overlay) { if (nav.has('back') || nav.has('start')) closeByUser(); return; }
+  const ae = document.activeElement as HTMLElement | null;
+  const scope = screens.get(current);
+  const inScope = !!ae && !!scope?.contains(ae) && ae !== scope;
+  for (const d of ['up', 'down', 'left', 'right'] as const) {
+    if (!nav.has(d)) continue;
+    // a slider or an option row takes left/right as its value
+    if (inScope && ae instanceof HTMLInputElement && (d === 'left' || d === 'right')) {
+      if (ae.type === 'range') { if (d === 'left') ae.stepDown(); else ae.stepUp(); ae.dispatchEvent(new Event('input', { bubbles: true })); continue; }
+      if (ae.type === 'radio') {
+        const group = Array.from(ae.closest('.seg')!.querySelectorAll<HTMLInputElement>('input[type=radio]'));
+        const next = group[clamp(group.indexOf(ae) + (d === 'left' ? -1 : 1), 0, group.length - 1)];
+        if (next !== ae) { next.checked = true; next.dispatchEvent(new Event('change', { bubbles: true })); focusEl(next, true); }
+        continue;
+      }
+    }
+    move(d, true);
+  }
+  if (nav.has('ok')) {
+    if (!inScope) move('down', true);
+    else if (current === 'results' && resFinish) finishResults();
+    else ae!.click();
+  }
+  if (nav.has('back')) back();
+  if (nav.has('start')) { if (current === 'pause') run('onResume'); else if (current === 'title') run('onCampaign'); }
 }
 
 type Action = Exclude<
@@ -526,6 +673,7 @@ const ACTS: Record<string, Action> = {
   quit: 'onQuit',
   next: 'onNext',
   retry: 'onRetry',
+  signoff: 'onSignOff',
 };
 
 function run(k: Action): void {
@@ -551,9 +699,34 @@ function act(a: string, el: HTMLElement): void {
 
 /* ---------------- screens ---------------- */
 
+/** the pause menu offers "sign off" on a contract (a pad has no Enter) */
+export function setSignOff(on: boolean, met = true): void {
+  root?.querySelectorAll<HTMLElement>('[data-act="signoff"]').forEach(b => {
+    b.hidden = !on;
+    const l = b.querySelector('.btn__l');
+    // signing off short of the target fails the job: the button says so
+    if (l) l.textContent = met ? 'Sign off the job' : 'Sign off — target not met';
+    b.classList.toggle('btn--danger', !met);
+  });
+}
+
+/* key chips on menu buttons read as the pad's buttons while a pad is what the player is using */
+const PAD_KEY: Record<string, string> = { Enter: 'A', Esc: 'B' };
+let padChips: boolean | null = null;
+function chipLabels(): void {
+  const p = usingPad();
+  if (!root || p === padChips) return;
+  padChips = p;
+  for (const k of root.querySelectorAll<HTMLElement>('.btn__k')) {
+    k.dataset.k ??= k.textContent ?? '';
+    k.textContent = p ? PAD_KEY[k.dataset.k] ?? k.dataset.k : k.dataset.k;
+  }
+}
+
 export function showScreen(s: ScreenId | null): void {
   current = s;
   if (!root) return;
+  chipLabels();
   if (s === 'pause') R.pauseKeys.innerHTML = `<h3 class="label">Controls</h3>${keys(true)}`;
   root.dataset.view = s ?? 'game';
   const target = s ? screens.get(s) : undefined;
@@ -564,6 +737,15 @@ export function showScreen(s: ScreenId | null): void {
     const on = id === s;
     el.classList.toggle('is-active', on);
     el.inert = !on;
+  }
+  // a menu comes up with its main button in focus, so Enter, arrows or a pad work from the first press
+  if (target && s !== 'loading') {
+    // the job board starts on the next job to do (the first issued one not yet cleared)
+    const first = (s === 'contracts' ? target.querySelector<HTMLElement>('.card:not(.is-locked):not(.is-cleared)') ?? target.querySelector<HTMLElement>('.card:not(.is-locked)') : null)
+      ?? target.querySelector<HTMLElement>('.btn--primary:not([hidden])')
+      // a failed report's way forward is another go
+      ?? (s === 'results' ? target.querySelector<HTMLElement>('[data-act="retry"]') : null) ?? controlsOf(target)[0];
+    if (first) requestAnimationFrame(() => { if (current === s && !target.contains(document.activeElement)) focusEl(first, usingPad()); });
   }
   if (s === 'results') {
     resultsAt = performance.now();
@@ -625,17 +807,29 @@ function card(c: JobCard, i: number): string {
 /* The briefing lists the keys this job's loadout needs; the pause screen keeps the full list. */
 function jobKeys(ids: WeaponId[]): KeyRow[] {
   const has = (...w: WeaponId[]) => w.some(id => ids.includes(id));
-  const banks = new Set(ids.map(id => BANK_OF.get(id)?.bank ?? 0)).size;
+  if (usingPad()) {
+    const rows: KeyRow[] = [
+      ['L stick · R stick', 'Move · look · L3 sprint · A jump / climb'],
+      ['RT', has('hammer') ? 'Fire / use the tool · hold the sledge to wind up, release to strike' : 'Fire / use the tool'],
+      ['D-pad ← →', 'Quick slots'],
+    ];
+    if (ids.length > 1) rows.push(['D-pad ↑', 'Hold: tool wheel (right stick points, A takes) · tap: last tool']);
+    rows.push(['LB RB', 'Tool setting (charge size, delay…), else the next slot']);
+    if (has('charge', 'cutter', 'planner', 'satchel')) rows.push(['LT · Y', 'Detonate what you have placed']);
+    if (has('excavator')) rows.push(['X', 'Climb into the machine / get out']);
+    rows.push(['Start', 'Pause: every control, and sign off the job']);
+    return rows;
+  }
   const rows: KeyRow[] = [
     [`${K('forward')} ${K('left')} ${K('back')} ${K('right')}`, `Move · mouse to look · ${K('sprint')} sprint · ${K('jump')} jump / climb`],
     ['LMB', has('hammer') ? 'Fire / use the tool · hold the sledge to wind up, release to strike' : 'Fire / use the tool'],
-    [banks > 1 ? '1–6 · Q' : '1–6', banks > 1 ? 'Pick a tool · Q switches bank' : 'Pick a tool (wheel steps through them)'],
+    [ids.length > 6 ? `1–6 · ${K('bank')}` : '1–6', ids.length > 6 ? `Quick slots · hold ${K('bank')} for every tool` : `Pick a tool · tap ${K('bank')} for the last one`],
   ];
-  if (has('charge', 'cutter', 'planner', 'thermite', 'megabomb')) rows.push(['G / RMB', 'Detonate what you have placed'], ['Wheel', 'Charge size / delay on the tool in hand']);
-  if (has('excavator')) rows.push(['E', 'Climb into the machine / get out']);
+  if (has('charge', 'cutter', 'planner', 'satchel')) rows.push([`${K('detonate')} / RMB`, 'Detonate what you have placed'], ['Wheel', 'Charge size / delay on the tool in hand']);
+  if (has('excavator')) rows.push([K('interact'), 'Climb into the machine / get out']);
   /* the viewing aids wait until a job has enough going on to need them (Esc lists them all along) */
-  if (ids.length > 3 || has('charge')) rows.push(['X', 'Engineer’s x-ray: which joints carry the load'], ['T', 'Bullet time'], ['V', 'Replay the last 12 s']);
-  rows.push(['Enter', 'Sign off (or call the job early)'], ['R · Esc', 'Restart · pause, with every control']);
+  if (ids.length > 3 || has('charge')) rows.push([K('xray'), 'Engineer’s x-ray: which joints carry the load'], [K('bullet'), 'Bullet time'], [K('replay'), 'Replay the last 12 s']);
+  rows.push(['Enter', 'Sign off (or call the job early)'], [`${K('restart')} · Esc`, 'Restart · pause, with every control']);
   return rows;
 }
 
@@ -822,7 +1016,10 @@ function bindSettings(): void {
   const toggles = [
     [R.sShake, R.oShake, 'shake'], [R.sGrain, R.oGrain, 'grain'], [R.sCA, R.oCA, 'aberration'],
     [R.sBob, R.oBob, 'headBob'], [R.sCTog, R.oCTog, 'crouchToggle'], [R.sSTog, R.oSTog, 'sprintToggle'],
-  ] as [HTMLInputElement, HTMLElement, 'shake' | 'grain' | 'aberration' | 'headBob' | 'crouchToggle' | 'sprintToggle'][];
+    [R.sCb, R.oCb, 'colorblind'], [R.sFl, R.oFl, 'reduceFlash'], [R.sRm, R.oRm, 'reduceMotion'],
+  ] as [HTMLInputElement, HTMLElement, 'shake' | 'grain' | 'aberration' | 'headBob' | 'crouchToggle' | 'sprintToggle' | 'colorblind' | 'reduceFlash' | 'reduceMotion'][];
+  const uiScale = R.sUi as HTMLInputElement;
+  const prompts = Array.from(R.sPr.querySelectorAll<HTMLInputElement>('input[type=radio]'));
   const impacts = Array.from(R.sImp.querySelectorAll<HTMLInputElement>('input[type=radio]'));
   const caps = Array.from(R.keys.querySelectorAll<HTMLButtonElement>('button[data-key]'));
   let waiting: HTMLButtonElement | null = null;
@@ -837,6 +1034,8 @@ function bindSettings(): void {
     for (const r of radios) r.parentElement!.classList.toggle('is-on', r.checked);
     for (const r of scales) r.parentElement!.classList.toggle('is-on', r.checked);
     for (const r of impacts) { r.checked = r.value === S.impacts; r.parentElement!.classList.toggle('is-on', r.checked); }
+    for (const r of prompts) { r.checked = r.value === S.prompts; r.parentElement!.classList.toggle('is-on', r.checked); }
+    R.oUi.textContent = `${Math.round(S.uiScale * 100)}%`;
     for (const [, o, k] of toggles) o.textContent = S[k] ? 'On' : 'Off';
     for (const b of caps) {
       const a = b.dataset.key as KeyAction;
@@ -844,10 +1043,11 @@ function bindSettings(): void {
       b.classList.toggle('is-waiting', b === waiting);
       b.classList.toggle('is-custom', !!S.keys[a] && S.keys[a] !== defKey(a));
     }
-    for (const el of [vol, sens, fov]) fillRange(el);
-    if (root) root.dataset.quality = S.quality;
+    for (const el of [vol, sens, fov, uiScale]) fillRange(el);
+    applyLook();
   };
   vol.value = String(S.volume);
+  uiScale.value = String(S.uiScale);
   sens.value = String(S.sensitivity);
   fov.value = String(S.fov);
   inv.checked = S.invertY;
@@ -875,6 +1075,20 @@ function bindSettings(): void {
     S.sensitivity = clamp(Number(sens.value), 0.2, 3);
     emit();
   });
+  // the size applies when the slider is let go: the settings sheet itself rescales under the pointer otherwise
+  uiScale.addEventListener('input', () => { R.oUi.textContent = `${Math.round(Number(uiScale.value) * 100)}%`; fillRange(uiScale); });
+  uiScale.addEventListener('change', () => {
+    S.uiScale = clamp(Number(uiScale.value), 0.8, 1.5);
+    audio.ui('click');
+    emit();
+  });
+  for (const r of prompts)
+    r.addEventListener('change', () => {
+      if (!r.checked) return;
+      S.prompts = r.value as Settings['prompts'];
+      audio.ui('click');
+      emit();
+    });
   fov.addEventListener('input', () => {
     S.fov = clamp(Number(fov.value), 70, 120);
     emit();
@@ -940,6 +1154,7 @@ function bindSettings(): void {
   R.keyReset.addEventListener('click', () => { S.keys = {}; audio.ui('click'); stop(); emit(); });
 }
 
+const PROMPTS: [Settings['prompts'], string][] = [['new', 'New tools'], ['always', 'Always'], ['off', 'Off']];
 const IMPACTS: [Settings['impacts'], string, string][] = [
   ['off', 'Off', 'Falls and debris shake you up at most'],
   ['stumble', 'Stumble', 'Big falls and heavy debris knock you down for a moment'],
@@ -1217,55 +1432,122 @@ interface Slot {
   el: HTMLElement;
   ammo: HTMLElement;
   bar: HTMLElement;
-  id: WeaponId;
-  bank: number;
+  id: WeaponId | null;
   a: number;
   r: number;
-  av: boolean | null;
   sel: boolean | null;
 }
+/** the six quick slots, then the tool in hand when it is on none of them */
 let slots: Slot[] = [];
-let bankEls: HTMLElement[] = [];
+let slotKey = '';
+let viewIdx = new Map<WeaponId, number>();
+let names: Partial<Record<WeaponId, { name: string; short: string }>> = {};
 
-function syncSlots(ws: WeaponView[]): void {
-  let same = ws.length === slots.length;
-  for (let i = 0; same && i < ws.length; i++) same = ws[i].id === slots[i].id;
-  if (same) return;
-  const place = ws.map((w, i) => BANK_OF.get(w.id) ?? { bank: Math.min(BANKS.length - 1, Math.floor(i / 6)), pos: i % 6 });
-  R.weapons.innerHTML = BANKS
-    .map((_, b) => {
-      const idx = ws.map((_, i) => i).filter(i => place[i].bank === b).sort((x, y) => place[x].pos - place[y].pos);
-      const cells = idx
-        .map(i => {
-          const w = ws[i];
-          return `<div class="wslot" data-i="${i}" data-id="${w.id}" title="${esc(w.name)}"><span class="wslot__key">${place[i].pos + 1}</span><span class="wslot__icon">${WEAPON_ICON[w.id] ?? ''}</span><span class="wslot__name">${esc(shortName(w.name))}</span><span class="wslot__ammo"></span><span class="wslot__ready"><i></i></span><span class="wslot__lock">${LOCK}</span></div>`;
-        })
-        .join('');
-      return `<div class="wbank${idx.length ? '' : ' is-void'}" data-bank="${b}"><span class="wbank__tag">${BANK_TAG[b]}</span><span class="wbank__swap"><span class="kbd">Q</span></span><div class="wbank__slots">${cells}</div></div>`;
-    })
-    .join('');
-  bankEls = Array.from(R.weapons.querySelectorAll<HTMLElement>('.wbank'));
-  slots = ws.map((w, i) => {
-    const el = R.weapons.querySelector<HTMLElement>(`[data-i="${i}"]`)!;
-    return {
-      el,
-      ammo: el.querySelector<HTMLElement>('.wslot__ammo')!,
-      bar: el.querySelector<HTMLElement>('.wslot__ready > i')!,
-      id: w.id,
-      bank: place[i].bank,
-      a: NaN,
-      r: NaN,
-      av: null,
-      sel: null,
-    };
-  });
-  hc.bank = -1;
+/** the tool table's names (main passes them once: ui cannot import the weapons module, which imports it) */
+export function setToolNames(rows: readonly { id: WeaponId; name: string; short: string }[]): void {
+  names = Object.fromEntries(rows.map(r => [r.id, { name: r.name, short: r.short }]));
+}
+const shortOf = (id: WeaponId): string => names[id]?.short ?? id;
+const nameOf = (id: WeaponId): string => names[id]?.name ?? id;
+const wheelKey = (): string => (usingPad() ? 'D-pad ↑' : K('bank'));
+
+function slotCell(id: WeaponId | null, key: string, extra = ''): string {
+  if (!id) return `<div class="wslot is-free${extra}"><span class="wslot__key">${key}</span></div>`;
+  return `<div class="wslot${extra}" data-id="${id}" title="${esc(nameOf(id))}"><span class="wslot__key">${key}</span><span class="wslot__icon">${WEAPON_ICON[id] ?? ''}</span><span class="wslot__name">${esc(shortOf(id))}</span><span class="wslot__ammo"></span><span class="wslot__ready"><i></i></span></div>`;
 }
 
-const shortName = (n: string) => {
-  const parts = n.split(' ');
-  return parts.length > 1 ? parts[parts.length - 1] : n;
-};
+function syncSlots(ws: WeaponView[], ids: (WeaponId | null)[], cur: WeaponId): void {
+  const loose = ids.includes(cur) ? null : cur;
+  const key = `${ids.join(',')}|${loose ?? ''}|${wheelKey()}`;
+  if (key === slotKey && viewIdx.size === ws.length) return;
+  slotKey = key;
+  viewIdx = new Map(ws.map((w, i) => [w.id, i]));
+  R.weapons.innerHTML =
+    `<div class="hb-wheel" data-r-wheel><span class="kbd">${esc(wheelKey())}</span><span>Tools</span></div>` +
+    ids.map((id, i) => slotCell(id, String(i + 1))).join('') +
+    (loose ? slotCell(loose, '', ' wslot--loose') : '');
+  const cells = Array.from(R.weapons.querySelectorAll<HTMLElement>('.wslot'));
+  slots = cells.map(el => ({
+    el,
+    ammo: el.querySelector<HTMLElement>('.wslot__ammo') ?? el,
+    bar: el.querySelector<HTMLElement>('.wslot__ready > i') ?? el,
+    id: (el.dataset.id as WeaponId | undefined) ?? null,
+    a: NaN, r: NaN, sel: null,
+  }));
+  layoutDirty = true;
+}
+
+/* ---------------- tool wheel ---------------- */
+
+export interface WheelView {
+  fans: WeaponId[][];
+  slots: (WeaponId | null)[];
+  wheel: Wheel;
+  current: WeaponId;
+  ammo: Partial<Record<WeaponId, number>>;
+  pad: boolean;
+  /** pinning to slots is on offer (the loadout is bigger than the slots) */
+  pins: boolean;
+}
+let twKey = '', twHot = '';
+const polar = (r: number, deg: number): [number, number] => [r * Math.sin((deg * Math.PI) / 180), -r * Math.cos((deg * Math.PI) / 180)];
+const at = (r: number, deg: number): string => { const [x, y] = polar(r * 50, deg); return `left:${(50 + x).toFixed(2)}%;top:${(50 + y).toFixed(2)}%`; };
+
+function sectorPath(c: number): string {
+  const a0 = c * SECTOR - SECTOR / 2 + 1.2, a1 = c * SECTOR + SECTOR / 2 - 1.2, r0 = DEAD * 100 + 2, r1 = LOCK_R * 100;
+  const p = (r: number, a: number) => polar(r, a).map(v => v.toFixed(2)).join(' ');
+  return `M${p(r0, a0)}L${p(r1, a0)}A${r1} ${r1} 0 0 1 ${p(r1, a1)}L${p(r0, a1)}A${r0} ${r0} 0 0 0 ${p(r0, a0)}Z`;
+}
+
+/** Shows the tool wheel (null puts it away): the category ring, the fan of the category under the pointer, and the
+    tool it is on in the hub. */
+export function setWheel(v: WheelView | null): void {
+  if (!root) return;
+  R.wheel.classList.toggle('is-on', !!v);
+  R.hud.classList.toggle('is-wheel', !!v);
+  if (!v) { twHot = ''; return; }
+  const ammoTxt = (id: WeaponId) => { const a = v.ammo[id] ?? 0; return a < 0 ? '∞' : String(a); };
+  const key = `${v.fans.map(f => f.join(',')).join('|')}#${v.slots.join(',')}`;
+  if (key !== twKey) {
+    twKey = key;
+    R.twDial.innerHTML =
+      `<svg class="tw__ring" viewBox="-100 -100 200 200" aria-hidden="true">${CATS.map((_, c) => `<path class="tw__sec${v.fans[c].length ? '' : ' is-empty'}" data-c="${c}" d="${sectorPath(c)}"/>`).join('')}<circle class="tw__track" r="${TOOL_R * 100}"/></svg>` +
+      CATS.map((cat, c) => `<span class="tw__cat${v.fans[c].length ? '' : ' is-empty'}" data-c="${c}" style="${at((DEAD + LOCK_R) / 2 + 0.01, c * SECTOR)}">${esc(cat.name)}<small>${v.fans[c].length || '—'}</small></span>`).join('') +
+      v.fans.map((f, c) => f.map((id, i) => {
+        const slot = v.slots.indexOf(id);
+        return `<span class="tw__tool" data-c="${c}" data-id="${id}" style="${at(TOOL_R, fanAngle(c, i, f.length))}">${WEAPON_ICON[id] ?? ''}<b>${esc(shortOf(id))}</b><em>${ammoTxt(id)}</em>${slot >= 0 ? `<i>${slot + 1}</i>` : ''}</span>`;
+      }).join('')).join('') +
+      `<div class="tw__hub"><b data-tw="name"></b><span data-tw="meta"></span></div><i class="tw__ptr" data-tw="ptr"></i>`;
+  }
+  // ammo moves between openings (and between jobs with the same tools): the tiles read it fresh each time
+  for (const em of R.twDial.querySelectorAll<HTMLElement>('.tw__tool em')) {
+    const id = (em.parentElement as HTMLElement).dataset.id as WeaponId, t = ammoTxt(id);
+    if (em.textContent !== t) em.textContent = t;
+  }
+  const w = v.wheel;
+  const hot = `${w.cat}|${w.tool}|${v.pad}|${v.pins}|${ammoTxt(w.tool ?? 'hammer')}`;
+  const ptr = R.twDial.querySelector<HTMLElement>('[data-tw="ptr"]')!;
+  ptr.style.transform = `translate(${(w.x * 50).toFixed(2)}cqw, ${(w.y * 50).toFixed(2)}cqw)`;
+  if (hot === twHot) return;
+  twHot = hot;
+  for (const el of R.twDial.querySelectorAll<Element>('[data-c]')) el.classList.toggle('is-hot', Number((el as HTMLElement).dataset.c) === w.cat);
+  for (const el of R.twDial.querySelectorAll<HTMLElement>('.tw__tool')) {
+    el.classList.toggle('is-pick', el.dataset.id === w.tool);
+    el.classList.toggle('is-cur', el.dataset.id === v.current);
+  }
+  const name = R.twDial.querySelector<HTMLElement>('[data-tw="name"]')!, meta = R.twDial.querySelector<HTMLElement>('[data-tw="meta"]')!;
+  if (w.tool) {
+    const slot = v.slots.indexOf(w.tool);
+    name.textContent = nameOf(w.tool);
+    meta.textContent = `${CATS[w.cat]?.name ?? ''} · ${ammoTxt(w.tool) === '∞' ? 'unlimited' : `${ammoTxt(w.tool)} left`}${slot >= 0 ? ` · slot ${slot + 1}` : ''}`;
+  } else {
+    name.textContent = 'Point at a category';
+    meta.textContent = '';
+  }
+  R.twKeys.innerHTML = v.pad
+    ? '<span><b class="kbd">Right stick</b> point</span><span><b class="kbd">LB RB</b> step</span><span><b class="kbd">A</b> / release <b class="kbd">D-pad ↑</b> take</span><span><b class="kbd">B</b> cancel</span>'
+    : `<span><b class="kbd">Mouse</b> point</span><span><b class="kbd">Wheel</b> step</span><span>release <b class="kbd">${esc(K('bank'))}</b> / <b class="kbd">LMB</b> take</span>${v.pins ? '<span><b class="kbd">1–6</b> pin to slot</span>' : ''}<span><b class="kbd">RMB</b> cancel</span>`;
+}
 
 const hc = {
   demoLabel: '',
@@ -1284,7 +1566,7 @@ const hc = {
   par: undefined as number | null | undefined,
   over: false,
   weapon: '',
-  bank: -1,
+  wheelNew: false,
   ts: -1,
   charges: -1,
   penalty: 0,
@@ -1409,11 +1691,11 @@ export function updateHud(s: HudState, dt: number): void {
     hc.weapon = s.weapon;
     R.xh.dataset.w = s.weapon;
   }
-  syncSlots(s.weapons);
-  let availChanged = false;
-  for (let i = 0; i < slots.length; i++) {
-    const w = s.weapons[i];
-    const sl = slots[i];
+  syncSlots(s.weapons, s.slots, s.weapon);
+  for (const sl of slots) {
+    if (!sl.id) continue;
+    const w = s.weapons[viewIdx.get(sl.id) ?? -1];
+    if (!w) continue;
     if (w.ammo !== sl.a) {
       sl.a = w.ammo;
       sl.ammo.textContent = w.ammo < 0 ? '∞' : String(w.ammo);
@@ -1425,36 +1707,17 @@ export function updateHud(s: HudState, dt: number): void {
       sl.bar.style.transform = `scaleX(${rq})`;
       sl.el.classList.toggle('is-cooling', rq < 1);
     }
-    if (w.available !== sl.av) {
-      sl.av = w.available;
-      sl.el.classList.toggle('is-locked', !w.available);
-      availChanged = true;
-    }
     const sel = w.id === s.weapon;
     if (sel !== sl.sel) {
       sl.sel = sel;
       sl.el.classList.toggle('is-sel', sel);
     }
   }
-
-  if (availChanged) {
-    const has = BANKS.map(() => false);
-    for (const sl of slots) if (sl.av) has[sl.bank] = true;
-    bankEls.forEach((el, b) => el.classList.toggle('is-void', !has[b]));
-    R.weapons.classList.toggle('is-single', has.filter(Boolean).length < 2);
+  if (!!s.wheelNew !== hc.wheelNew) {
+    hc.wheelNew = !!s.wheelNew;
+    R.weapons.classList.toggle('is-new', hc.wheelNew);
   }
-  const bank = clamp(Math.round(s.bank) || 0, 0, BANKS.length - 1);
-  if (bank !== hc.bank) {
-    const first = hc.bank < 0;
-    hc.bank = bank;
-    bankEls.forEach((el, b) => el.classList.toggle('is-active', b === bank));
-    if (!first && !reduced()) {
-      bankEls[bank]?.animate([{ transform: 'translateY(.6rem)', opacity: 0.3 }, { transform: 'none', opacity: 1 }], {
-        duration: 200,
-        easing: 'cubic-bezier(.2,.8,.2,1)',
-      });
-    }
-  }
+  if (layoutDirty || now - layoutAt > 500) relayout(now);
 
   const ts = Math.round((s.timeScale ?? 1) * 100) / 100;
   if (ts !== hc.ts) {
@@ -1476,6 +1739,7 @@ export function updateHud(s: HudState, dt: number): void {
   if (s.hint !== hc.hint) {
     hc.hint = s.hint;
     if (s.hint) R.hint.textContent = s.hint;
+    if (R.hint.classList.contains('is-on') !== !!s.hint) layoutDirty = true;
     R.hint.classList.toggle('is-on', !!s.hint);
   }
 
@@ -1493,28 +1757,79 @@ export function updateHud(s: HudState, dt: number): void {
   }
 }
 
-/* The readout sits over the hotbar and steps back once it has been read: it comes up when the tool (or what the shot
-   will land on) changes, stays while a bar is filling or it warns, and fades TOOL_IDLE s after that. */
-const TOOL_IDLE = 3;
-let toolGist = '', toolShownAt = -1e9;
+/* The readout stays at full strength while the tool is being worked (fire, RMB or the wheel in the last few seconds,
+   a bar filling, a warning, a loaded line) and only dims, never vanishes, once it has sat unread for TOOL_IDLE s. Under
+   it, the tool's controls in the player's own keys: for PROMPT_S s after the tool comes out, while it is new to them
+   (main decides), or always. */
+const TOOL_IDLE = 4, PROMPT_S = 6, PROMPT_MAX = 30;
+let promptWait = false;
+let toolGist = '', toolShownAt = -1e9, pokedAt = -1e9, promptTool: WeaponId | null = null, promptUntil = -1e9, promptKey = '';
+
+/** the player is working the tool: keep its readout up (and start the prompt's countdown: it waits for them) */
+export function toolPoke(): void {
+  pokedAt = performance.now() / 1000;
+  if (promptWait) { promptWait = false; promptUntil = Math.min(promptUntil, pokedAt + PROMPT_S); }
+}
+
+/** a new tool in hand; `prompt`: show its controls under the readout for a while */
+export function toolChanged(id: WeaponId, prompt: boolean): void {
+  promptTool = id;
+  // up until the tool has been used and PROMPT_S more, or PROMPT_MAX s if it is never used
+  promptWait = prompt;
+  promptUntil = prompt ? performance.now() / 1000 + PROMPT_MAX : -1e9;
+  pokedAt = performance.now() / 1000;
+}
+
+function btnLabel(b: Btn, pad: boolean): string {
+  switch (b) {
+    case 'fire': return pad ? 'RT' : 'LMB';
+    case 'hold': return pad ? 'Hold RT' : 'Hold LMB';
+    case 'alt': return pad ? 'LT' : 'RMB';
+    case 'wheel': return pad ? 'LB RB' : 'Wheel';
+    case 'det': return pad ? 'LT / Y' : `RMB / ${K('detonate')}`;
+  }
+}
+
+/* the readout's detail drops its own key hints ("LMB …", "wheel …", "RMB/G …") while the prompt row shows them, or
+   while a pad is in use (its buttons are not those keys) */
+const KEYISH = /\b(LMB|RMB|MMB|[Ww]heel)\b|\bShift ±/;
+/* a segment loses its key words; what is left stays if it still says something ("within 5 m", "(2 armed)") */
+const stripKeys = (d: string): string => d.split(' · ').map(p => {
+  if (!KEYISH.test(p)) return p;
+  if (/^\s*(hold |press )?[Ww]heel\b/.test(p)) return '';
+  const rest = p.replace(/\b(hold |press )?(LMB|RMB|MMB)(\/\S+)?/g, '').replace(/^\s*(on|to|at)\b/, '').trim();
+  return rest.split(/\s+/).length >= 3 ? rest : '';
+}).filter(Boolean).join(' · ');
 
 function updateTool(t: ToolReadout | null): void {
   const now = performance.now() / 1000;
   const gist = t ? `${t.title.replace(/[\d.,]+/g, '')}|${t.warn}|${/on target: (\w+)|lands on the ground|no landing/.exec(t.detail)?.[0] ?? ''}` : '';
   if (gist !== toolGist) { toolGist = gist; toolShownAt = now; }
-  // (a rigging readout stays up while any of its lines carries more than a twentieth of its working load)
-  const busy = !!t && (t.warn || t.progress !== null || !!t.lines?.some(l => l.util / (l.wll ?? 0.2) > 0.05));
+  const prompting = !!promptTool && S.prompts !== 'off' && (S.prompts === 'always' || now < promptUntil);
+  const busy = !!t && (t.warn || t.progress !== null || !!t.lines?.length || now - pokedAt < TOOL_IDLE || prompting);
   R.tool.classList.toggle('is-idle', !busy && now - toolShownAt > TOOL_IDLE);
-  const key = t ? `${t.title}|${t.detail}|${t.warn}|${t.progress === null}` : '';
+  const showKeys = !!promptTool && (S.prompts === 'always' || (S.prompts !== 'off' && now < promptUntil));
+  const pad = usingPad();
+  const pk = showKeys && promptTool ? `${promptTool}|${pad}|${K('detonate')}` : '';
+  if (pk !== promptKey) {
+    promptKey = pk;
+    R.toolK.innerHTML = pk && promptTool
+      ? TOOL_HELP[promptTool].map(([b, what]) => `<span class="kc"><b class="kbd">${esc(btnLabel(b, pad))}</b>${esc(what)}</span>`).join('')
+      : '';
+  }
+  const strip = !!pk || pad;
+  const key = t ? `${t.title}|${t.detail}|${t.warn}|${t.progress === null}|${strip}` : '';
   if (key !== hc.tool) {
     hc.tool = key;
     R.tool.classList.toggle('is-on', !!t);
+    R.xh.classList.toggle('is-warn', !!t?.warn);
     if (t) {
       R.toolT.textContent = t.title;
-      R.toolD.textContent = t.detail;
+      R.toolD.textContent = strip ? stripKeys(t.detail) : t.detail;
       R.tool.classList.toggle('is-warn', t.warn);
       R.tool.classList.toggle('has-bar', t.progress !== null);
     }
+    layoutDirty = true;
   }
   /* rigging: one bar per loaded line, full scale its breaking load, a tick at its working load limit; green within the
      WLL, amber over it, red past 60 % of the break. The number is the share of the WLL, as a rigger reads it. */
@@ -1552,6 +1867,60 @@ function updateTimeline(v: TimelineView | null): void {
   R.seqScale.innerHTML = marks.join('');
 }
 
+/* Wide screens keep the tool readout and firing plan in the bottom-left corner, clear of the hotbar; when the corner
+   would run into the hotbar (narrow screens, a big UI scale) they stack over it in the middle column instead, capped in
+   height so the column stops short of the crosshair. Measured, not guessed from the viewport, so the UI scale counts. */
+let layoutDirty = true, layoutAt = -1e9;
+function relayout(now: number): void {
+  layoutDirty = false;
+  layoutAt = now;
+  const W = R.bottom.clientWidth;
+  if (!W) return;
+  // the corner dock's width, as the CSS has it (--dock-w): a quarter of the screen within 16..24 rem
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const dockW = clamp(0.26 * innerWidth, 16 * rem, 24 * rem);
+  const barW = R.weapons.offsetWidth;
+  const gap = 16;
+  R.hud.classList.toggle('is-stacked', (W - barW) / 2 < dockW + gap);
+  // stacked, the dock gets what is left between the hint and hotbar and the crosshair's zone
+  const g = parseFloat(getComputedStyle(R.bottom).rowGap) || 8;
+  const below = R.weapons.offsetHeight + (R.hint.classList.contains('is-on') ? R.hint.offsetHeight + g : 0) + g + 6;
+  R.bottom.style.setProperty('--below', `${below}px`);
+}
+
+/** dev check: every visible HUD box, whether any overlap each other, and whether any reach the crosshair's zone (the
+    middle 18 vmin square) */
+export function layoutReport(): { w: number; h: number; boxes: Record<string, number[]>; overlaps: string[]; crosshair: string[] } {
+  const w = innerWidth, h = innerHeight, z = 0.09 * Math.min(w, h);
+  const zone = { left: w / 2 - z, right: w / 2 + z, top: h / 2 - z, bottom: h / 2 + z };
+  const pick: [string, string][] = [['title', '.hud-tl'], ['score', '.hud-tr'], ['meter', '.hud-demo'], ['slowmo', '.hud-slowmo.is-on'], ['tool', '.hud-tool.is-on'],
+    ['plan', '.hud-seq.is-on'], ['armed', '.hud-charges.is-on'], ['hint', '.hud-hint.is-on'], ['hotbar', '.hotbar'], ['fps', '.hud-fps'], ['toasts', '.toasts'],
+    ['wheel', '.tw.is-on .tw__dial'], ['wheelKeys', '.tw.is-on .tw__keys']];
+  // the wheel stands the dock and the hint down (hidden under it), and is meant to sit on the crosshair
+  const wheelOn = R.wheel.classList.contains('is-on');
+  const hidden = new Set(wheelOn ? ['tool', 'plan', 'armed', 'hint'] : []);
+  const boxes: Record<string, number[]> = {};
+  for (const [k, sel] of pick) {
+    if (hidden.has(k)) continue;
+    const el = root?.querySelector<HTMLElement>(sel);
+    if (!el || !el.offsetParent && getComputedStyle(el).position !== 'fixed') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    boxes[k] = [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)];
+  }
+  const hit = (a: number[], b: { left: number; top: number; right: number; bottom: number }) => a[0] < b.right && a[2] > b.left && a[1] < b.bottom && a[3] > b.top;
+  const keys = Object.keys(boxes), overlaps: string[] = [], crosshair: string[] = [];
+  for (let i = 0; i < keys.length; i++) {
+    const a = boxes[keys[i]];
+    if (hit(a, zone) && keys[i] !== 'wheel') crosshair.push(keys[i]);
+    for (let j = i + 1; j < keys.length; j++) {
+      const b = boxes[keys[j]];
+      if (hit(a, { left: b[0], top: b[1], right: b[2], bottom: b[3] })) overlaps.push(`${keys[i]}×${keys[j]}`);
+    }
+  }
+  return { w, h, boxes, overlaps, crosshair };
+}
+
 /* the running property-damage total, flashed each time it grows */
 function penaltyFlash(total: number): void {
   R.penalty.textContent = `${fmt(-total)} property damage`;
@@ -1564,7 +1933,7 @@ function penaltyFlash(total: number): void {
     ],
     { duration: 2200, easing: 'ease-out' },
   );
-  R.penFlash.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 650, easing: 'ease-out' });
+  R.penFlash.animate([{ opacity: S.reduceFlash ? 0.3 : 1 }, { opacity: 0 }], { duration: 650, easing: 'ease-out' });
   shake(R.tr, 4, 240);
 }
 
@@ -1721,7 +2090,7 @@ let vigDur = 1;
 
 export function blastVignette(amount: number): void {
   if (!root) return;
-  const a = clamp(amount, 0, 1);
+  const a = clamp(amount, 0, 1) * (S.reduceFlash ? 0.35 : 1);
   if (a < 0.02) return;
   const now = performance.now();
   const k = clamp((now - vigT) / vigDur, 0, 1);

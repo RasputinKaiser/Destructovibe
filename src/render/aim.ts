@@ -8,6 +8,13 @@ export type AimState = 'ok' | 'far' | 'bad' | 'sel';
 const COLOR: Record<AimState, THREE.Color> = {
   ok: new THREE.Color(0x5cf08a), far: new THREE.Color(0xffb020), bad: new THREE.Color(0xff3b2f), sel: new THREE.Color(0x4ab2ff),
 };
+const STD: Record<AimState, number> = { ok: 0x5cf08a, far: 0xffb020, bad: 0xff3b2f, sel: 0x4ab2ff };
+/* colour-blind palette (Okabe-Ito): sky blue, yellow, vermillion, reddish purple: apart in lightness as well as hue */
+const CB: Record<AimState, number> = { ok: 0x56b4e9, far: 0xf0e442, bad: 0xff5a00, sel: 0xcc79a7 };
+/** swaps the aim states' colours (materials pick them up as they are next coloured) */
+export function setAimPalette(cb: boolean): void {
+  for (const k of Object.keys(COLOR) as AimState[]) COLOR[k].setHex((cb ? CB : STD)[k]);
+}
 const BOXES = 12, LINES = 48, ARC = 96;
 
 let root: THREE.Group | null = null;

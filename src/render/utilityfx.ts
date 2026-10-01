@@ -311,6 +311,11 @@ let indList: Indicator[] = [];
 const _ic = new THREE.Color(), _dark = new THREE.Color(0x0b0b0b);
 
 export function setIndicators(list: Indicator[]): void { indList = list.slice(0, IND_CAP); }
+/* colour-blind palette for the lamps (switchgear red / green / amber read as blue, vermillion and yellow) */
+const CB_LAMP: Record<number, number> = { 0x28ff50: 0x3d9bff, 0xff1a0a: 0xff5a00, 0xffb000: 0xf0e442 };
+let cbLamps = false;
+let slowBlink = false;
+export function setLampPalette(cb: boolean, reduceFlash = false): void { cbLamps = cb; slowBlink = reduceFlash; }
 
 function drawIndicators(root: THREE.Group): void {
   if (!indMesh) {
@@ -321,13 +326,14 @@ function drawIndicators(root: THREE.Group): void {
     for (let i = 0; i < IND_CAP; i++) indMesh.setColorAt(i, _dark);
   }
   if (indMesh.parent !== root) root.add(indMesh);
-  const on = (performance.now() / 1000) % 0.8 < 0.4;
+  // reduce flashing: a tripped lamp blinks at a calm 0.5 Hz
+  const on = (performance.now() / 1000) % (slowBlink ? 2 : 0.8) < (slowBlink ? 1 : 0.4);
   for (let i = 0; i < indList.length; i++) {
     const d = indList[i];
     _tm.makeTranslation(d.pos[0], d.pos[1], d.pos[2]);
     indMesh.setMatrixAt(i, _tm);
     /* lit well over white so the tag stays readable in daylight and blooms a little at night */
-    indMesh.setColorAt(i, d.blink && !on ? _dark : _ic.setHex(d.color).multiplyScalar(2.2));
+    indMesh.setColorAt(i, d.blink && !on ? _dark : _ic.setHex(cbLamps ? CB_LAMP[d.color] ?? d.color : d.color).multiplyScalar(2.2));
   }
   indMesh.count = indList.length;
   indMesh.instanceMatrix.needsUpdate = true;

@@ -7,7 +7,7 @@ import { random } from 'math/random';
 import type { Vec3, MaterialId, WeaponId } from '../types';
 import { makeRng, scorchTex, smokeAtlas } from './textures';
 import { animateMaterials } from './materials';
-import { CLOUDS, COVER_EXTENT, COVER_N, DV_ATMOS_GLSL, DV_CLOUD_GLSL, FX_LAYER, FX_SOFT_LAYER, atmosU, coverage, dustU, flashAtCamera, lighting, softU, view } from './shared';
+import { CLOUDS, COVER_EXTENT, COVER_N, DV_ATMOS_GLSL, DV_CLOUD_GLSL, FX_LAYER, FX_SOFT_LAYER, atmosU, comfort, coverage, dustU, flashAtCamera, lighting, softU, view } from './shared';
 import { lampPool } from './lights';
 import { floodlights } from './scenery';
 
@@ -699,7 +699,7 @@ function flash(x: number, y: number, z: number, hex: number, peak: number, dur: 
   best.light.position.set(x, y, z);
   best.light.color.setHex(hex);
   best.light.distance = range;
-  best.t = 0; best.dur = dur; best.peak = peak; best.prio = prio; best.owner = -1;
+  best.t = 0; best.dur = dur; best.peak = peak * comfort.flash; best.prio = prio; best.owner = -1;
 }
 
 function updateLights(dt: number): void {

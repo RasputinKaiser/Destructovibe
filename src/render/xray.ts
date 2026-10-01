@@ -40,9 +40,19 @@ export const xrayDots = {
   hide(): void { count = 0; mesh.count = 0; mesh.visible = false; },
 };
 
+/* colour-blind ramp, by lightness as much as hue: dark blue (idle) → teal → yellow (at capacity) → white (past it) */
+let cbRamp = false;
+export function setXrayPalette(cb: boolean): void { cbRamp = cb; }
+const CB_STOPS = [[0.1, 0.2, 0.75], [0.1, 0.65, 0.65], [1, 0.85, 0.1], [1, 1, 1]];
+
 /* green (idle) → yellow → red (at capacity) → white-hot (past it) */
 export function stressColor(u: number, out: [number, number, number]): [number, number, number] {
   const t = Math.max(0, u);
+  if (cbRamp) {
+    const i = t < 0.5 ? 0 : t < 1 ? 1 : 2, k = t < 0.5 ? t / 0.5 : t < 1 ? (t - 0.5) / 0.5 : Math.min(1, t - 1);
+    for (let c = 0; c < 3; c++) out[c] = CB_STOPS[i][c] + (CB_STOPS[i + 1][c] - CB_STOPS[i][c]) * k;
+    return out;
+  }
   if (t < 0.5) { const k = t / 0.5; out[0] = 0.15 + 0.85 * k; out[1] = 0.9; out[2] = 0.3 * (1 - k); }
   else if (t < 1) { const k = (t - 0.5) / 0.5; out[0] = 1; out[1] = 0.9 * (1 - k) + 0.12 * k; out[2] = 0.05; }
   else { const k = Math.min(1, t - 1); out[0] = 1; out[1] = 0.12 + 0.88 * k; out[2] = 0.05 + 0.95 * k; }

@@ -81,17 +81,21 @@ node scripts/validate-levels.ts   # check every blueprint for overlaps / floatin
 
 ## Tools
 
-Banks of six (`Q` cycles them; `1–6` pick within the bank shown on the hotbar; the wheel steps through
-every issued tool and the hotbar follows it to its bank):
+Hold `Q` for the tool wheel: point at a category, then along its tools, and let go to take one (`1–6` while it is
+open pins the tool to that quick slot; a tap of `Q` swaps back to the last tool). `1–6` are the quick slots: a
+contract that issues six tools or fewer puts them all there, in wheel order. The mouse wheel steps to the next tool
+where the tool in hand has no setting of its own. The wheel only offers what the contract issued.
 
-- **I** sledgehammer, hand cannon, rocket launcher, remote charges, airstrike marker, thermite
-- **II** cutting charge, wrecking ball, tow winch, gravity gun, firebomb, megabomb
-- **III** disc cutter, chainsaw, drill rig, hydraulic shears, plasma cutter, oxy-fuel torch
-- **IV** detonator panel, excavator remote, hydraulic breaker, water cannon, rock splitter, diamond wire saw
-- **V** grapple launcher, rigging lines, lever hoist
-- **VI** flamethrower, grenade launcher, recoilless rifle, thermobaric rocket, bunker buster, satchel charge
+- **Impact** sledgehammer, hand cannon, wrecking ball, hydraulic breaker, rock splitter
+- **Explosives** remote charges, thermite, cutting charge, megabomb, detonator panel, satchel charge
+- **Ordnance** rocket launcher, airstrike marker, grenade launcher, recoilless rifle, thermobaric rocket, bunker buster
+- **Cutting** disc cutter, chainsaw, drill rig, hydraulic shears, plasma cutter, oxy-fuel torch, diamond wire saw
+- **Rigging & machines** tow winch, gravity gun, excavator remote, grapple launcher, rigging lines, lever hoist
+- **Fire & water** firebomb, water cannon, flamethrower
 
-Bank VI, the ordnance and fire kit, runs on real numbers:
+Each tool's buttons show under its readout the first few times it comes out (Settings → Control prompts).
+
+The ordnance and fire kit runs on real numbers:
 
 - **Flamethrower** (M2-2): 15 L of thickened fuel, ~1.8 L/s, ~8 s of trigger per pack. The stream is a rope of burning
   gel that sags ~15 m flat and reaches ~37 m at the best elevation; it splashes, clings to walls and ceilings and runs
@@ -168,18 +172,23 @@ orbit camera: mouse orbits, wheel zooms, `WASD`/`Q``E` move the focus, `Space` p
 
 `WASD` move · `Shift` sprint · `Space` jump, or climb what is in front (a ledge up to ~1.25 m; walking into
 anything knee-high scrambles over it; fast at a low wall it is a vault) · `C`/`Ctrl` crouch · `Alt` careful: slow
-walk, and with `A`/`D` lean round a corner · `Z`/`MMB` zoom (hold) · `1–6` tool in bank · `Q` next bank (I–VI) ·
+walk, and with `A`/`D` lean round a corner · `Z`/`MMB` zoom (hold) · `1–6` quick slots · `Q` hold: tool wheel, tap: last tool ·
 `Wheel` tool setting (charge size, delay, boom, line…) where the tool has one, else next tool · `Shift`+`Wheel` detonator
 delay · `LMB` fire / use · `RMB` tool's second action, else detonate · `G` detonate · `E` drive / operate / get out ·
 `U` work a breaker, valve or meter · `X` x-ray · `T` bullet time · `V` collapse replay · `P` back to spawn ·
 `Enter` call the contract early ·
 `R` restart · `Esc` pause ·
-bank VI: `RMB` flamethrower igniter / grenade fuze · `Wheel` airburst range / bunker-buster floor count ·
+ordnance: `RMB` flamethrower igniter / grenade fuze · `Wheel` airburst range / bunker-buster floor count ·
 free play: `F` fly · `Tab` panel · `B` spawn (`wheel` rotates, `RMB` cancels) · `Backspace` remove
 
 Every key above can be rebound under Settings → Controls (a key another action had is swapped over). A standard
-gamepad works once the mouse is captured: sticks move and look, `A` jump/climb, `B` crouch, `X` drive, `Y`
-detonate, `RT`/`LT` fire/second action, `LB`/`RB` tools, `L3` sprint, `R3` zoom, `Start` pause.
+gamepad works in the menus (D-pad or stick to move, `A` choose, `B` back, `Start` resume) and in play without the
+mouse: sticks move and look, `A` jump/climb, `B` crouch, `X` drive, `Y` detonate, `RT`/`LT` fire/second action,
+`LB`/`RB` tool setting or next tool, `D-pad ↑` hold for the tool wheel (right stick points, `A` or letting go takes,
+`B` cancels) or tap for the last tool, `L3` sprint, `R3` zoom, `Start` pause.
+
+Settings → Comfort & access has the interface size, a colour-blind palette (blue and orange for good and bad, on the
+HUD, the aim marks and the service-gear lamps), reduced flashing and reduced HUD motion.
 
 On foot the body has weight: a jog builds in ~0.2 s and a sprint in ~0.6 s, a standing jump lifts 0.48 m for
 about half a second in the air, and landings cost pace (bunny-hopping bleeds speed; jumps cost stamina). Falls are

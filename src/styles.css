@@ -73,7 +73,8 @@
 }
 
 html {
-  font-size: clamp(13px, calc(0.9vmin + 8.5px), 30px);
+  --ui-scale: 1;
+  font-size: calc(clamp(13px, calc(0.9vmin + 8.5px), 30px) * var(--ui-scale));
 }
 
 html,
@@ -284,6 +285,21 @@ svg {
 .btn:focus-visible {
   outline: 2px solid var(--hazard);
   outline-offset: 3px;
+}
+
+/* driven by arrows or a pad: whatever has focus says so, however the browser judged the last input */
+#ui.nav-keys .is-nav {
+  outline: 2px solid var(--hazard);
+  outline-offset: 3px;
+}
+
+/* on the yellow primary button a yellow mark would vanish */
+#ui.nav-keys .btn--primary.is-nav {
+  outline-color: var(--c-100);
+}
+
+#ui.nav-keys .btn.is-nav::before {
+  transform: scaleY(1);
 }
 
 .btn__k {
@@ -1597,6 +1613,19 @@ svg {
   gap: 0.35rem;
 }
 
+.set-group {
+  margin: 0.9rem 0 0.15rem;
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--hazard);
+}
+
+.set-group:first-child {
+  margin-top: 0;
+}
+
 .set-row {
   display: grid;
   grid-template-columns: 10rem minmax(0, 1fr) 4.2rem;
@@ -1674,6 +1703,10 @@ svg {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   border: 1px solid var(--seg-line, rgba(236, 234, 227, 0.2));
+}
+
+.seg--5 {
+  grid-template-columns: repeat(5, 1fr);
 }
 
 .seg--4 {
@@ -1882,11 +1915,13 @@ svg {
 
 .hud-demo__label {
   margin: 0.2rem 0 0.5rem;
+  padding: 0.05rem 0.5rem;
+  background: rgba(12, 12, 11, 0.5);
   font-weight: 700;
-  font-size: 0.7rem;
+  font-size: max(11px, 0.7rem);
   letter-spacing: 0.3em;
   text-transform: uppercase;
-  color: var(--c-300);
+  color: var(--c-200);
   transition: color 0.3s;
 }
 
@@ -1927,8 +1962,10 @@ svg {
   top: 100%;
   left: 50%;
   transform: translate(-50%, 0.25rem);
+  padding: 0 0.3rem;
+  background: rgba(12, 12, 11, 0.6);
   font-family: var(--f-mono);
-  font-size: 0.6rem;
+  font-size: max(11px, 0.6rem);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -2017,6 +2054,13 @@ svg {
 
 .hud-combo:not(.is-on) .hud-combo__meter i {
   visibility: hidden;
+}
+
+/* no multiplier running: the plate is just the score, not a score over an empty row */
+.hud-combo:not(.is-on) {
+  height: 0;
+  margin-top: 0;
+  overflow: hidden;
 }
 
 .hud-penalty {
@@ -2245,6 +2289,11 @@ svg {
   background: var(--hazard);
 }
 
+/* the tool in hand warns (backblast, a line about to part, a bomb inbound): the crosshair says so where the eye is */
+.xh.is-warn i {
+  background: var(--bad);
+}
+
 /* score pops */
 
 .pops {
@@ -2309,23 +2358,51 @@ svg {
   color: var(--bad);
 }
 
-/* bottom cluster */
+/* bottom cluster: the hint and the hotbar in the middle; the tool readout, firing plan and armed count in the
+   bottom-left corner (.hud-dock), or stacked over the hotbar when the corner would run into it (.is-stacked, measured
+   by ui.ts). The middle column is capped in height so nothing reaches the crosshair. */
 
 .hud-bottom {
+  --dock-w: clamp(16rem, 26vw, 24rem);
   position: absolute;
-  left: 50%;
+  left: var(--gut);
+  right: var(--gut);
   bottom: var(--gut);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.55rem;
-  width: max-content;
-  max-width: calc(100vw - 2 * var(--gut));
-  transform: translateX(-50%);
+  gap: 0.45rem;
+}
+
+.hud-dock {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  width: var(--dock-w);
+  max-height: calc(50vh - 9vmin - var(--gut));
+  overflow: hidden;
+}
+
+.hud.is-stacked .hud-dock {
+  position: static;
+  justify-content: flex-end;
+  width: min(30rem, 100%);
+  max-height: calc(50vh - 9vmin - var(--gut) - var(--below, 8rem));
+}
+
+.hud.is-stacked .hud-tool {
+  max-height: 22vh;
+  overflow: hidden;
 }
 
 .hud-charges {
   display: none;
+  align-self: flex-start;
   align-items: center;
   gap: 0.5rem;
   padding: 0.28rem 0.75rem;
@@ -2335,6 +2412,10 @@ svg {
   font-size: 0.82rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
+}
+
+.hud.is-stacked .hud-charges {
+  align-self: center;
 }
 
 .hud-charges.is-on {
@@ -2369,62 +2450,40 @@ svg {
 }
 
 .hud-hint {
-  max-width: 100%;
+  max-width: min(46rem, 100%);
   padding: 0.3rem 0.8rem;
   border-radius: 2px;
-  background: rgba(12, 12, 11, 0.55);
+  background: rgba(12, 12, 11, 0.62);
   font-weight: 600;
   font-size: 0.95rem;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   text-align: center;
   opacity: 0;
   transition: opacity 0.2s;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .hud-hint.is-on {
   opacity: 1;
 }
 
-/* inactive banks share one row above the active one */
-.weapons {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 0.35rem 0.9rem;
-}
-
-.wbank {
-  order: 1;
-  display: flex;
-  align-items: stretch;
-  gap: 0.4rem;
-  transition: opacity 0.2s;
-}
-
-.wbank.is-active {
-  order: 2;
-  flex-basis: 100%;
-  justify-content: center;
-}
-
-/* working tool readout, over the hotbar (clear of the collapse it is pointed at); steps back when idle */
+/* working tool readout; dims (never vanishes) once it has sat unread */
 
 .hud-tool {
   display: none;
-  width: min(24rem, calc(100vw - 2 * var(--gut)));
-  padding: 0.35rem 0.6rem 0.4rem;
+  padding: 0.45rem 0.7rem 0.5rem;
   border: 1px solid var(--plate-edge);
   border-left: 3px solid var(--hazard);
-  background: var(--plate);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  background: var(--plate-solid);
   text-shadow: none;
-  transition: opacity 0.6s;
+  transition: opacity 0.4s;
 }
 
 .hud-tool.is-idle {
-  opacity: 0;
+  opacity: 0.62;
 }
 
 .hud-tool.is-on {
@@ -2437,15 +2496,15 @@ svg {
 
 .hud-tool__t {
   font-weight: 800;
-  font-size: 0.72rem;
-  letter-spacing: 0.14em;
+  font-size: max(12.5px, 0.86rem);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--c-100);
 }
 
 .hud-tool__bar {
   display: none;
-  height: 4px;
+  height: 5px;
   margin: 0.3rem 0 0.25rem;
   background: rgba(236, 234, 227, 0.14);
 }
@@ -2467,34 +2526,59 @@ svg {
 }
 
 .hud-tool__d {
+  margin-top: 0.15rem;
   font-family: var(--f-mono);
-  font-size: 0.66rem;
-  line-height: 1.35;
-  color: var(--c-300);
+  font-size: max(12px, 0.74rem);
+  line-height: 1.4;
+  color: var(--c-200);
 }
+
+/* the tool's controls, in the player's keys */
+.hud-tool__keys:empty { display: none; }
+.hud-tool__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.8rem;
+  margin-top: 0.4rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line);
+  font-weight: 600;
+  font-size: max(12px, 0.8rem);
+  letter-spacing: 0.03em;
+  color: var(--c-100);
+}
+.kc { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.kc .kbd { color: var(--hazard); opacity: 1; font-size: max(11px, 0.68rem); }
 
 /* rigging lines: tension against each line's breaking load */
 .hud-tool__lines:empty { display: none; }
-.hud-tool__lines { margin-top: 0.3rem; display: grid; gap: 0.18rem; }
-.tl { display: grid; grid-template-columns: 5.2rem 1fr 4.2rem; align-items: center; gap: 0.4rem; font-family: var(--f-mono); font-size: 0.62rem; color: var(--c-300); }
+.hud-tool__lines { margin-top: 0.35rem; display: grid; gap: 0.22rem; }
+.tl { display: grid; grid-template-columns: 5.6rem 1fr 4.6rem; align-items: center; gap: 0.4rem; font-family: var(--f-mono); font-size: max(11.5px, 0.7rem); color: var(--c-200); }
 .tl__n { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.tl__b { position: relative; height: 5px; background: rgba(236, 234, 227, 0.14); }
-.tl__b i { position: absolute; inset: 0; background: #8fd18f; transform-origin: left; }
+.tl__b { position: relative; height: 6px; background: rgba(236, 234, 227, 0.14); }
+.tl__b i { position: absolute; inset: 0; background: var(--good); transform-origin: left; }
 /* the working load limit (1/5 of the break for wire rope, 1/4 for chain) is a tick; the bar's end is the break */
 .tl__b em { position: absolute; left: 20%; top: -2px; bottom: -2px; width: 1px; background: rgba(236, 234, 227, 0.55); }
 .tl__p { text-align: right; font-variant-numeric: tabular-nums; }
-.tl.is-amber .tl__b i { background: #ffb020; }
+.tl.is-amber .tl__b i { background: var(--amber); }
+.tl.is-amber .tl__p { color: var(--amber); }
 .tl.is-red .tl__b i { background: var(--bad); }
 .tl.is-red .tl__p { color: var(--bad); font-weight: 700; }
+/* not by colour alone: over the limit is marked, past 60 % of the break doubly */
+.tl.is-amber .tl__p::before { content: '▲ '; }
+.tl.is-red .tl__p::before { content: '▲▲ '; }
 
 /* demolition firing plan */
 
 .hud-seq {
   display: none;
-  width: min(34rem, calc(100vw - 2 * var(--gut)));
   padding: 0.45rem 0.8rem 0.25rem;
   border: 1px solid rgba(255, 196, 0, 0.35);
   background: var(--plate-solid);
+}
+
+.hud.is-stacked .hud-seq {
+  width: 100%;
 }
 
 .hud-seq.is-on {
@@ -2543,7 +2627,7 @@ svg {
   position: relative;
   height: 0.9rem;
   font-family: var(--f-mono);
-  font-size: 0.55rem;
+  font-size: max(10.5px, 0.6rem);
   color: var(--c-400);
 }
 
@@ -2552,83 +2636,59 @@ svg {
   transform: translateX(-50%);
 }
 
-.wbank:not(.is-active) {
-  gap: 0.25rem;
-  opacity: 0.62;
-}
+/* hotbar: the wheel key, the six quick slots, and the tool in hand when it is on none of them */
 
-.wbank.is-void:not(.is-active) {
-  display: none;
-}
-
-.wbank__slots {
+.hotbar {
+  --slot: 4.6rem;
   display: flex;
-  gap: inherit;
+  align-items: stretch;
+  gap: 0.4rem;
+  max-width: 100%;
 }
 
-.wbank__tag {
+.hb-wheel {
   display: grid;
   place-items: center;
-  min-width: 1.5rem;
-  padding: 0 0.3rem;
-  border: 1px solid var(--plate-edge);
+  align-content: center;
+  gap: 0.25rem;
+  width: 3.6rem;
+  padding: 0.3rem 0.2rem;
+  border: 1px dashed rgba(236, 234, 227, 0.3);
   background: var(--plate-solid);
-  font-family: var(--f-mono);
   font-weight: 800;
-  font-size: 0.66rem;
-  color: var(--c-400);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   text-shadow: none;
+  color: var(--c-300);
 }
 
-.wbank.is-active .wbank__tag {
+.hb-wheel .kbd {
+  color: var(--hazard);
+}
+
+.hotbar.is-new .hb-wheel {
+  border-style: solid;
   border-color: var(--hazard);
-  background: var(--hazard);
-  color: var(--ink);
+  color: var(--hazard);
+  animation: hb-call 1.6s ease-in-out infinite;
 }
 
-.wbank__swap {
-  display: grid;
-  place-items: center;
-  color: var(--c-200);
-}
-
-.wbank.is-active .wbank__swap,
-.weapons.is-single .wbank__tag,
-.weapons.is-single .wbank__swap {
-  display: none;
-}
-
-.wbank:not(.is-active) .wslot {
-  width: 2.5rem;
-  padding: 0.3rem 0.25rem 0.4rem;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  background: var(--plate-solid);
-}
-
-.wbank:not(.is-active) .wslot__name,
-.wbank:not(.is-active) .wslot__ammo,
-.wbank:not(.is-active) .wslot__key {
-  display: none;
-}
-
-.wbank:not(.is-active) .wslot__icon svg {
-  width: 1.2rem;
-  height: 1.2rem;
-  margin-top: 0;
-}
-
-.wbank:not(.is-active) .wslot.is-sel {
-  transform: none;
+@keyframes hb-call {
+  50% {
+    box-shadow: 0 0 0 0.25rem rgba(255, 196, 0, 0.25);
+  }
 }
 
 .wslot {
   position: relative;
   display: grid;
   justify-items: center;
+  align-content: center;
   gap: 0.18rem;
-  width: 5.4rem;
-  padding: 0.55rem 0.45rem 0.6rem;
+  width: var(--slot);
+  min-width: 0;
+  padding: 0.5rem 0.35rem 0.55rem;
   border: 1px solid var(--plate-edge);
   background: var(--plate);
   -webkit-backdrop-filter: blur(8px);
@@ -2641,16 +2701,35 @@ svg {
     opacity 0.2s;
 }
 
+/* a contract that issues fewer than six tools shows only what it issued */
+.wslot.is-free {
+  display: none;
+}
+
+.wslot--loose {
+  margin-left: 0.5rem;
+}
+
+.wslot--loose::before {
+  content: '';
+  position: absolute;
+  left: -0.48rem;
+  top: 20%;
+  bottom: 20%;
+  width: 1px;
+  background: var(--line);
+}
+
 .wslot__key {
   position: absolute;
   left: 0.3rem;
   top: 0.28rem;
   padding: 0 0.22rem;
   font-family: var(--f-mono);
-  font-size: 0.58rem;
+  font-size: max(11px, 0.62rem);
   font-weight: 700;
   line-height: 1.4;
-  color: var(--c-400);
+  color: var(--c-300);
 }
 
 .wslot__ammo {
@@ -2658,16 +2737,16 @@ svg {
   right: 0.35rem;
   top: 0.26rem;
   font-family: var(--f-mono);
-  font-size: 0.7rem;
+  font-size: max(11px, 0.7rem);
   font-weight: 700;
   line-height: 1.4;
   color: var(--c-200);
 }
 
 .wslot__icon svg {
-  width: 1.9rem;
-  height: 1.9rem;
-  margin-top: 0.3rem;
+  width: 1.8rem;
+  height: 1.8rem;
+  margin-top: 0.35rem;
   color: var(--c-200);
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
 }
@@ -2676,8 +2755,8 @@ svg {
   max-width: 100%;
   overflow: hidden;
   font-weight: 700;
-  font-size: 0.68rem;
-  letter-spacing: 0.12em;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -2700,23 +2779,10 @@ svg {
   transform-origin: left;
 }
 
-.wslot__lock {
-  position: absolute;
-  inset: 0;
-  display: none;
-  place-items: center;
-  color: var(--c-400);
-}
-
-.wslot__lock svg {
-  width: 1.2rem;
-  height: 1.2rem;
-}
-
 .wslot.is-sel {
   border-color: var(--hazard);
-  background: rgba(34, 30, 16, 0.78);
-  transform: translateY(-0.35rem);
+  background: rgba(34, 30, 16, 0.86);
+  transform: translateY(-0.3rem);
 }
 
 .wslot.is-sel .wslot__icon svg,
@@ -2745,18 +2811,291 @@ svg {
   opacity: 0.4;
 }
 
-.wslot.is-locked {
-  opacity: 0.4;
+/* tool wheel: hold Q */
+
+.tw {
+  --dial: min(34rem, 84vmin, calc(100vh - 2 * var(--gut) - 17rem));
+  position: absolute;
+  inset: 0;
+  display: none;
+  background: radial-gradient(circle at 50% 50%, rgba(8, 8, 7, 0.7), rgba(8, 8, 7, 0.5) 45%, rgba(8, 8, 7, 0.3) 80%);
+  text-shadow: none;
 }
 
-.wslot.is-locked .wslot__icon,
-.wslot.is-locked .wslot__ammo,
-.wslot.is-locked .wslot__ready {
-  visibility: hidden;
+.tw.is-on {
+  display: block;
 }
 
-.wslot.is-locked .wslot__lock {
+.hud.is-wheel .xh,
+.hud.is-wheel .pops,
+.hud.is-wheel .hud-hint,
+.hud.is-wheel .hud-dock {
+  opacity: 0;
+}
+
+.hud.is-wheel .hud-demo {
+  opacity: 0.25;
+}
+
+.tw__dial {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--dial);
+  aspect-ratio: 1;
+  container-type: inline-size;
+  transform: translate(-50%, -50%);
+}
+
+.tw__ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.tw__sec {
+  fill: rgba(22, 22, 21, 0.82);
+  stroke: rgba(236, 234, 227, 0.16);
+  stroke-width: 0.5;
+  transition: fill 0.12s;
+}
+
+.tw__sec.is-empty {
+  fill: rgba(22, 22, 21, 0.35);
+  stroke-dasharray: 1.5 1.5;
+}
+
+.tw__sec.is-hot {
+  fill: rgba(255, 196, 0, 0.9);
+  stroke: var(--hazard);
+}
+
+.tw__track {
+  fill: none;
+  stroke: rgba(236, 234, 227, 0.12);
+  stroke-width: 0.4;
+  stroke-dasharray: 1 2;
+}
+
+.tw__cat {
+  position: absolute;
   display: grid;
+  justify-items: center;
+  width: 7.5rem;
+  max-width: 19cqw;
+  transform: translate(-50%, -50%);
+  font-weight: 800;
+  font-size: max(10px, min(0.74rem, 3.3cqw));
+  line-height: 1.05;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--c-100);
+  pointer-events: none;
+}
+
+.tw__cat small {
+  margin-top: 0.1rem;
+  font-family: var(--f-mono);
+  font-size: 0.6rem;
+  color: var(--c-400);
+}
+
+.tw__cat.is-empty {
+  color: var(--c-500);
+}
+
+.tw__cat.is-hot,
+.tw__cat.is-hot small {
+  color: var(--ink);
+}
+
+.tw__tool {
+  position: absolute;
+  display: none;
+  justify-items: center;
+  align-content: center;
+  gap: 0.1rem;
+  width: min(4.4rem, 12.5cqw);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--plate-edge);
+  border-radius: 50%;
+  background: rgba(22, 22, 21, 0.9);
+  color: var(--c-200);
+}
+
+.tw__tool.is-hot {
+  display: grid;
+}
+
+.tw__tool svg {
+  width: 46%;
+  height: 46%;
+}
+
+.tw__tool b {
+  max-width: 92%;
+  overflow: hidden;
+  font-weight: 800;
+  font-size: max(10.5px, min(0.62rem, 2.5cqw));
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tw__tool em {
+  position: absolute;
+  right: -0.2rem;
+  bottom: -0.1rem;
+  padding: 0 0.2rem;
+  background: var(--ink);
+  font-family: var(--f-mono);
+  font-style: normal;
+  font-size: max(10px, 0.56rem);
+  color: var(--c-300);
+}
+
+.tw__tool i {
+  position: absolute;
+  left: -0.2rem;
+  top: -0.1rem;
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 2px;
+  background: var(--c-200);
+  font-family: var(--f-mono);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 0.6rem;
+  color: var(--ink);
+}
+
+.tw__tool.is-cur {
+  border-color: var(--c-300);
+}
+
+.tw__tool.is-pick {
+  border: 2px solid var(--hazard);
+  background: rgba(46, 38, 10, 0.96);
+  color: var(--hazard);
+  transform: translate(-50%, -50%) scale(1.14);
+}
+
+.tw__hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.2rem;
+  width: 29cqw;
+  aspect-ratio: 1;
+  padding: 0 2cqw;
+  border-radius: 50%;
+  background: rgba(10, 10, 9, 0.88);
+  box-shadow: inset 0 0 0 1px rgba(236, 234, 227, 0.12);
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.tw__hub b {
+  font-weight: 800;
+  font-size: min(1.05rem, 4.4cqw);
+  line-height: 1.05;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hazard);
+}
+
+.tw__hub span {
+  font-family: var(--f-mono);
+  font-size: min(0.62rem, 2.8cqw);
+  color: var(--c-300);
+}
+
+.tw__ptr {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin: -0.275rem 0 0 -0.275rem;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+.tw__keys {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + var(--dial) / 2 + 0.6rem);
+  transform: translateX(-50%);
+  width: max-content;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem 1rem;
+  max-width: min(40rem, 92vw);
+  padding: 0.35rem 0.8rem;
+  background: rgba(12, 12, 11, 0.9);
+  font-weight: 600;
+  font-size: max(11.5px, 0.78rem);
+  color: var(--c-200);
+}
+
+/* a small dial: tiles are icons only (the hub names the tool under the pointer) */
+@container (max-width: 400px) {
+  .tw__tool b {
+    display: none;
+  }
+
+  /* the tile under the pointer keeps its name, under it */
+  .tw__tool.is-pick b {
+    display: block;
+    position: absolute;
+    top: 100%;
+    max-width: none;
+    margin-top: 0.15rem;
+    padding: 0 0.25rem;
+    background: var(--ink);
+  }
+
+  .tw__tool svg {
+    width: 58%;
+    height: 58%;
+  }
+}
+
+/* landscape: the legend stands beside the dial, which can then use the height down to the hotbar */
+@media (min-aspect-ratio: 4/3) {
+  .tw {
+    --dial: min(34rem, 84vmin, calc(100vh - 2 * var(--gut) - 12.5rem));
+  }
+
+  .tw__keys {
+    left: calc(50% + var(--dial) / 2 + 1.5rem);
+    top: 50%;
+    transform: translateY(-50%);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
+    max-width: calc(50vw - var(--dial) / 2 - 1.5rem - var(--gut));
+    width: auto;
+    padding: 0.6rem 0.8rem;
+  }
+}
+
+.tw__keys .kbd {
+  margin-right: 0.3rem;
+  color: var(--hazard);
 }
 
 .hud-fps {
@@ -3683,12 +4022,32 @@ svg {
     top: calc(var(--gut) + 11rem);
   }
 
+  /* the hotbar shares the width: the wheel chip, six slots and the loose tool */
+  .hotbar {
+    --slot: calc((100vw - 2 * var(--gut) - 3rem - 8 * 0.3rem) / 7);
+    gap: 0.3rem;
+  }
+
+  .hb-wheel {
+    width: 3rem;
+    font-size: 0.5rem;
+  }
+
   .wslot {
-    width: 4.2rem;
+    padding: 0.45rem 0.1rem 0.4rem;
   }
 
   .wslot__name {
     display: none;
+  }
+
+  .wslot__icon svg {
+    width: 1.45rem;
+    height: 1.45rem;
+  }
+
+  .wslot--loose {
+    margin-left: 0.25rem;
   }
 
   .hud-fps {
@@ -3699,8 +4058,13 @@ svg {
     top: calc(var(--gut) + 4.6rem);
   }
 
-  .wbank:not(.is-active) .wslot {
-    width: 2.1rem;
+  .hud-tl,
+  .hud-tr {
+    min-width: 0;
+  }
+
+  .hud.is-stacked .hud-tool {
+    max-height: 18vh;
   }
 }
 
@@ -3736,4 +4100,33 @@ svg {
   .hud-slowmo i {
     animation: none;
   }
+}
+
+/* ---------------- accessibility ---------------- */
+
+/* colour-blind palette: good and bad as blue and orange (Okabe-Ito), told apart by lightness as well as hue */
+#ui.cb {
+  --good: #56b4e9;
+  --bad: #ff7a1a;
+  --amber: #f0e442;
+}
+
+/* reduce motion: the HUD's own bumps, slides and pulses stop (the OS setting does the same, above) */
+#ui.calm *,
+#ui.calm *::before,
+#ui.calm *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+}
+
+#ui.calm .led,
+#ui.calm .ptr__card svg,
+#ui.calm .hotbar.is-new .hb-wheel {
+  animation: none;
+}
+
+/* reduce flashing: the armed LED holds steady */
+#ui.dim-flash .led {
+  animation: none;
 }
