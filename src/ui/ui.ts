@@ -6,7 +6,7 @@ import { clamp } from 'math';
 import { easing, spring } from 'math/time';
 import { audio } from '../audio/audio';
 import { DEFAULT_SETTINGS, WORLD_DEFAULTS } from '../core/save';
-import { ACTIONS, RESERVED, captureKey, codeLabel, bindingOf, usingPad, type Action as KeyAction } from '../core/input';
+import { ACTIONS, RESERVED, captureKey, codeLabel, bindingOf, usingPad, PAD_LABEL, type Action as KeyAction } from '../core/input';
 import { WEAPON_ICON, STAR, LOCK, MOUSE, WARN, SEARCH } from './icons';
 import { CATS, DEAD, LOCK as LOCK_R, TOOL_R, SECTOR, fanAngle, type Wheel } from '../game/toolsel';
 import { TOOL_HELP, type Btn } from './toolhelp';
@@ -44,6 +44,23 @@ const controls = (): KeyRow[] => [
   [K('restart'), 'Restart'],
   ['Esc', 'Pause · every key can be changed in Settings'],
   ['Gamepad', 'Sticks move/look · A jump · B crouch · X drive · Y detonate · RT/LT fire/second · LB/RB tool setting or next tool · D-pad ↑ hold: tool wheel (right stick points, A takes) · L3 sprint · R3 zoom · Start pause'],
+];
+
+/** the pause list while a pad is in use */
+const padControls = (): KeyRow[] => [
+  ['L stick · R stick', 'Move · look'],
+  ['A', 'Jump · climb what is in front'],
+  ['B', 'Crouch'],
+  ['L3 · R3', 'Sprint · zoom (hold)'],
+  ['D-pad ↓', 'Careful: slow, quiet walk · with the stick, lean'],
+  ['RT · LT', 'Fire / use the tool · the tool’s second action, else detonate'],
+  ['Y', 'Detonate charges / fire the sequence'],
+  ['LB · RB', 'Tool setting (charge size, delay…), else the previous / next quick slot'],
+  ['D-pad ← →', 'Quick slots'],
+  ['D-pad ↑', 'Hold: tool wheel (right stick points, LB RB step, A takes, B cancels) · tap: last tool'],
+  ['X', 'Drive a vehicle / operate a machine / get out'],
+  [PAD_LABEL.xray ?? 'View', 'Engineer’s x-ray'],
+  ['Start', 'Pause · Sign off the job is in this menu'],
 ];
 
 const freeControls = (): KeyRow[] => [
@@ -103,7 +120,7 @@ const stars = (n: number) =>
   `<span class="stars" role="img" aria-label="${n} of 3 stars">${[0, 1, 2].map(i => `<i class="${i < n ? 'on' : ''}">${STAR}</i>`).join('')}</span>`;
 const keyRows = (rows: readonly KeyRow[]) => rows.map(([k, d]) => `<dt><span class="kbd">${k}</span></dt><dd>${d}</dd>`).join('');
 const keys = (free: boolean) =>
-  `<dl class="keys">${keyRows(controls())}</dl>` +
+  `<dl class="keys">${keyRows(usingPad() ? padControls() : controls())}</dl>` +
   (free ? `<h3 class="label">Free play</h3><dl class="keys">${keyRows(freeControls())}</dl>` : '');
 const windLabel = (w: number) => (w < 0.05 ? 'Calm' : w < 0.3 ? 'Breeze' : w < 0.55 ? 'Gusty' : w < 0.8 ? 'Gale' : 'Storm');
 const btn = (act: string, label: string, cls = '', key = '') =>
@@ -485,12 +502,12 @@ function bindInput(): void {
   });
 
   // the mouse is back: focus marks return to the browser's own judgement
-  r.addEventListener('pointermove', e => { if (Math.abs(e.movementX) + Math.abs(e.movementY) > 3) r.classList.remove('nav-keys'); });
+  r.addEventListener('pointermove', e => { if (Math.abs(e.movementX) + Math.abs(e.movementY) > 3) { r.classList.remove('nav-keys'); if (current !== null) chipLabels(); } });
   r.addEventListener('pointerdown', e => {
     if (current === 'results' && resFinish && !(e.target as Element).closest('button')) finishResults();
   });
 
-  window.addEventListener('keydown', e => { if (e.key === 'Enter') enterHeld = true; });
+  window.addEventListener('keydown', e => { if (e.key === 'Enter') enterHeld = true; if (current !== null) chipLabels(); });
   window.addEventListener('keydown', onKey);
   window.addEventListener('keyup', e => {
     if (e.key !== 'Enter') return;
@@ -550,7 +567,7 @@ function back(): boolean {
   else if (s === 'results') {
     if (performance.now() - resultsAt < 900) return true;
     if (resFinish) { finishResults(); return true; }
-    run('onQuit');
+    run('onBack');
   } else return false;
   return true;
 }
@@ -683,8 +700,14 @@ function act(a: string, el: HTMLElement): void {
 /* ---------------- screens ---------------- */
 
 /** the pause menu offers "sign off" on a contract (a pad has no Enter) */
-export function setSignOff(on: boolean): void {
-  root?.querySelectorAll<HTMLElement>('[data-act="signoff"]').forEach(b => { b.hidden = !on; });
+export function setSignOff(on: boolean, met = true): void {
+  root?.querySelectorAll<HTMLElement>('[data-act="signoff"]').forEach(b => {
+    b.hidden = !on;
+    const l = b.querySelector('.btn__l');
+    // signing off short of the target fails the job: the button says so
+    if (l) l.textContent = met ? 'Sign off the job' : 'Sign off — target not met';
+    b.classList.toggle('btn--danger', !met);
+  });
 }
 
 /* key chips on menu buttons read as the pad's buttons while a pad is what the player is using */
@@ -1496,8 +1519,13 @@ export function setWheel(v: WheelView | null): void {
       }).join('')).join('') +
       `<div class="tw__hub"><b data-tw="name"></b><span data-tw="meta"></span></div><i class="tw__ptr" data-tw="ptr"></i>`;
   }
+  // ammo moves between openings (and between jobs with the same tools): the tiles read it fresh each time
+  for (const em of R.twDial.querySelectorAll<HTMLElement>('.tw__tool em')) {
+    const id = (em.parentElement as HTMLElement).dataset.id as WeaponId, t = ammoTxt(id);
+    if (em.textContent !== t) em.textContent = t;
+  }
   const w = v.wheel;
-  const hot = `${w.cat}|${w.tool}|${v.pad}|${v.pins}`;
+  const hot = `${w.cat}|${w.tool}|${v.pad}|${v.pins}|${ammoTxt(w.tool ?? 'hammer')}`;
   const ptr = R.twDial.querySelector<HTMLElement>('[data-tw="ptr"]')!;
   ptr.style.transform = `translate(${(w.x * 50).toFixed(2)}cqw, ${(w.y * 50).toFixed(2)}cqw)`;
   if (hot === twHot) return;

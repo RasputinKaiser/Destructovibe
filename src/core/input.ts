@@ -89,6 +89,8 @@ export const pad = {
   rx: 0, ry: 0,
   /** D-pad left/right this frame: steps through the quick slots */
   slot: 0,
+  /** bumpers this frame: +1 RB (more, next), -1 LB */
+  bump: 0,
   held: new Set<Action>(),
   hit: new Set<Action>(),
   /** menu navigation this frame: D-pad or left stick (repeating while held), A, B, Start */
@@ -104,6 +106,12 @@ let navDir = '', navNext = 0;
 const DEAD = 0.16;
 let padBits = 0, padPrev: boolean[] = [];
 /** standard mapping: button index → action (fire/secondary/wheel/pause handled apart) */
+/** the pad's button for an action, where it has one (prompts and hints while a pad is in use) */
+export const PAD_LABEL: Partial<Record<Action, string>> = {
+  jump: 'A', crouch: 'B', interact: 'X', detonate: 'Y', sprint: 'L3', zoom: 'R3', bank: 'D-pad ↑', careful: 'D-pad ↓', xray: 'View',
+};
+/** the key (or, while a pad is in use, the button) the player would press for an action */
+export function keyName(a: Action): string { return usingPad() && PAD_LABEL[a] ? PAD_LABEL[a]! : keyLabel(a); }
 const PAD: [number, Action][] = [[0, 'jump'], [1, 'crouch'], [2, 'interact'], [3, 'detonate'], [10, 'sprint'], [11, 'zoom'], [12, 'bank'], [13, 'careful'], [8, 'xray']];
 
 function stick(x: number, y: number): [number, number] {
@@ -137,9 +145,10 @@ export function pollPad(): boolean {
   padBits = (b(7) ? 1 : 0) | (b(6) ? 4 : 0);
   if (edge(7)) input.clicked |= 1;
   if (edge(6)) input.clicked |= 4;
-  // bumpers are the mouse wheel (the tool's setting, else the next quick slot); D-pad left/right always step the slots
-  if (edge(4)) input.wheel -= 1;
-  if (edge(5)) input.wheel += 1;
+  // bumpers: RB more / next, LB less / previous (the tool's setting, else the quick slots); D-pad left/right always step
+  // the slots
+  if (edge(4)) pad.bump -= 1;
+  if (edge(5)) pad.bump += 1;
   if (edge(14)) pad.slot -= 1;
   if (edge(15)) pad.slot += 1;
   input.buttons = mouseBits | padBits;
@@ -276,6 +285,7 @@ export function releaseLock(): void {
 
 export function endFrame(): void {
   pad.slot = 0;
+  pad.bump = 0;
   input.pressed.clear();
   input.clicked = 0;
   input.mouseDX = 0;

@@ -2833,6 +2833,10 @@ svg {
   opacity: 0;
 }
 
+.hud.is-wheel .hud-demo {
+  opacity: 0.25;
+}
+
 .tw__dial {
   position: absolute;
   left: 50%;

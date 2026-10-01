@@ -46,7 +46,7 @@ import * as scoring from './game/scoring';
 import { driving, vehicleNear, enterVehicle, exitVehicle, driveControls, driveLook, driveCamera, driveHud } from './vehicles/drive';
 import { operating, machineNear, enterMachine, exitMachine, operateControls, operateLook, operateCamera, operateHud, vehicleGear, releaseVehicleGear } from './vehicles/operate';
 import { svcInfo, svcNearestGate, svcOperate, serviceStrikes } from './destruction/services';
-import { input, initInput, requestLock, releaseLock, endFrame, hit as tapped, held, consume, pollPad, pad, usingPad, canonical, setBindings, keyLabel } from './core/input';
+import { input, initInput, requestLock, releaseLock, endFrame, hit as tapped, held, consume, pollPad, pad, usingPad, canonical, setBindings, keyName as keyLabel } from './core/input';
 import { fans, quickSlots, pin, wheelStart, wheelAt, wheelStep, type Wheel } from './game/toolsel';
 import { loadSave, writeSave, WORLD_DEFAULTS, type SaveData } from './core/save';
 import {
@@ -375,7 +375,7 @@ function beginPlay(title: string): void {
   ui.setPointerHint(!input.locked && !usingPad());
   clockOn = mode === 'sandbox';
   const wheelTip = (save.seen.wheel ?? 0) < 2 && toolFans.filter(f => f.length).length > 1 ? ` · hold ${keyLabel('bank')} for every tool` : '';
-  flashHint(mode === 'sandbox' ? `${keyLabel('fly')} — fly · ${keyLabel('restart')} — rebuild site${wheelTip}` : `Target ${Math.round(active.target * 100)}% · the clock starts when you move or fire · Enter calls it early${wheelTip}`, 6);
+  flashHint(mode === 'sandbox' ? `${keyLabel('fly')} — fly · ${keyLabel('restart')} — rebuild site${wheelTip}` : `Target ${Math.round(active.target * 100)}% · the clock starts when you move or fire · ${usingPad() ? 'Start → Sign off' : 'Enter'} calls it early${wheelTip}`, 6);
   ui.toast(title.toUpperCase(), 'info', 1800);
 }
 
@@ -394,7 +394,7 @@ function pause(): void {
   closeWheel();
   wheelDown = -1;
   state = 'paused';
-  ui.setSignOff(mode === 'campaign');
+  ui.setSignOff(mode === 'campaign', mode === 'campaign' && scoring.goalMet(active.target));
   audio.setPaused(true);
   ui.showScreen('pause');
 }
@@ -890,6 +890,7 @@ function handleTools(busy: boolean): boolean {
   if (pad.connected && Math.hypot(pad.rx, pad.ry) > 0.3) wheelAt(wheel, pad.rx, pad.ry, toolFans);
   else if (input.mouseDX || input.mouseDY) wheelAt(wheel, wheel.x + input.mouseDX / WHEEL_PX, wheel.y + input.mouseDY / WHEEL_PX, toolFans);
   if (input.wheel) wheelStep(wheel, input.wheel > 0 ? 1 : -1, toolFans);
+  if (pad.bump) wheelStep(wheel, Math.sign(pad.bump), toolFans);
   // pins only mean something where the slots are the player's to arrange (more tools issued than slots)
   for (let k = 1; k <= 6; k++) {
     if (!input.pressed.has(`Digit${k}`) || !wheel.tool || !pinnable()) continue;
@@ -959,6 +960,11 @@ function handleInput(): void {
     if (input.wheel) {
       ui.toolPoke();
       if (!toolWheel(input.wheel > 0 ? -1 : 1)) cycleSlots(input.wheel > 0 ? 1 : -1);
+    }
+    // the pad's bumpers: RB raises the setting or takes the next slot, LB the other way
+    if (pad.bump) {
+      ui.toolPoke();
+      if (!toolWheel(Math.sign(pad.bump))) cycleSlots(Math.sign(pad.bump));
     }
     const lmb = (input.buttons & 1) !== 0 || devHold;
     if (lmb && !busy) { tryFire(); ui.toolPoke(); }
@@ -1114,9 +1120,9 @@ function updateHudState(): void {
     : nearVehicle ? `${keyLabel('interact')} — drive`
     : nearMachine ? `${keyLabel('interact')} — operate`
     : svcHint ? svcHint
-    : xrayMode() === 'stress' ? (save.settings.colorblind ? 'X-RAY · joints: blue idle · teal loaded · yellow at capacity · white past it · magenta yielding · X to cycle' : 'X-RAY · joints: green idle · yellow loaded · red at capacity · magenta yielding · X to cycle')
-    : xrayMode() === 'thermal' ? 'X-RAY · thermal: blue ambient → purple → orange 500 °C → white 1000 °C · X to cycle'
-    : xrayMode() === 'fields' ? 'X-RAY · fields: temperature, smoke and fuel gas around the action · X to cycle'
+    : xrayMode() === 'stress' ? (save.settings.colorblind ? `X-RAY · joints: blue idle · teal loaded · yellow at capacity · white past it · magenta yielding · ${keyLabel('xray')} to cycle` : `X-RAY · joints: green idle · yellow loaded · red at capacity · magenta yielding · ${keyLabel('xray')} to cycle`)
+    : xrayMode() === 'thermal' ? `X-RAY · thermal: blue ambient → purple → orange 500 °C → white 1000 °C · ${keyLabel('xray')} to cycle`
+    : xrayMode() === 'fields' ? `X-RAY · fields: temperature, smoke and fuel gas around the action · ${keyLabel('xray')} to cycle`
     : xrayMode() === 'services' ? 'X-RAY · services: yellow power · orange gas · blue water · white steam · grey dead · beads run from supply to load · green ring isolated (flashing amber: tripped) · amber standby set · white on battery · pulsing = live break · green = running machine'
       + (save.settings.colorblind ? ' · device lamps: blue isolated, vermillion live, flashing yellow tripped' : '')
     : hud.chargesPlaced > 0 ? `${hud.chargesPlaced} charge${hud.chargesPlaced > 1 ? 's' : ''} armed — ${keyLabel('detonate')}${loadout.current === 'charge' || loadout.current === 'cutter' || loadout.current === 'planner' ? ' / right-click' : ''} to detonate` : null;
@@ -1313,7 +1319,7 @@ async function boot(): Promise<void> {
     onStartContract: () => void startContract(contractIdx),
     onBack: () => {
       if (state === 'contracts') void showTitle();
-      else if (state === 'briefing') showContracts();
+      else if (state === 'briefing' || state === 'results') showContracts();
       else if (state === 'settings') {
         state = settingsReturn;
         ui.showScreen(settingsReturn === 'paused' ? 'pause' : 'title');
@@ -1323,6 +1329,7 @@ async function boot(): Promise<void> {
     onSignOff: () => {
       if (state !== 'paused' || mode !== 'campaign') return;
       state = 'playing';
+      audio.setPaused(false);
       finish(scoring.goalMet(active.target));
     },
     onRestart: () => restart(),
