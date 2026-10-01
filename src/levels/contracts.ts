@@ -259,7 +259,7 @@ const low = (p: PieceSpec) => pieceAabb(p).min[1];
    fills it. (The free-play car park keeps its blind tower.) */
 function stairTowerOpenings(bp: Blueprint): Blueprint {
   const pieces = bp.pieces.map((p) => {
-    if (p.group !== 'carpark' || p.mat !== 'cinderblock' || !p.parts || Math.abs(p.size[0] - 3.2) > 0.01 || Math.abs(p.size[2] - 3.2) > 0.01) return p;
+    if (p.group !== 'stairtower' || p.mat !== 'cinderblock' || !p.parts || Math.abs(p.size[0] - 3.2) > 0.01 || Math.abs(p.size[2] - 3.2) > 0.01) return p;
     const [cx, cy, cz] = p.pos, a = 1.6, b = 1.35, y0 = cy - p.size[1] / 2, y1 = cy + p.size[1] / 2;
     const o = { tint: p.tint };
     const x = (u: number, v: number): [number, number] => [cx + u, cx + v], z = (u: number, v: number): [number, number] => [cz + u, cz + v];
@@ -505,15 +505,18 @@ const DOWNTOWN_JOBS: Job[] = [
       + 'the middle one). The decks are open-sided and will not hold a blast; the stair tower on the west end will: thermobaric '
       + 'rounds go in through its windows, and the recoilless takes out what is left standing. The tower behind you is '
       + 'occupied, and the recoilless rifle throws its backblast five metres.',
-    target: 0.88,
+    target: 0.9,
     par: 300,
     stars: [0, 0],
-    ammo: { hammer: -1, buster: 1, thermobaric: 3, recoilless: 4 },
+    ammo: { hammer: -1, buster: 1, thermobaric: 4, recoilless: 4 },
     env: 'dusk',
     protectedNote: 'PROTECTED: the tower south of the car park, behind the firing point.',
-    goal: { groups: ['carpark'], what: 'the car park' },
-    tip: 'A penetrator that goes off under the roof only lifts it: count two voids and let it fire inside the decks. Then a thermobaric round through each stair-tower window.',
-    build: () => stairTowerOpenings(scoped(downtown(), { clear: except(DT_BLOCKS, 'carpark', 'skyscraper2'), protect: ['skyscraper2'], spawn: [-15, 0, -30, Math.PI] })),
+    goal: { groups: ['carpark', 'stairtower'], what: 'the car park' },
+    tip: 'A penetrator that goes off under the roof only lifts it: count two voids and let it fire inside the decks. What the decks leave standing is the stair tower: walk in close, over the rubble, and put a thermobaric round through its highest window.',
+    build: () => stairTowerOpenings(scoped(downtown(), {
+      clear: except(DT_BLOCKS, 'carpark', 'skyscraper2'), protect: ['skyscraper2'], spawn: [-15, 0, -30, Math.PI],
+      retag: [['stairtower', (p) => p.group === 'carpark' && p.pos[0] < -24.3]],
+    })),
   },
 ];
 
