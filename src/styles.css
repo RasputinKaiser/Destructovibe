@@ -287,6 +287,21 @@ svg {
   outline-offset: 3px;
 }
 
+/* driven by arrows or a pad: whatever has focus says so, however the browser judged the last input */
+#ui.nav-keys .btn:focus,
+#ui.nav-keys .card:focus,
+#ui.nav-keys .keycap:focus,
+#ui.nav-keys .switch:focus,
+#ui.nav-keys .range:focus,
+#ui.nav-keys .seg label:has(input:focus) {
+  outline: 2px solid var(--hazard);
+  outline-offset: 3px;
+}
+
+#ui.nav-keys .btn:focus::before {
+  transform: scaleY(1);
+}
+
 .btn__k {
   flex: none;
   padding: 0.22rem 0.4rem 0.18rem;
@@ -2671,10 +2686,9 @@ svg {
     opacity 0.2s;
 }
 
+/* a contract that issues fewer than six tools shows only what it issued */
 .wslot.is-free {
-  opacity: 0.35;
-  background: transparent;
-  border-style: dashed;
+  display: none;
 }
 
 .wslot--loose {

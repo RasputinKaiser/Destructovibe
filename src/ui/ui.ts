@@ -482,6 +482,8 @@ function bindInput(): void {
     if (b && !b.classList.contains('is-locked')) audio.ui('hover');
   });
 
+  // the mouse is back: focus marks return to the browser's own judgement
+  r.addEventListener('pointermove', e => { if (Math.abs(e.movementX) + Math.abs(e.movementY) > 3) r.classList.remove('nav-keys'); });
   r.addEventListener('pointerdown', e => {
     if (current === 'results' && resFinish && !(e.target as Element).closest('button')) finishResults();
   });
@@ -511,7 +513,7 @@ function onKey(e: KeyboardEvent): void {
     const valued = t instanceof HTMLInputElement && (t.type === 'range' || t.type === 'radio');
     if (valued && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
     e.preventDefault();
-    move(({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const)[e.key as 'ArrowUp'] ?? 'down', false);
+    move(({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const)[e.key as 'ArrowUp'] ?? 'down', true);
     return;
   }
   // an Enter held from "sign off" must not press the report's focused button before it has been read
@@ -558,6 +560,7 @@ function controlsOf(scope: Element): HTMLElement[] {
 }
 
 function focusEl(el: HTMLElement, pad: boolean): void {
+  if (pad) root?.classList.add('nav-keys');
   (el.focus as (o?: FocusOptions & { focusVisible?: boolean }) => void)({ preventScroll: false, focusVisible: pad || undefined });
   el.closest('.seg, .set-row, .card, .btn')?.scrollIntoView({ block: 'nearest' });
 }
