@@ -1955,3 +1955,70 @@ export function cabinTex(emissive: boolean): THREE.Texture {
     g.fillStyle = '#111'; g.font = `bold 18px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('SITE OFFICE', 317, 190, 104);
   });
 }
+
+/** Distant tree impostors, 2×2 cells (two conifers, two broadleaves), each a tree seen from the side with its base at the
+    cell's bottom edge. R = coverage, G = sideways normal (0.5 = facing), B = how far out in the crown (1 outer and lit,
+    0 deep inside), A = 255 for foliage, 0 for trunk. Linear data, not colour. */
+export function treeAtlas(): THREE.DataTexture {
+  const n = 512, c = 256, d = new Uint8ClampedArray(n * n * 4), r = makeRng(4711), f0 = fld(0), f2 = fld(2), f3 = fld(3);
+  for (let cell = 0; cell < 4; cell++) {
+    const ox = (cell & 1) * c, oy = (cell >> 1) * c, conifer = cell < 2;
+    const sx = r() * 256, sy = r() * 256;
+    // broadleaf crown: clumps of foliage round a loose ellipse, biggest near the middle
+    const clumps: number[] = [];
+    if (!conifer) {
+      const cy = 0.6 + r() * 0.06, ry = 0.3 + r() * 0.05, rx = 0.7 + r() * 0.15;
+      for (let i = 0; i < 16; i++) {
+        const a = r() * Math.PI * 2, q = Math.sqrt(r());
+        const x = Math.cos(a) * q * rx * 0.62, y = cy + Math.sin(a) * q * ry * 0.75;
+        clumps.push(x, y, (0.15 + r() * 0.12) * (1.15 - 0.5 * q));
+      }
+    }
+    const trunkTop = conifer ? 0.16 : 0.42, trunkW = conifer ? 0.045 : 0.06;
+    const tiers = 6 + Math.floor(r() * 3), lean = (r() - 0.5) * 0.06;
+    for (let y = 0; y < c; y++) for (let x = 0; x < c; x++) {
+      const px = ((x + 0.5) / c) * 2 - 1, py = (y + 0.5) / c;
+      const nn = tap(f0, sx + px * 60, sy + py * 60) * 0.5 + tap(f2, sx + px * 130, sy + py * 130) * 0.35 + tap(f3, sx + px * 260, sy + py * 260) * 0.15;
+      let cov = 0, nx = 0, out = 0, trunk = 0;
+      if (conifer) {
+        const h = (py - trunkTop * 0.6) / (1 - trunkTop * 0.6);
+        if (h > 0 && h < 1) {
+          // stacked tiers that droop at the tips: the crown edge is a sawtooth, narrowing to the leader
+          const tier = h * tiers, tf = tier - Math.floor(tier);
+          const R = 0.82 * Math.pow(1 - h, 0.95) * (0.72 + 0.28 * tf) + 0.02;
+          const ex = Math.abs(px - lean * h) / R;
+          const edge = 0.78 + 0.34 * (nn - 0.5) * 2 * 0.5;
+          cov = 1 - smooth(edge - 0.12, edge + 0.04, ex);
+          nx = (px - lean * h) / R;
+          out = smooth(0.2, 0.95, ex) * (0.55 + 0.45 * tf);
+        }
+      } else {
+        let best = 0, bnx = 0, bo = 0;
+        for (let k = 0; k < clumps.length; k += 3) {
+          const dx = (px - clumps[k]) / clumps[k + 2], dy = (py - clumps[k + 1]) / clumps[k + 2];
+          const q = 1 - (dx * dx + dy * dy);
+          if (q > best) { best = q; bnx = dx; bo = 1 - q; }
+        }
+        const edge = 0.08 + 0.5 * (nn - 0.5);
+        cov = smooth(edge, edge + 0.12, best);
+        nx = bnx * 0.8 + px * 0.4;
+        out = clamp01(bo * 0.8 + (py - 0.45) * 0.6 + (nn - 0.5) * 0.4);
+      }
+      // trunk (and a fork or two for the broadleaf), behind the foliage
+      if (cov < 0.5 && py < trunkTop + (conifer ? 0.1 : 0.12)) {
+        const w = trunkW * (1.2 - py * 0.8);
+        if (Math.abs(px - lean * py) < w) { trunk = 1; cov = 1; nx = (px - lean * py) / w; out = 0.4; }
+        if (!conifer && py > trunkTop * 0.7) for (const s of [-1, 1]) {
+          const bx = s * (py - trunkTop * 0.7) * 1.4;
+          if (Math.abs(px - bx) < w * 0.6) { trunk = 1; cov = 1; nx = s * 0.5; out = 0.35; }
+        }
+      }
+      const o = ((oy + y) * n + ox + x) * 4;
+      d[o] = cov * 255; d[o + 1] = (clamp01(nx * 0.5 + 0.5)) * 255; d[o + 2] = clamp01(out) * 255; d[o + 3] = trunk ? 0 : 255;
+    }
+  }
+  const t = dataTex(d, n, n, false, false);
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  return t;
+}
