@@ -111,7 +111,7 @@ export interface Survey {
    curve since (time constant V / (A·a0), the blown-out walls' area included), is there when the next goes off. The peak
    is that of all of it; what the next one adds to the room's members is the rise it makes (n charges at once load the
    room as one of n·W), while walls and joints are judged on the whole of it. */
-const roomGas: { min: Vec3; max: Vec3; P: number; T: number; t: number }[] = [];
+const roomGas: { min: Vec3; max: Vec3; P: number; V: number; T: number; t: number }[] = [];
 export function clearRoomGas(): void { roomGas.length = 0; }
 
 const UNREACHED = 65535;
@@ -195,8 +195,9 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
   let seed = c0;
   const dir = face ?? (occ0[c0] ? airSide(pos) : null);
   if (dir) {
-    // out of the cell it shares with its wall into the first air on its side; anything else solid in the way within a
-    // metre (furniture, the other wall of a passage) and it is judged from its own cell if that is air, else in the open
+    // out through its own wall (solid cells up to half a metre along the normal: a wall's thickness) into the first air
+    // on its side; anything solid past that within a metre (furniture, the other wall of a passage) and it is judged
+    // from its own cell if that is air, else in the open
     seed = -1;
     for (let k = 0.25; k <= 1.0; k += 0.25) {
       const sx = Math.floor(pos[0] + dir[0] * k) - x0, sy = Math.floor(pos[1] + dir[1] * k) - y0, sz = Math.floor(pos[2] + dir[2] * k) - z0;
@@ -293,7 +294,7 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
   const cw = Math.cbrt(W);
   const held = heldBy(V, Av);
   const confined = tail > 0 && V > 1 && held > 0 && Wg > 0;
-  let Pqs = 0, tg = 0, iGas0 = 0, iGasAll = 0, iMulti = 0, Pres = 0;
+  let Pqs = 0, tg = 0, iGas0 = 0, iGasAll = 0, iMulti = 0, Pres = 0, Vres = V;
   let Wroom = Wg;
   if (confined) {
     const sx = x0 + (seed % n) + 0.5, sy = y0 + sy0 + 0.5, sz = z0 + ((seed / (n * n)) | 0) + 0.5;
@@ -301,9 +302,10 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
       const r = roomGas[k], dt = now - r.t;
       if (dt < 0 || dt > 2) { roomGas.splice(k, 1); continue; }
       // the room's latest state only: it already holds what came before it
-      if (sx > r.min[0] && sx < r.max[0] && sy > r.min[1] && sy < r.max[1] && sz > r.min[2] && sz < r.max[2]) { Pres = blowDown(r.P, r.T, dt).P; break; }
+      if (sx > r.min[0] && sx < r.max[0] && sy > r.min[1] && sy < r.max[1] && sz > r.min[2] && sz < r.max[2]) { Pres = blowDown(r.P, r.T, dt).P; Vres = r.V; break; }
     }
-    Wroom = gasMass(Pres, V) + Wg;
+    // the gas that is there, as the mass that made it in the room it filled
+    Wroom = gasMass(Pres, Vres) + Wg;
     Pqs = gasPressure(Wroom, V);
     /* the gas builds only to what the room holds (held) and blows down from there through its vents */
     tg = (V / (Math.max(LEAK, Av) * A0)) * Math.log((Pqs * held + P0) / P0) / 2.13;
@@ -311,7 +313,7 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
     iGas0 = Math.max(0, iGasAll - gasImpulse(Pres * held, V, Av));
     const Zr = Math.max(1, 0.5 * Math.cbrt(V)) / cw;
     iMulti = 0.75 * cw * iso(Zr) * cr(pso(Zr));
-    roomGas.push({ min: [x0 + rmin[0], y0 + rmin[1], z0 + rmin[2]], max: [x0 + rmax[0] + 1, y0 + rmax[1] + 1, z0 + rmax[2] + 1], P: Pqs, T: V / (Math.max(LEAK, Av) * A0), t: now });
+    roomGas.push({ min: [x0 + rmin[0], y0 + rmin[1], z0 + rmin[2]], max: [x0 + rmax[0] + 1, y0 + rmax[1] + 1, z0 + rmax[2] + 1], P: Pqs * held, V, T: V / (Math.max(LEAK, Av) * A0), t: now });
   }
   const s: Survey = {
     pos: [pos[0], pos[1], pos[2]], W, cw, radius, free, x0, y0, z0, n, occ, steps, roofed, confined, Wg: Wroom, V, Av, held, Pqs, Pres, tg, iGas0, iGas: iGas0, iGasAll, iMulti,

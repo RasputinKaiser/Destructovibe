@@ -3750,10 +3750,15 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
     const inside = bl.confined && fields.inRoom(bl, wp);
     if (d > reach && !inside) continue;
     const lf = fields.loadFactors(bl, wp, d);
-    // a joint is judged on the room's whole gas, not only what this charge added to it
-    const hit = (Math.max(0, 1 - d / reach) * kW * Math.sqrt(lf.shadow) + Math.sqrt(lf.gasAll) * 0.9 * kWg) * blastShield(w.b ? wp : w.a.curPos, power / 60e3);
+    /* a joint fails on the room's whole gas, not only what this charge added to it; what it is weakened by is what
+       this charge added (the earlier ones have weakened it already) */
+    const shock = Math.max(0, 1 - d / reach) * kW * Math.sqrt(lf.shadow), sh = blastShield(w.b ? wp : w.a.curPos, power / 60e3);
+    const hit = (shock + Math.sqrt(lf.gasAll) * 0.9 * kWg) * sh;
     if (hit > 0.75) failWeld(w, w.ductile && hit < 1.1 ? 'overload' : 'blast');
-    else if (hit > 0.1) scaleWeld(w, 1 - hit * 0.35);
+    else {
+      const rise = lf.gasAll === lf.gas ? hit : (shock + Math.sqrt(lf.gas) * 0.9 * kWg) * sh;
+      if (rise > 0.1) scaleWeld(w, 1 - rise * 0.35);
+    }
   }
   if (bl.confined) gasPush(bl, pos, hits);
   fields.fieldsBlast(pos, radius, power, bl);

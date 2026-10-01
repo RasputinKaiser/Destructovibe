@@ -28,7 +28,8 @@ export function breachRadius(kg: number, mat: MaterialId): number {
 export const breachLog: { mat: string; thick: number; R: number; breached: boolean }[] = [];
 
 /** Fire a contact charge of `kg` TNT-eq at `at` on host's face (outward normal n). */
-export function contactCharge(kg: number, at: Vec3, n: Vec3, host: Piece | null): void {
+/** face: the face it was pressed on, when it still sits where it was pressed (it goes off on that side) */
+export function contactCharge(kg: number, at: Vec3, n: Vec3, host: Piece | null, face: Vec3 | null = null): void {
   const b = { radius: 3.1 * Math.cbrt(kg), power: 60e3 * kg, impulse: 2150 * Math.sqrt(kg) };
   const R = host ? breachRadius(kg, host.mat) : 0;
   const thick = host ? chord(host, at, [-n[0], -n[1], -n[2]]) : 0;
@@ -52,5 +53,5 @@ export function contactCharge(kg: number, at: Vec3, n: Vec3, host: Piece | null)
     explode(o, b.radius, b.power * 0.5, b.impulse, 0.15, 0, b.power, false, n);
     return;
   }
-  explode(at, b.radius, b.power, b.impulse, 1.45, 30);
+  explode(at, b.radius, b.power, b.impulse, 1.45, 30, b.power, false, face);
 }

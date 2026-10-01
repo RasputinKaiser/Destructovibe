@@ -118,19 +118,19 @@ test('a charge in a closed room demolishes more than in a vented one, and that m
     const w = await L('/src/game/weapons.ts');
     w.initWeapons(new THREE.Scene());
     const hand = { ...handlers, hit: (a: unknown, b: unknown, p: unknown, n: unknown, sp: unknown) => { st.onHit(a, b, p, n, sp); w.onProjectileHit(a, b, p, sp, n); } };
-    const pair = (side: 1 | -1): boolean[] => {
+    const pair = (side: 1 | -1, mat = 'rconcrete', kg = 1, xs = [-0.75, 0.75]): boolean[] => {
       st.clearStructures();
       w.clearWeapons();
       phys.createWorld();
       st.buildBlueprint({ pieces: [] });
-      st.spawnPieces(room(true, false).map((q) => ({ ...q, mat: 'rconcrete' })));
+      st.spawnPieces(room(true, false).map((q) => ({ ...q, mat: q.mat === 'brick' ? mat : q.mat })));
       for (let i = 0; i < 30; i++) { phys.step(hand); st.afterStep(phys.FIXED_DT); }
       const face = wallZ + side * (t / 2 + 0.02);
-      for (const x of [-0.75, 0.75]) {
+      for (const x of xs) {
         w.launch('charge', [x, 1.2, face + side * 1.5], [0, 0, -side * 6]);
         for (let i = 0; i < 20; i++) { w.weaponsPreStep(); phys.step(hand); st.afterStep(phys.FIXED_DT); w.weaponsAfterStep(phys.FIXED_DT); }
       }
-      w.devices().forEach((d: { kg: number }, i: number) => { d.kg = 1; w.setDelay(d, i * 70); });
+      w.devices().forEach((d: { kg: number }, i: number) => { d.kg = kg; w.setDelay(d, i * 70); });
       w.detonate();
       const seen: boolean[] = [];
       let last = st.lastBlast.survey;
@@ -142,6 +142,10 @@ test('a charge in a closed room demolishes more than in a vented one, and that m
     };
     const street = pair(1), room2 = pair(-1);
     assert.deepEqual(street, [false, false], `charges on the street face judged confined: ${street}`);
+    /* two 2.5 kg charges half a metre apart on one panel of the brick room's street face: whatever the first does to the
+       panel the second sits on, the second goes off on the street side */
+    const brick = pair(1, 'brick', 2.5, [0.5, 1.0]);
+    assert.deepEqual(brick, [false, false], `charges on the street face of the brick room judged confined: ${brick}`);
     assert.deepEqual(room2, [true, true], `charges on the room face judged confined: ${room2}`);
   } finally {
     await server.close();

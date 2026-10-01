@@ -1098,10 +1098,12 @@ function blowUp(p: Projectile, at: Vec3): void {
   if (p.type === 'charge' || p.type === 'satchel') recordFire(p);
   if (p.type === 'satchel') {
     const host = p.stuck && p.host && !p.host.dead ? p.host : null;
-    const n = faceNormal(p, [0, 0, 0]);
+    // the face it was pressed on, also when its member broke under it a moment before
+    const pf = plantFace(p, at);
+    const n = pf ?? faceNormal(p, [0, 0, 0]);
     removeProjectile(p);
     const off = STICK_OFFSET.satchel ?? 0.07;
-    contactCharge(p.kg, host ? [at[0] - n[0] * off, at[1] - n[1] * off, at[2] - n[2] * off] : at, n, host);
+    contactCharge(p.kg, host ? [at[0] - n[0] * off, at[1] - n[1] * off, at[2] - n[2] * off] : at, n, host, pf);
     return;
   }
   removeProjectile(p);
@@ -1652,7 +1654,9 @@ export function weaponsAfterStep(dt: number): void {
         const q = nearestPiece(p.curPos, 0.5);
         if (q) {
           const off = STICK_OFFSET[p.type] ?? 0.05;
+          const keep = p.plantN && p.plantAt ? [...p.plantN] as Vec3 : null, keepAt = p.plantAt;
           stick(p, [p.curPos[0] - n[0] * off, p.curPos[1] - n[1] * off, p.curPos[2] - n[2] * off], n, q, [...p.curRot] as Quat);
+          if (keep && keepAt) { p.plantN = keep; p.plantAt = keepAt; }
         } else {
           const a = loadout.ammo[p.type];
           if (a !== undefined && a >= 0) loadout.ammo[p.type] = a + 1;
