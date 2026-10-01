@@ -63,7 +63,10 @@ void main() {
   col += uGlow * ( pow( toward, 6.0 ) * 0.6 + pow( toward, 48.0 ) * 0.9 ) * ( 1.0 - 0.5 * up );
   col += uGlow * 0.3 * pow( 1.0 - up, 5.0 ) * ( cosT * 0.5 + 0.5 ) * ( cosT * 0.5 + 0.5 );
 
-  if ( uStars > 0.0 && h > 0.0 ) {
+  // stars only show against a truly dark sky: the eye loses them once the background is brighter than deep
+  // twilight, so they fade by the sky's own luminance (and drop out low down in the horizon skyglow)
+  float starVis = uStars * ( 1.0 - smoothstep( 0.005, 0.014, dot( col, vec3( 0.2126, 0.7152, 0.0722 ) ) ) );
+  if ( starVis > 0.001 && h > 0.0 ) {
     vec2 sp = d.xz / ( d.y + 1.0 ) * 170.0;
     vec2 cell = floor( sp );
     float r = h21( cell );
@@ -71,7 +74,7 @@ void main() {
       vec2 c = cell + 0.5 + ( vec2( h21( cell + 7.1 ), h21( cell + 3.7 ) ) - 0.5 ) * 0.6;
       float tw = 0.65 + 0.35 * sin( uTime * ( 1.3 + r * 4.0 ) + r * 40.0 );
       float s = 1.0 - smoothstep( 0.0, 0.45, length( sp - c ) );
-      col += vec3( 0.85, 0.92, 1.0 ) * uStars * s * tw * ( r - 0.982 ) * 90.0 * smoothstep( 0.0, 0.25, h );
+      col += vec3( 0.85, 0.92, 1.0 ) * starVis * s * tw * ( r - 0.982 ) * 90.0 * smoothstep( 0.0, 0.25, h );
     }
   }
 

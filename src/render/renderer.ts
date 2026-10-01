@@ -81,7 +81,7 @@ const PRESETS: Record<EnvPreset, Preset> = {
   dusk: {
     elev: 7, azim: -100, sun: 0xff7a42, sunI: 2.2, shadow: 0.9, zenith: 0x283060, horizon: 0xb57a6a, fogD: 0.003,
     hemiSky: 0x6a6aa8, hemiGround: 0x37312f, hemiI: 0.35, envI: 0.7, exposure: 1.35,
-    glow: 0xff7040, glowK: 1.5, cloud: 0.4, cloudLit: 0xff9a6a, cloudShade: 0x4a3c58, stars: 0.25, disc: 25, discDeg: 1.4, bloomT: 2.2, bloomS: 0.55,
+    glow: 0xff7040, glowK: 1.5, cloud: 0.4, cloudLit: 0xff9a6a, cloudShade: 0x4a3c58, stars: 0, disc: 25, discDeg: 1.4, bloomT: 2.2, bloomS: 0.55,
     hazeD: 0.0018, hazeH: 18, scatter: 1.0, god: 0.45, humid: 0.6, wet: 0.35,
   },
   night: {
