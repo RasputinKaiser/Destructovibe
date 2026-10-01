@@ -1253,12 +1253,17 @@ Sources fetched for this section:
   moved hL/2(h + L) out, the wall panels the gas blows out); what a member takes is its first 50 ms.
 - Reverberations: 0.75 × the normal reflected impulse on top of the direct shock (the 1.75 × train), taken at the
   surface's distance but never nearer than the room's half-width (the re-reflections have crossed the room).
-- Charges fired together in one room share its air: each one's TNT-eq stays in the room, blown down with its time
-  constant V/(A·a0) (faster once walls are out); the next charge sees the peak of all of it and adds only the rise it
-  makes, so n charges at once load the room exactly as one of n·W (test). A sealed 108 m³ room keeps ~80 % over a
-  70 ms stagger [D].
+- Charges fired together in one room share its air: the room's pressure after the last charge is blown down on the
+  Baker curve (time constant V/(A·a0), the blown-out walls' area included) and turned back into the TNT-eq that would
+  give it; the next charge sees the peak of all of it. What it adds to members (damage energy, the gas push) is the rise
+  it makes, so n charges at once load the room as one of n·W (test); walls and joints are judged on the room's whole
+  gas impulse.
 - Share held: 1 below a vent ratio A/V^⅔ of 0.3, none past 1.5 (judgement, **not sourced**; UFC's charts were not
-  read). It scales the peak and the reverberation; the gas impulse is already the blow-down through the vents.
+  read). The gas builds only to P_QS·held, and the blow-down runs from there through the vents (continuous at the
+  open limit); the reverberation is scaled by it too.
+- A planted charge keeps the face it was planted on (even when its member breaks under it a moment before it fires);
+  the room is sought along that normal into the first air past its own wall, never across anything else solid within a
+  metre. Pieces moving faster than 1 m/s (a façade coming down) are not part of the room.
 - The gas load moves things: masonry panels by the SDOF P–I verdict, slabs and sheet walls bounding the room pushed out
   by (gas + reverberation impulse) × the area over the room. Breaching uses masonry K for every material (**gap**:
   an RC slab under a big charge is holed as if it were brick).

@@ -15,6 +15,8 @@ test('a charge in a closed room demolishes more than in a vented one, and that m
   const g = globalThis as Record<string, unknown>;
   g.window ??= globalThis;
   g.requestAnimationFrame ??= (f: () => void) => setTimeout(f, 16);
+  const noop: unknown = new Proxy(function () {}, { get: (_t, k) => (k === Symbol.toPrimitive ? () => 0 : noop), apply: () => noop, set: () => true });
+  g.document ??= { createElement: () => ({ width: 0, height: 0, style: {}, getContext: () => noop }) };
   const req = createRequire(join(ROOT, 'package.json'));
   const { createServer } = await import(pathToFileURL(req.resolve('vite')).href);
   const server = await createServer({ root: ROOT, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', logLevel: 'error' });
@@ -109,6 +111,38 @@ test('a charge in a closed room demolishes more than in a vented one, and that m
     const out = fields.survey([0.75, 1.2, wallZ + t / 2 + 0.07], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 7.0, [0, 0, 1]);
     const inn = fields.survey([0.75, 1.2, wallZ - t / 2 - 0.07], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 7.0, [0, 0, -1]);
     assert.ok(!out.confined && inn.confined, `outside face confined ${out.confined}, inside face confined ${inn.confined}`);
+
+    /* the same through the game's own charges, 1 kg each, fired 70 ms apart on adjacent panels of a reinforced-concrete
+       room's wall (which the first does not blow open before the second goes): each goes off on the face it was
+       planted on, wherever the first has left the second's member */
+    const w = await L('/src/game/weapons.ts');
+    w.initWeapons(new THREE.Scene());
+    const hand = { ...handlers, hit: (a: unknown, b: unknown, p: unknown, n: unknown, sp: unknown) => { st.onHit(a, b, p, n, sp); w.onProjectileHit(a, b, p, sp, n); } };
+    const pair = (side: 1 | -1): boolean[] => {
+      st.clearStructures();
+      w.clearWeapons();
+      phys.createWorld();
+      st.buildBlueprint({ pieces: [] });
+      st.spawnPieces(room(true, false).map((q) => ({ ...q, mat: 'rconcrete' })));
+      for (let i = 0; i < 30; i++) { phys.step(hand); st.afterStep(phys.FIXED_DT); }
+      const face = wallZ + side * (t / 2 + 0.02);
+      for (const x of [-0.75, 0.75]) {
+        w.launch('charge', [x, 1.2, face + side * 1.5], [0, 0, -side * 6]);
+        for (let i = 0; i < 20; i++) { w.weaponsPreStep(); phys.step(hand); st.afterStep(phys.FIXED_DT); w.weaponsAfterStep(phys.FIXED_DT); }
+      }
+      w.devices().forEach((d: { kg: number }, i: number) => { d.kg = 1; w.setDelay(d, i * 70); });
+      w.detonate();
+      const seen: boolean[] = [];
+      let last = st.lastBlast.survey;
+      for (let i = 0; i < 60; i++) {
+        w.weaponsPreStep(); phys.step(hand); st.afterStep(phys.FIXED_DT); w.weaponsAfterStep(phys.FIXED_DT);
+        if (st.lastBlast.survey !== last) { last = st.lastBlast.survey; seen.push(last.confined); }
+      }
+      return seen;
+    };
+    const street = pair(1), room2 = pair(-1);
+    assert.deepEqual(street, [false, false], `charges on the street face judged confined: ${street}`);
+    assert.deepEqual(room2, [true, true], `charges on the room face judged confined: ${room2}`);
   } finally {
     await server.close();
   }
