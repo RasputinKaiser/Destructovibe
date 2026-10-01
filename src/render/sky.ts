@@ -73,7 +73,8 @@ void main() {
     if ( r > 0.982 ) {
       vec2 c = cell + 0.5 + ( vec2( h21( cell + 7.1 ), h21( cell + 3.7 ) ) - 0.5 ) * 0.6;
       float tw = 0.65 + 0.35 * sin( uTime * ( 1.3 + r * 4.0 ) + r * 40.0 );
-      float s = 1.0 - smoothstep( 0.0, 0.45, length( sp - c ) );
+      // points, not discs: only the brightest few spread to more than a pixel or two
+      float s = 1.0 - smoothstep( 0.0, 0.14 + 0.16 * ( r - 0.982 ) / 0.018, length( sp - c ) );
       col += vec3( 0.85, 0.92, 1.0 ) * starVis * s * tw * ( r - 0.982 ) * 90.0 * smoothstep( 0.0, 0.25, h );
     }
   }
