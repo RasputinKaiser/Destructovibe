@@ -184,7 +184,16 @@ varying vec3 vDvW;
 varying vec3 vDvN;
 varying vec2 vDvUv;
 varying float vDvId;
-float dvHash( float n ) { return fract( sin( n * 91.3458 + 17.13 ) * 47453.5453 ); }`;
+float dvHash( float n ) { return fract( sin( n * 91.3458 + 17.13 ) * 47453.5453 ); }
+vec3 dvBumpI( vec3 n, float h ) {
+  vec3 p = - vViewPosition;
+  vec3 dx = dFdx( p ), dy = dFdy( p );
+  vec3 r1 = cross( dy, n ), r2 = cross( n, dx );
+  float det = dot( dx, r1 );
+  vec3 g = abs( det ) * n - sign( det ) * ( dFdx( h ) * r1 + dFdy( h ) * r2 );
+  float l2 = dot( g, g );
+  return l2 > 1e-24 ? g * inversesqrt( l2 ) : n;
+}`;
 const DV_PRE = /* glsl */`
   float dvId = floor( vDvId + 0.5 );
   float dvR = dvHash( dvId );
@@ -211,6 +220,12 @@ const DV_PRE = /* glsl */`
     diffuseColor.rgb *= 1.0 - 0.26 * dvGrime - 0.12 * dvStreak;
     diffuseColor.rgb = mix( diffuseColor.rgb, vec3( dot( diffuseColor.rgb, vec3( 0.3, 0.55, 0.15 ) ) ) * vec3( 1.02, 0.97, 0.9 ), 0.35 * dvGrime );
     float dvWear = vDvWear * smoothstep( 0.3, 0.7, texture2D( uDvNoise, vDvUv * 1.9 ).r + 0.25 );
+  #else
+    // a fresh break: lighter and less even than the weathered face, with a film of its own powder in the hollows
+    float dvBr = texture2D( uDvNoise, vDvUv * 0.9 + dvR ).r, dvBr2 = texture2D( uDvNoise, vDvUv * 3.3 + 0.37 ).g;
+    diffuseColor.rgb *= 1.08 + 0.22 * ( dvBr - 0.5 ) + 0.12 * ( dvBr2 - 0.5 );
+    float dvPowder = smoothstep( 0.45, 0.75, dvBr2 * 0.6 + ( 1.0 - dvBr ) * 0.5 );
+    diffuseColor.rgb = mix( diffuseColor.rgb, vec3( dot( diffuseColor.rgb, vec3( 0.3, 0.55, 0.15 ) ) ) * vec3( 1.06, 1.0, 0.92 ) * 1.1, 0.22 + 0.25 * dvPowder );
   #endif`;
 const DV_POST = /* glsl */`
   #ifdef DV_EXT
@@ -221,11 +236,15 @@ const DV_POST = /* glsl */`
 const DV_DUST = /* glsl */`
   vec3 dvNd = normalize( vDvN );
   vec4 dvCov = texture2D( uDvCover, vDvW.xz ${DV_COVER_UV} );
-  float dvDust = dvCov.a * ( 0.15 + 0.85 * smoothstep( -0.1, 0.75, dvNd.y ) )
+  // rubble lying under a settling cloud is coated on every face, not just the tops; standing walls mostly on ledges
+  float dvLow = 1.0 - smoothstep( 1.5, 7.0, vDvW.y );
+  float dvDust = dvCov.a * ( mix( 0.15, 0.55, dvLow ) + mix( 0.85, 0.45, dvLow ) * smoothstep( -0.1, 0.75, dvNd.y ) )
     * smoothstep( 0.25, 0.6, texture2D( uDvNoise, vDvW.xz * 0.37 + vDvW.y * 0.05 ).r + dvCov.a * 0.45 )
     * ( 1.0 - smoothstep( 30.0, 90.0, vDvW.y ) );
   // a film over the brick, greying it, never a white-out: the units still read through
-  diffuseColor.rgb = mix( diffuseColor.rgb, dvCov.rgb * 0.85, clamp( dvDust, 0.0, 0.5 ) );`;
+  diffuseColor.rgb = mix( diffuseColor.rgb, dvCov.rgb * 0.85, clamp( dvDust, 0.0, mix( 0.5, 0.65, dvLow ) ) );`;
+const DV_BREAK = /* glsl */`
+  normal = dvBumpI( normal, texture2D( uDvNoise, vDvUv * 0.9 + 0.11 ).r * 0.025 + texture2D( uDvNoise, vDvUv * 4.1 + 0.53 ).g * 0.007 );`;
 const DV_DUST_ROUGH = /* glsl */`
   roughnessFactor = mix( roughnessFactor, 0.95, clamp( dvDust, 0.0, 1.0 ) * 0.8 );
   metalnessFactor *= 1.0 - 0.7 * clamp( dvDust, 0.0, 1.0 );`;
@@ -255,6 +274,8 @@ function patchPiece(m: THREE.MeshStandardMaterial, kind?: 'cyl' | 'box', shade?:
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>\n${detail === 'ext' ? '#define DV_EXT\n' : ''}${smooth ? '#define DV_SMOOTH\n' : ''}${DV_FRAG_PARS}`)
         .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>\n${DV_ROUGH}\n${DV_DUST_ROUGH}`);
+      // fracture faces: chipped relief at two scales on top of the interior texture's own
+      if (detail === 'int') sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${DV_BREAK}`);
       pre = DV_PRE; post = `${DV_POST}\n${DV_DUST}`;
     }
     sh.fragmentShader = sh.fragmentShader
@@ -304,6 +325,8 @@ export function setBatchPower(mesh: THREE.BatchedMesh, instanceId: number, k: nu
    room; its tint sets how dark it is (untinted = clear windscreen glass). */
 const GLASS_PARS = /* glsl */`
 uniform vec4 uDvRoom;
+uniform vec3 uDvFlashP[ 3 ];
+uniform vec3 uDvFlashC[ 3 ];
 uniform float uDvQ;
 // the building's own supply: 1 lit as the hour has it, 0 blacked out (set per pane in its instance colour's alpha)
 float dvPwr = 1.0;
@@ -311,6 +334,9 @@ varying vec3 vDvW;
 varying vec3 vDvN;
 varying float vDvId;
 float dvHash( float n ) { return fract( sin( n * 91.3458 + 17.13 ) * 47453.5453 ); }
+// office lighting against the sky outside: at dusk the sky is still far brighter than a lit ceiling, so the rooms
+// read dim behind the reflection; only after dark do they dominate the facade
+float dvLampK() { return 0.32 + 0.68 * smoothstep( 0.75, 1.0, uDvRoom.a ); }
 vec3 dvRoom( vec2 f, vec2 sz, vec3 rd, float h1, float h2, float hl ) {
   float depth = sz.x * ( 1.1 + 1.3 * h1 );
   float tx = ( rd.x > 0.0 ? sz.x - f.x : f.x ) / max( abs( rd.x ), 1e-4 );
@@ -329,7 +355,7 @@ vec3 dvRoom( vec2 f, vec2 sz, vec3 rd, float h1, float h2, float hl ) {
   float lit = step( hl, 0.12 + 0.6 * uDvRoom.a ) * dvPwr;
   vec3 lamp = mix( vec3( 1.0, 0.8, 0.58 ), vec3( 0.86, 0.93, 1.0 ), step( 0.5, fract( h1 * 5.7 ) ) );
   vec3 c = uDvRoom.rgb * alb * ( 0.05 + 0.45 * exp( - hp.z * 0.35 ) );
-  c += lit * lamp * ( alb * ( 0.12 + 0.2 * exp( - t * 0.08 ) ) + panel * 2.5 );
+  c += lit * lamp * ( alb * ( 0.12 + 0.2 * exp( - t * 0.08 ) ) + panel * 2.5 ) * dvLampK();
   float blind = step( 0.82, h2 ) * step( sz.y - f.y, sz.y * ( 0.25 + 0.6 * fract( h1 * 13.0 ) ) );
   vec3 slat = vec3( 0.62, 0.58, 0.5 ) * ( 0.8 + 0.2 * step( 0.3, fract( f.y * 22.0 ) ) );
   return mix( c, slat * ( uDvRoom.rgb * 0.35 + lit * lamp * 0.3 ), blind );
@@ -366,6 +392,17 @@ const GLASS_COLOR = /* glsl */`
     diffuseColor.rgb *= dvTint;
   #endif`;
 const GLASS_FRESNEL = /* glsl */`
+  #ifdef DV_ROOM
+  {
+    // no two lights of a facade are quite coplanar: each pane's reflection is tilted a hair, so the mirrored sky
+    // breaks into a mosaic instead of one flat sheet
+    vec3 dvNw0 = normalize( vDvN );
+    vec3 dvT0 = normalize( vec3( - dvNw0.z, 0.0, dvNw0.x ) + vec3( 1e-5, 0.0, 0.0 ) );
+    vec2 dvPc = floor( vec2( dot( vDvW, dvT0 ) / 1.2, vDvW.y / 3.8 ) );
+    float dvA = dvHash( dvPc.x * 3.17 + dvPc.y * 71.3 ) - 0.5, dvB = dvHash( dvPc.x * 13.1 + dvPc.y * 7.7 + 0.5 ) - 0.5;
+    normal = normalize( normal + ( viewMatrix * vec4( dvT0 * dvA * 0.035 + vec3( 0.0, dvB * 0.025, 0.0 ), 0.0 ) ).xyz );
+  }
+  #endif
   float dvFr = pow( 1.0 - saturate( abs( dot( normal, normalize( vViewPosition ) ) ) ), 5.0 );
   diffuseColor.a = mix( diffuseColor.a, 1.0, dvFr );`;
 const GLASS_ROOM = /* glsl */`
@@ -392,7 +429,7 @@ const GLASS_ROOM = /* glsl */`
     else dvIn = uDvRoom.rgb * vec3( 0.07, 0.068, 0.064 ) + step( dvHl, 0.12 + 0.6 * uDvRoom.a ) * dvPwr * vec3( 0.12, 0.1, 0.08 );
     // far off, a pane averages over more of the room than the ray sample shows: pull toward the mean
     float dvFar = smoothstep( 50.0, 240.0, distance( vDvW, cameraPosition ) );
-    vec3 dvMean = uDvRoom.rgb * 0.05 + vec3( 1.0, 0.86, 0.66 ) * ( 0.12 + 0.6 * uDvRoom.a ) * 0.09 * dvPwr;
+    vec3 dvMean = uDvRoom.rgb * 0.05 + vec3( 1.0, 0.86, 0.66 ) * ( 0.12 + 0.6 * uDvRoom.a ) * 0.09 * dvPwr * dvLampK();
     dvIn = mix( dvIn, dvMean, dvFar * 0.55 );
     float dvClear = 1.0;
     #ifdef DV_CURTAIN
@@ -416,7 +453,13 @@ const GLASS_ROOM = /* glsl */`
     #endif
     // a building without its supply: no lamps, and the rooms go dark enough that the glass reads black with the sky on it
     dvIn *= mix( 0.35, 1.0, dvPwr );
-    totalEmissiveRadiance += dvIn * mix( vec3( 1.0 ), dvTint, 0.6 ) * ( 1.0 - dvFr ) * dvVert * dvClear;
+    // a blast or a fire in the building lights the rooms round it: what makes charges read through the glazing from afar
+    for ( int i = 0; i < 3; i ++ ) {
+      vec3 dvL = uDvFlashP[ i ] - vDvW;
+      dvIn += uDvFlashC[ i ] / ( dot( dvL, dvL ) * ( 1.0 + 0.02 * dot( dvL, dvL ) ) + 4.0 );
+    }
+    // what the coating reflects it does not let through
+    totalEmissiveRadiance += dvIn * mix( vec3( 1.0 ), dvTint, 0.6 ) * ( 0.88 - 0.88 * dvFr ) * dvVert * dvClear;
     diffuseColor.a = mix( diffuseColor.a, 0.93, dvVert * ( 1.0 - dvFr ) * dvClear );
   }
   #endif`;
@@ -436,8 +479,11 @@ function patchGlass(m: THREE.MeshStandardMaterial, mode: 'room' | 'smoked', curt
   m.customProgramCacheKey = () => `dv-glass-${mode}${curtain ? '-cw' : ''}`;
 }
 
+/* Building glazing is coated (solar-control / low-e): it reflects some 12 % at normal incidence, three times bare
+   float glass, which is why a tower at dusk mirrors the sky rather than showing its ceilings. */
+const GLAZING_F0 = 3;
 function glass(tint: number | undefined, interior: boolean, tempered: boolean, smoked = false): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({
+  const o: THREE.MeshStandardMaterialParameters = {
     color: smoked ? 0x1a2424 : tempered ? (interior ? 0x2a6664 : 0x16393d) : interior ? 0x2e5c54 : 0x1b3532,
     roughness: interior ? 0.12 : 0.02,
     metalness: 0,
@@ -445,7 +491,9 @@ function glass(tint: number | undefined, interior: boolean, tempered: boolean, s
     opacity: interior ? 0.6 : smoked ? 0.18 : tempered ? 0.33 : 0.3,
     depthWrite: false,
     envMapIntensity: smoked ? 2 : tempered ? 1.8 : 1.6,
-  });
+  };
+  const m = interior || smoked ? new THREE.MeshStandardMaterial(o)
+    : new THREE.MeshPhysicalMaterial({ ...o, ior: 1.5, specularIntensity: 1, specularColor: new THREE.Color(GLAZING_F0, GLAZING_F0, GLAZING_F0) });
   if (tint !== undefined) m.color.multiply(new THREE.Color(tint));
   // reflections add at full strength while the diffuse body only tints what is behind
   m.blending = THREE.CustomBlending;
