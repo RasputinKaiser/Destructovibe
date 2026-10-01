@@ -136,7 +136,7 @@ void main() {
       float fogF = smoothstep( fogNear, fogFar, vFogDepth );
     #endif
     // aerial perspective: surfaces go to the horizon colour, lit windows keep a little more of their contrast
-    col = mix( col, fogColor, fogF * 0.9 ) + wc * lit * 2.0 * fogF * 0.08;
+    col = mix( col, fogColor, fogF * 0.78 ) + wc * lit * 2.0 * fogF * 0.08;
   #endif
   gl_FragColor = vec4( col, 1.0 );
   #include <tonemapping_fragment>
@@ -717,8 +717,8 @@ function hillsMaterial(): THREE.MeshStandardMaterial {
           // hedgerows: a dark line along each field bound, faded out where it would shimmer
           vec2 fp = fract( pf ), fwp = fwidth( pf );
           vec2 e = min( fp, 1.0 - fp ) / max( fwp, vec2( 1e-4 ) );
-          float hedge = ( 1.0 - smoothstep( 0.5, 1.6, min( e.x, e.y ) ) ) * ( 1.0 - smoothstep( 0.02, 0.06, max( fwp.x, fwp.y ) ) );
-          diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.06, 0.08, 0.04 ), 0.7 * hedge * open );
+          float hedge = ( 1.0 - smoothstep( 0.5, 1.6, min( e.x, e.y ) ) ) * ( 1.0 - smoothstep( 0.012, 0.035, max( fwp.x, fwp.y ) ) );
+          diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.12, 0.14, 0.08 ), 0.35 * hedge * open * ( 0.5 + 0.5 * n3 ) );
           vec3 fn = normalize( cross( dFdx( vHW ), dFdy( vHW ) ) );
           float steep = smoothstep( 0.22, 0.45, 1.0 - abs( fn.y ) );
           diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.36, 0.31, 0.26 ) * ( 0.8 + 0.4 * n3 ), steep * 0.75 );

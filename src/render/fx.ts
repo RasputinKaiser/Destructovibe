@@ -96,6 +96,10 @@ void main() {
   // the camera-in-dust fog carry the look
   float bigFade = 1.0 - smoothstep( 1.1, 2.4, s * 0.5 * sq.x * projectionMatrix[ 1 ][ 1 ] / max( dist, 0.05 ) );
   if ( bigFade <= 0.0 ) { ${DEAD_VERT} }
+  // a detonation flash (heat > 60) never shrinks below ~1.2 % of its distance: at range it flares the lens like the
+  // real thing instead of vanishing into a few pixels; its emission is spread over the larger card
+  float flare = 1.0;
+  if ( abs( aE.x ) > 60.0 ) { float sMin = dist * 0.024; if ( s < sMin ) { flare = s / sMin; s = sMin; } }
   mvPosition.xy += q * sq * ( s * 0.5 );
   vVd = mvPosition.xyz;
   gl_Position = projectionMatrix * mvPosition;
@@ -117,7 +121,7 @@ void main() {
   float nearEmit = smoothstep( 0.05, 0.05 + s * 0.2, dist );
   vCol = vec4( aD.rgb, aD.a * fin * fout * ( 1.0 - 0.85 * hk ) * nearFade * bigFade );
   vec3 ramp = aE.x >= 0.0 ? vec3( 1.0, 0.22 + 0.55 * hk, 0.04 + 0.32 * hk * hk ) : aD.rgb;
-  vEmit = ramp * ( abs( aE.x ) * hk * fin * nearEmit * bigFade * ( 0.6 + 0.4 * fout ) );
+  vEmit = ramp * ( abs( aE.x ) * hk * fin * nearEmit * bigFade * ( 0.6 + 0.4 * fout ) ) * sqrt( flare );
   vSunV = normalize( ( viewMatrix * vec4( uSunDir, 0.0 ) ).xyz );
   vec3 loc = vec3( 0.0 );
   for ( int i = 0; i < NL; i ++ ) {
@@ -877,12 +881,13 @@ const DUSTQ = {
 };
 let dustRate = 0;
 let coverClock = 0;
-const _cc = new THREE.Color(), _cg = new THREE.Color(0x958c80);
+const _cc = new THREE.Color(), _cg = new THREE.Color(0x9c8a72);
 
 const cbrt = Math.cbrt;
 const cloudLife = (c: Cloud): number => clamp(18 + cbrt(c.mass) * 5, 18, 60);
-const baseRadius = (m: number): number => clamp(2.5 + cbrt(m) * 2.4, 3, 40);
-const billowSize = (m: number): number => clamp(1.4 + cbrt(m) * 0.75, 1.6, 11);
+// a high-rise's cloud spreads well past a terrace's: the caps are where a tower's worth of fines is still dense
+const baseRadius = (m: number): number => clamp(2.5 + cbrt(m) * 2.4, 3, 55);
+const billowSize = (m: number): number => clamp(1.4 + cbrt(m) * 0.75, 1.6, 14);
 function cloudRadius(c: Cloud): number {
   // born the size of the debris throw, it rolls out as a density current and spreads for tens of seconds
   const t = clock - c.start;
@@ -941,7 +946,7 @@ function feedCloud(x: number, y: number, z: number, vol: number, hex: number): v
 
 function spawnBillow(c: Cloud, R: number, life: number): void {
   const ps = billowSize(c.mass);
-  const grounded = c.y < R * 1.2;
+  const grounded = c.y < Math.max(R * 1.2, 30);
   let a = rf(0.5, 0.68);
   if (grounded && rng() < 0.6) {
     // the density current: a low bank that rolls out along the ground and swallows what it reaches; the leading
@@ -949,19 +954,19 @@ function spawnBillow(c: Cloud, R: number, life: number): void {
     const ang = rf(0, 6.283), ca = Math.cos(ang), sa = Math.sin(ang), r0 = R * rf(0, 0.35), front = rng(), sp = R * (0.3 + 0.5 * front);
     pAt(c.x + ca * r0, ps * (0.12 + 0.35 * (1 - front) * rng()), c.z + sa * r0);
     P.vx = ca * sp; P.vy = rf(0.1, 0.4); P.vz = sa * sp; P.drag = 0.5;
-    P.rise = rf(0.03, 0.2) * (1.2 - front); P.s0 = ps * rf(0.5, 0.75); P.s1 = ps * rf(1.8, 2.7);
+    P.rise = rf(0.03, 0.2) * (1.2 - front); P.s0 = ps * rf(0.75, 1.05); P.s1 = ps * rf(1.8, 2.7);
     P.stretch = rf(0.3, 0.75);
     a *= 0.85 + 0.3 * front;
   } else {
     const ang = rf(0, 6.283), r0 = R * 0.35 * Math.sqrt(rng());
     pAt(c.x + Math.cos(ang) * r0, Math.max(ps * 0.4, c.y * rf(0.3, 1) + rf(0, R * 0.5)), c.z + Math.sin(ang) * r0);
-    P.vx = rf(-0.6, 0.6); P.vy = rf(0.4, 1.8); P.vz = rf(-0.6, 0.6); P.drag = 0.6;
-    P.rise = rf(0.2, 0.6); P.accel = -0.003; P.s0 = ps * rf(0.55, 0.85); P.s1 = ps * rf(1.9, 3.0);
+    P.vx = rf(-0.6, 0.6); P.vy = rf(3, 10); P.vz = rf(-0.6, 0.6); P.drag = 0.4;
+    P.rise = rf(0.4, 1.1); P.accel = -0.004; P.s0 = ps * rf(0.75, 1.05); P.s1 = ps * rf(1.9, 3.0);
   }
   const k = rf(0.86, 1.08);
   _cc.setRGB(c.r, c.g, c.b).lerp(_cg, 0.45);
   P.r = _cc.r * k; P.g = _cc.g * k; P.b = _cc.b * k;
-  P.life = life * rf(0.55, 1); P.a = a * BILLOW_ALPHA; P.fadeIn = rf(0.3, 0.9); P.grow = rf(2.5, 5);
+  P.life = life * rf(0.55, 1); P.a = a * BILLOW_ALPHA; P.fadeIn = rf(0.15, 0.45); P.grow = rf(1.5, 3.5);
   P.wind = rf(0.8, 1.1); P.spin = rf(-0.12, 0.12); P.curl = rf(0.35, 0.6);
   emit(dustR);
   dustAlive++;
@@ -1021,7 +1026,7 @@ function updateClouds(dt: number): void {
     const life = cloudLife(c), age = clock - c.start, idle = clock - c.last, R = cloudRadius(c);
     c.x += wind.x * dt * 0.9; c.z += wind.z * dt * 0.9; c.y += 0.12 * dt;
     // pay out owed billows at a pace that makes the cloud boil up over a few seconds
-    c.acc = Math.min(c.acc + Math.max(12, c.owed / 3.5) * dt, 24);
+    c.acc = Math.min(c.acc + Math.max(20, c.owed / 1.6) * dt, 40);
     while (c.acc >= 1 && c.paid < c.owed && dustRate >= 1 && dustAlive < q.cap) {
       spawnBillow(c, R, life);
       c.paid++; c.acc--; dustRate--;
@@ -1042,7 +1047,7 @@ function updateClouds(dt: number): void {
     const ex = (cam3.x - c.x) / R, ey = ((cam3.y - cy) * SQUASH) / R, ez = (cam3.z - c.z) / R;
     const inside = 1 - THREE.MathUtils.smoothstep(Math.sqrt(ex * ex + ey * ey + ez * ez), 0.5, 1.05);
     if (inside > 0) {
-      const w = ext * 1.6 * inside;
+      const w = ext * 2.6 * inside;
       fogK += w; fogR += R * w;
       fr += c.r * w; fg += c.g * w; fb += c.b * w;
     }
@@ -1147,7 +1152,7 @@ export const fx = {
     const [x, y, z] = pos, R = clamp(radius, 1, 10), b = budget(), grow = 1 / Math.sqrt(b);
     // the detonation itself: a white-hot flash for a few frames, smaller than the fireball that follows (dimmed with
     // the flash comfort setting like the lights)
-    pAt(x, y, z); P.variant = 3; P.life = 0.07; P.s0 = R * 0.7; P.s1 = R * 1.1; P.a = 0; P.heat = 140 * comfort.flash; P.heatDur = 0.07; P.drag = 0; P.fadeIn = 0; P.spin = 0;
+    pAt(x, y, z); P.variant = 3; P.life = 0.1; P.s0 = R * 0.7; P.s1 = R * 1.1; P.a = 0; P.heat = 140 * comfort.flash; P.heatDur = 0.1; P.drag = 0; P.fadeIn = 0; P.spin = 0;
     emit();
     pAt(x, y, z); P.variant = 3; P.life = 0.14; P.s0 = R * 1.6; P.s1 = R * 2.6; P.a = 0; P.heat = 40; P.heatDur = 0.14; P.drag = 0; P.fadeIn = 0; P.spin = 0;
     emit();
@@ -1247,7 +1252,8 @@ export const fx = {
   dust(pos: Vec3, size: number, color = 0xb8b0a0): void {
     if (!ready) return;
     const sz = clamp(size, 0.3, 10), b = budget(), grow = 1 / Math.sqrt(b);
-    const n = Math.min(40, Math.round((3 + sz * 3.5) * b * dustK()));
+    const aloft = pos[1] > 6 ? clamp((pos[1] - 6) / 10, 0, 1) : 0;
+    const n = Math.min(40, Math.round((3 + sz * 3.5) * b * dustK() * (1 - 0.5 * aloft)));
     for (let i = 0; i < n; i++) {
       dirAround(0, 0.3, 0, 1);
       const r = rf(0, sz * 0.5);
@@ -1257,7 +1263,8 @@ export const fx = {
       P.s0 = sz * rf(0.45, 0.7); P.s1 = sz * rf(1.8, 2.9) * grow;
       // what hangs in the air reads grey-tan whatever it came off: the fine fraction is mostly mortar and grit
       _cc.setHex(color).lerp(_cg, 0.35); const k = rf(0.9, 1.06); P.r = _cc.r * k; P.g = _cc.g * k; P.b = _cc.b * k;
-      P.a = clamp(0.5 - sz * 0.03, 0.28, 0.46) * 0.5; P.fadeIn = rf(0.25, 0.6); P.delay = (i / n) * 0.35; P.curl = 0.35;
+      P.a = clamp(0.5 - sz * 0.03, 0.28, 0.46) * 0.5 * (1 - 0.35 * aloft); P.fadeIn = rf(0.25, 0.6); P.delay = (i / n) * 0.35; P.curl = 0.35;
+      if (aloft > 0) { P.stretch = -0.45 * aloft; P.s1 *= 1 + 0.6 * aloft; P.accel = -0.25 * aloft; P.vy -= 0.8 * aloft; }
       emit();
     }
     feedCloud(pos[0], pos[1], pos[2], sz * sz * sz * 0.5, color);

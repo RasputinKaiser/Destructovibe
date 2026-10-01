@@ -828,8 +828,9 @@ function rconcreteIn(n: number): Img {
       const la = Math.abs(v - 0.33 - 0.004 * Math.sin(u * Math.PI * 6)) * T;
       const lb = Math.abs(u - 0.78 - 0.004 * Math.sin(v * Math.PI * 4)) * T;
       const ld = Math.min(la, lb), lr = 0.007;
-      const inBar = Math.max(1 - smooth(r - 0.0015, r, d), 1 - smooth(lr - 0.0015, lr, ld));
-      const halo = (1 - smooth(0, 0.03, Math.min(d - r, ld - lr))) * (1 - inBar) * 0.55;
+      const spall = smooth(0.5, 0.62, tap(fld(0), u * 90 + 17, v * 90 + 41));
+      const inBar = Math.max(1 - smooth(r - 0.0015, r, d), (1 - smooth(lr - 0.0015, lr, ld)) * spall);
+      const halo = (1 - smooth(0, 0.03, Math.min(d - r, (ld - lr) / Math.max(spall, 0.05)))) * (1 - inBar) * 0.55;
       const core = (1 - smooth(r * 0.35, r * 0.75, d)) * (d < ld ? 1 : 0);
       const rib = 0.5 + 0.5 * Math.sin((la < lb ? u : v) * 54 * Math.PI * 2);
       mix3(im, o, stain, halo);

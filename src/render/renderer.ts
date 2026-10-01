@@ -188,17 +188,14 @@ void main() {
 }`;
 
 const AO_FS = /* glsl */`
-#include <packing>
 uniform sampler2D tAO;
 uniform sampler2D tDepth;
-uniform float uNear;
-uniform float uFar;
 uniform float uK;
 varying vec2 vUv;
 void main() {
   // half-res AO from a 24-bit depth buffer turns to streaks on the skyline and hills hundreds of metres out, where
-  // a metre of occlusion is under a pixel anyway: fade it with distance
-  float z = - perspectiveDepthToViewZ( texture2D( tDepth, vUv ).x, uNear, uFar );
+  // a metre of occlusion is under a pixel anyway: fade it with distance (tDepth: the linear depth copy)
+  float z = texture2D( tDepth, vUv ).r;
   float k = uK * ( 1.0 - smoothstep( 90.0, 220.0, z ) );
   gl_FragColor = vec4( vec3( mix( 1.0, texture2D( tAO, vUv ).r, k ) ), 1.0 );
 }`;
@@ -233,9 +230,10 @@ void main() {
     float Ld = min( length( wp - uCam ), uDustFogR );
     vec3 q1 = uCam + dd * Ld * 0.3, q2 = uCam + dd * Ld * 0.75;
     vec2 drift = vec2( 0.021, 0.009 ) * uAtmT;
-    float n1 = texture2D( tNoise, q1.xz / 23.0 + q1.y / 31.0 + drift ).r;
-    float n2 = texture2D( tNoise, q2.xz / 41.0 - q2.y / 37.0 + drift * 0.6 + 0.37 ).g;
-    dK = 0.35 + 1.35 * ( n1 * 0.55 + n2 * 0.45 ) * ( 0.8 + 0.4 * smoothstep( 6.0, - 2.0, dd.y * Ld ) );
+    float n1 = texture2D( tNoise, q1.xz / 13.0 + q1.y / 17.0 + drift ).r;
+    float n2 = texture2D( tNoise, q2.xz / 29.0 - q2.y / 23.0 + drift * 0.6 + 0.37 ).g;
+    float nn = smoothstep( 0.25, 0.75, n1 * 0.55 + n2 * 0.45 );
+    dK = 0.25 + 1.6 * nn;
   }
   vec4 a = dvAtmosK( uCam, wp, sky, dK );
   gl_FragColor = vec4( a.rgb, 1.0 - a.a );
@@ -252,7 +250,7 @@ class ScenePass extends Pass {
   forceHalf = false;
   private half = false;
   private readonly copyQ = fsQuad(DEPTH_FS, { tDepth: { value: null }, uNear: { value: 0.05 }, uFar: { value: 1200 } });
-  private readonly aoQ = fsQuad(AO_FS, { tAO: { value: null }, tDepth: { value: null }, uNear: { value: 0.05 }, uFar: { value: 1200 }, uK: { value: 0.9 } }, 'mul');
+  private readonly aoQ = fsQuad(AO_FS, { tAO: { value: null }, tDepth: { value: null }, uK: { value: 0.9 } }, 'mul');
   private readonly atmQ = fsQuad(ATM_FS, Object.assign({
     tDepth: { value: null }, tNoise: { value: noiseTex() }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() },
     uCam: { value: new THREE.Vector3() }, uFar: { value: 1200 },
@@ -281,20 +279,18 @@ class ScenePass extends Pass {
     const { scene, camera } = this;
     renderer.setRenderTarget(read);
     renderer.render(scene, camera);
-    if (this.ao) {
-      this.gtao.render(renderer, read, read, 0, false);
-      const ao = U(this.aoQ);
-      ao.tAO.value = this.gtao.pdRenderTarget.texture;
-      ao.tDepth.value = read.depthTexture;
-      ao.uNear.value = camera.near;
-      ao.uFar.value = camera.far;
-      draw(renderer, this.aoQ, read, false);
-    }
     const cu = U(this.copyQ);
     cu.tDepth.value = read.depthTexture;
     cu.uNear.value = camera.near;
     cu.uFar.value = camera.far;
     draw(renderer, this.copyQ, this.depthRT, true);
+    if (this.ao) {
+      this.gtao.render(renderer, read, read, 0, false);
+      const ao = U(this.aoQ);
+      ao.tAO.value = this.gtao.pdRenderTarget.texture;
+      ao.tDepth.value = this.depthRT.texture;
+      draw(renderer, this.aoQ, read, false);
+    }
     softU.uDepth.value = this.depthRT.texture;
     softU.uSoft.value = 1;
     const au = U(this.atmQ);
@@ -612,7 +608,7 @@ function ensureComposer(g: Gfx): EffectComposer {
     .replace('vec4 texel = texture2D( tDiffuse, vUv );', 'vec4 texel = texture2D( tDiffuse, vUv ); texel.rgb = dvFinite( texel.rgb );')
     // a lens scatters a small share of the light above the threshold, not the whole pixel: only the excess feeds the
     // bloom, and very bright small sources (lamps, the sun) are compressed so their halo stays a halo, not a blob
-    .replace('gl_FragColor = mix( outputColor, texel, alpha );', 'vec3 dvOver = texel.rgb * ( max( v - luminosityThreshold, 0.0 ) / max( v, 1e-4 ) ); gl_FragColor = vec4( dvOver / ( 1.0 + luminance( dvOver ) * 0.12 ), 1.0 );');
+    .replace('gl_FragColor = mix( outputColor, texel, alpha );', 'vec3 dvOver = texel.rgb * ( max( v - luminosityThreshold, 0.0 ) / max( v, 1e-4 ) ); gl_FragColor = vec4( dvOver / ( 1.0 + luminance( dvOver ) * 0.07 ), 1.0 );');
   hp.needsUpdate = true;
   exposurePass = new ExposurePass();
   lensPass = new LensPass();

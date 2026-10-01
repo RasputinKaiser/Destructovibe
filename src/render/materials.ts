@@ -237,14 +237,14 @@ const DV_DUST = /* glsl */`
   vec3 dvNd = normalize( vDvN );
   vec4 dvCov = texture2D( uDvCover, vDvW.xz ${DV_COVER_UV} );
   // rubble lying under a settling cloud is coated on every face, not just the tops; standing walls mostly on ledges
-  float dvLow = 1.0 - smoothstep( 1.5, 7.0, vDvW.y );
-  float dvDust = dvCov.a * ( mix( 0.15, 0.55, dvLow ) + mix( 0.85, 0.45, dvLow ) * smoothstep( -0.1, 0.75, dvNd.y ) )
+  float dvRub = 1.0 - smoothstep( 1.5, 7.0, vDvW.y );
+  float dvDust = dvCov.a * ( 1.0 + 0.8 * dvRub ) * ( mix( 0.15, 0.6, dvRub ) + mix( 0.85, 0.4, dvRub ) * smoothstep( -0.1, 0.75, dvNd.y ) )
     * smoothstep( 0.25, 0.6, texture2D( uDvNoise, vDvW.xz * 0.37 + vDvW.y * 0.05 ).r + dvCov.a * 0.45 )
     * ( 1.0 - smoothstep( 30.0, 90.0, vDvW.y ) );
   // a film over the brick, greying it, never a white-out: the units still read through
-  diffuseColor.rgb = mix( diffuseColor.rgb, dvCov.rgb * 0.85, clamp( dvDust, 0.0, mix( 0.5, 0.65, dvLow ) ) );`;
+  diffuseColor.rgb = mix( diffuseColor.rgb, dvCov.rgb * 0.85, clamp( dvDust, 0.0, mix( 0.5, 0.65, dvRub ) ) );`;
 const DV_BREAK = /* glsl */`
-  normal = dvBumpI( normal, texture2D( uDvNoise, vDvUv * 0.9 + 0.11 ).r * 0.025 + texture2D( uDvNoise, vDvUv * 4.1 + 0.53 ).g * 0.007 );`;
+  normal = dvBumpI( normal, texture2D( uDvNoise, vDvUv * 0.7 + 0.11 ).r * 0.045 + texture2D( uDvNoise, vDvUv * 2.3 + 0.53 ).g * 0.018 + texture2D( uDvNoise, vDvUv * 7.9 + 0.29 ).r * 0.004 );`;
 const DV_DUST_ROUGH = /* glsl */`
   roughnessFactor = mix( roughnessFactor, 0.95, clamp( dvDust, 0.0, 1.0 ) * 0.8 );
   metalnessFactor *= 1.0 - 0.7 * clamp( dvDust, 0.0, 1.0 );`;
@@ -400,7 +400,7 @@ const GLASS_FRESNEL = /* glsl */`
     vec3 dvT0 = normalize( vec3( - dvNw0.z, 0.0, dvNw0.x ) + vec3( 1e-5, 0.0, 0.0 ) );
     vec2 dvPc = floor( vec2( dot( vDvW, dvT0 ) / 1.2, vDvW.y / 3.8 ) );
     float dvA = dvHash( dvPc.x * 3.17 + dvPc.y * 71.3 ) - 0.5, dvB = dvHash( dvPc.x * 13.1 + dvPc.y * 7.7 + 0.5 ) - 0.5;
-    normal = normalize( normal + ( viewMatrix * vec4( dvT0 * dvA * 0.035 + vec3( 0.0, dvB * 0.025, 0.0 ), 0.0 ) ).xyz );
+    normal = normalize( normal + ( viewMatrix * vec4( dvT0 * dvA * 0.06 + vec3( 0.0, dvB * 0.04, 0.0 ), 0.0 ) ).xyz );
   }
   #endif
   float dvFr = pow( 1.0 - saturate( abs( dot( normal, normalize( vViewPosition ) ) ) ), 5.0 );
@@ -459,7 +459,7 @@ const GLASS_ROOM = /* glsl */`
       dvIn += uDvFlashC[ i ] / ( dot( dvL, dvL ) * ( 1.0 + 0.02 * dot( dvL, dvL ) ) + 4.0 );
     }
     // what the coating reflects it does not let through
-    totalEmissiveRadiance += dvIn * mix( vec3( 1.0 ), dvTint, 0.6 ) * ( 0.88 - 0.88 * dvFr ) * dvVert * dvClear;
+    totalEmissiveRadiance += dvIn * mix( vec3( 1.0 ), dvTint, 0.6 ) * ( 0.78 - 0.78 * dvFr ) * dvVert * dvClear;
     diffuseColor.a = mix( diffuseColor.a, 0.93, dvVert * ( 1.0 - dvFr ) * dvClear );
   }
   #endif`;
@@ -479,9 +479,9 @@ function patchGlass(m: THREE.MeshStandardMaterial, mode: 'room' | 'smoked', curt
   m.customProgramCacheKey = () => `dv-glass-${mode}${curtain ? '-cw' : ''}`;
 }
 
-/* Building glazing is coated (solar-control / low-e): it reflects some 12 % at normal incidence, three times bare
+/* Building glazing is coated (solar-control): it reflects some 20 % at normal incidence, five times bare
    float glass, which is why a tower at dusk mirrors the sky rather than showing its ceilings. */
-const GLAZING_F0 = 3;
+const GLAZING_F0 = 5.5;
 function glass(tint: number | undefined, interior: boolean, tempered: boolean, smoked = false): THREE.MeshStandardMaterial {
   const o: THREE.MeshStandardMaterialParameters = {
     color: smoked ? 0x1a2424 : tempered ? (interior ? 0x2a6664 : 0x16393d) : interior ? 0x2e5c54 : 0x1b3532,
