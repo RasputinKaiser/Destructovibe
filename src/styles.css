@@ -3042,6 +3042,37 @@ svg {
   color: var(--c-200);
 }
 
+/* a small dial: tiles are icons only (the hub names the tool under the pointer) */
+@container (max-width: 400px) {
+  .tw__tool b {
+    display: none;
+  }
+
+  .tw__tool svg {
+    width: 58%;
+    height: 58%;
+  }
+}
+
+/* landscape: the legend stands beside the dial, which can then use the height down to the hotbar */
+@media (min-aspect-ratio: 4/3) {
+  .tw {
+    --dial: min(34rem, 84vmin, calc(100vh - 2 * var(--gut) - 12.5rem));
+  }
+
+  .tw__keys {
+    left: calc(50% + var(--dial) / 2 + 1.5rem);
+    top: 50%;
+    transform: translateY(-50%);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
+    max-width: calc(50vw - var(--dial) / 2 - 1.5rem - var(--gut));
+    width: auto;
+    padding: 0.6rem 0.8rem;
+  }
+}
+
 .tw__keys .kbd {
   margin-right: 0.3rem;
   color: var(--hazard);
