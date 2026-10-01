@@ -1256,6 +1256,9 @@ Sources fetched for this section:
 - Share held: 1 below a vent ratio A/V^⅔ of 0.3, none past 1.5 (judgement, **not sourced**; UFC's charts were not read).
 - The gas load moves things: masonry panels by the SDOF P–I verdict, slabs and sheet walls bounding the room pushed out
   by (gas + reverberation impulse) × area.
+- A compound piece (a stair tower's or a chimney's course) is seen by its parts, so a hollow shaft is a room and a
+  thermobaric cloud spreads inside it. The room is looked for within the survey grid only (11 m round a 2.5 kg charge,
+  18 m at most): a nave or a train shed roofed higher than that is not judged a room (**gap**).
 - Test (tests/confinement.test.ts), 2.5 kg at 1 m in a 6 × 3 × 6 m 9 in brick room under a 25 cm RC slab: open (no
   roof) walls ~6 % down; 3 × 3 m opening (vent ratio 0.53, held 0.81, gas impulse ~0.5 kPa·s) ~20-50 % of the site
   down; closed (gas impulse ~5 kPa·s) ~98 % down with the slab thrown off [D, sim].

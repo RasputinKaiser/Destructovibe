@@ -2,7 +2,7 @@ import type { Vec3 } from '../../types';
 import { vec3 } from 'math';
 import { b3, CAT, overlapAABB, entityOfShape } from '../../physics/physics';
 import type { Piece } from '../../destruction/structure';
-import { rasterize, isFragile, polyBox } from './grid';
+import { rasterize, rasterizeParts, isFragile, polyBox } from './grid';
 
 /* Blast loading from a TNT-equivalent charge. Free-field peak overpressure and positive impulse follow Kinney &
    Graham's closed forms of the Kingery–Bulmash curves in scaled distance Z = R / W^⅓; a charge on or near the
@@ -103,17 +103,17 @@ const roomGas: { min: Vec3; max: Vec3; W: number; T: number; t: number }[] = [];
 export function clearRoomGas(): void { roomGas.length = 0; }
 
 const UNREACHED = 65535;
-let occ = new Uint8Array(0), occ0 = new Uint8Array(0), por = new Uint8Array(0), cov = new Uint8Array(0), steps = new Uint16Array(0), roofed = new Uint8Array(0);
+let occ = new Uint8Array(0), occ0 = new Uint8Array(0), por = new Uint8Array(0), cov = new Uint8Array(0), por0 = new Uint8Array(0), cov0 = new Uint8Array(0), steps = new Uint16Array(0), roofed = new Uint8Array(0);
 let queue = new Int32Array(0);
 let inside = new Uint8Array(0);
 
 /* covered: solid somewhere above within the grid */
-function coverPass(n: number): void {
+function coverPass(n: number, o: Uint8Array): void {
   for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
     let cover = 0;
     for (let y = n - 1; y >= 0; y--) {
       const i = x + n * (y + n * z);
-      if (occ[i]) cover = 1;
+      if (o[i]) cover = 1;
       else roofed[i] = cover;
     }
   }
@@ -144,8 +144,8 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
   const Wg = Math.max(0, gasPower / POWER_PER_KG);
   const H = Math.min(MAX_H, Math.max(8, Math.ceil(radius * 2) + 2));
   const n = 2 * H + 1, n3 = n * n * n;
-  if (occ.length < n3) { occ = new Uint8Array(n3); occ0 = new Uint8Array(n3); por = new Uint8Array(n3); cov = new Uint8Array(n3); steps = new Uint16Array(n3); roofed = new Uint8Array(n3); queue = new Int32Array(n3); }
-  occ.fill(0, 0, n3); por.fill(0, 0, n3); cov.fill(0, 0, n3); steps.fill(UNREACHED, 0, n3); roofed.fill(0, 0, n3);
+  if (occ.length < n3) { occ = new Uint8Array(n3); occ0 = new Uint8Array(n3); por0 = new Uint8Array(n3); cov0 = new Uint8Array(n3); por = new Uint8Array(n3); cov = new Uint8Array(n3); steps = new Uint16Array(n3); roofed = new Uint8Array(n3); queue = new Int32Array(n3); }
+  occ.fill(0, 0, n3); por.fill(0, 0, n3); cov.fill(0, 0, n3); occ0.fill(0, 0, n3); por0.fill(0, 0, n3); cov0.fill(0, 0, n3); steps.fill(UNREACHED, 0, n3); roofed.fill(0, 0, n3);
   const x0 = Math.floor(pos[0]) - H, y0 = Math.floor(pos[1]) - H, z0 = Math.floor(pos[2]) - H;
   const idx = (x: number, y: number, z: number): number => (x - x0) + n * ((y - y0) + n * (z - z0));
   const seen = new Set<Piece>();
@@ -161,14 +161,17 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
     const solid = rasterize(p, x0, y0, z0, n, (x, y, z, f) => { vox.push(idx(x, y, z)); frac.push(f); });
     if (solid) for (let k = 0; k < vox.length; k++) { const i = vox[k]; cov[i] = Math.min(255, cov[i] + Math.round(frac[k] * 32)); if (cov[i] > 16) occ[i] = 1; }
     else for (const i of vox) if (++por[i] >= 3) occ[i] = 1;
+    /* the room's grid sees a compound by its parts: a stair tower or a chimney course is hollow, not its envelope */
+    if (p.parts) { vox.length = 0; frac.length = 0; rasterizeParts(p, x0, y0, z0, n, (x, y, z, f) => { vox.push(idx(x, y, z)); frac.push(f); }); }
+    if (solid) for (let k = 0; k < vox.length; k++) { const i = vox[k]; cov0[i] = Math.min(255, cov0[i] + Math.round(frac[k] * 32)); if (cov0[i] > 16) occ0[i] = 1; }
+    else for (const i of vox) if (++por0[i] >= 3) occ0[i] = 1;
   });
-  for (let z = 0; z < n; z++) for (let y = 0; y < n && y0 + y < 0; y++) for (let x = 0; x < n; x++) occ[x + n * (y + n * z)] = 1;
+  for (let z = 0; z < n; z++) for (let y = 0; y < n && y0 + y < 0; y++) for (let x = 0; x < n; x++) { occ[x + n * (y + n * z)] = 1; occ0[x + n * (y + n * z)] = 1; }
   const cx = Math.floor(pos[0]) - x0, cy = Math.floor(pos[1]) - y0, cz = Math.floor(pos[2]) - z0;
   const c0 = cx + n * (cy + n * cz);
 
   /* the building as it stood: its cover, and the air cell the charge went off in */
-  coverPass(n);
-  occ0.set(occ.subarray(0, n3));
+  coverPass(n, occ0);
   let seed = c0;
   if (occ0[c0]) {
     const a = airSide(pos);
