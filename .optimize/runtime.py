@@ -18,7 +18,9 @@ Interleaved A/B (run 2+; use this for every timing claim):
   The base dir is any checkout with the same scripts/sim.mjs PERF mode, e.g. `git archive <rev> | tar -x -C <dir>` plus
   a node_modules symlink.
 
-Windows are 60 steps (1 s); the blast (if any) fires at step 60, i.e. the start of window 1.
+Windows are 60 steps (1 s); the blast (if any) fires at step 60, i.e. the start of window 1. Blast rows also report the
+worst step's CPU ms per window (collapse_peak_cpu / aftermath_peak_cpu), fracture ms/step, the fracture queue's peak
+length and the longest wait of a broken piece (run 5).
   idle_*    steady  = windows 10..19 (t 10-20 s; run 1-2 used t 5-10 s, which caught the start-up settle)
   tower_D / terrace_S  collapse = windows 1..9 (t 1-10 s), aftermath = windows 15..19 (t 15-20 s, ~+15 s after blast)
   chapel_S  settle_s = first second from which no body is awake; t10_20 = windows 10..19
@@ -48,7 +50,8 @@ SCEN = {
 KEY = {  # metrics the A/B table prints, per kind
     'idle': ['after_cpu', 'phys_cpu', 'after_ms', 'phys_ms', 'ter_ms', 'soft_ms', 'awake_end', 'awake_other'],
     'blast': ['collapse_phys_cpu', 'collapse_after_cpu', 'aftermath_phys_cpu', 'aftermath_after_cpu', 'collapse_total_ms',
-              'aftermath_total_ms', 'awake_at_16s', 'awake_end', 'pieces_created', 'demo_pct'],
+              'aftermath_total_ms', 'collapse_peak_cpu', 'aftermath_peak_cpu', 'collapse_frac_ms', 'fq_max', 'fq_wait_max',
+              'fractures', 'awake_at_16s', 'awake_end', 'pieces_created', 'demo_pct'],
     'settle': ['t10_20_phys_cpu', 't10_20_after_cpu', 'collapse_total_ms', 'settle_s', 'awake_end'],
     'late': ['late_phys_cpu', 'late_after_cpu', 'late_total_ms', 'awake_at_45s', 'awake_min_late', 'awake_mean_late', 'awake_end', 'demo_pct'],
 }
@@ -113,7 +116,14 @@ def run(name, root=ROOT, shift=0.0):
                  aftermath_total_ms=mean(tot[15:20]),
                  collapse_phys_cpu=mean(w('physCpu', 1, 9)), collapse_after_cpu=mean(w('afterCpu', 1, 9)),
                  aftermath_phys_cpu=mean(w('physCpu', 15, 19)), aftermath_after_cpu=mean(w('afterCpu', 15, 19)), awake_at_16s=P['awake'][15], awake_end=P['awake'][-1],
-                 pieces_created=P['pieces'][-1] - P['pieces'][0])
+                 pieces_created=P['pieces'][-1] - P['pieces'][0],
+                 # run 5: the worst step's process CPU ms in each window, fracture ms/step, the fracture queue and the
+                 # longest a broken piece waited (s; 0 on trees without fractureCost)
+                 collapse_peak_cpu=max(w('stepMaxCpu', 1, 9), default=None) if 'stepMaxCpu' in P else None,
+                 aftermath_peak_cpu=max(w('stepMaxCpu', 15, 19), default=None) if 'stepMaxCpu' in P else None,
+                 collapse_frac_ms=mean(w('frac', 1, 9)) if 'frac' in P else None,
+                 fq_max=max(P['fq']) if 'fq' in P else None, fq_wait_max=max(P['fqWait']) if 'fqWait' in P else None,
+                 fractures=((full or {}).get('end') or {}).get('fractures'))
     m['perf'] = P
     return m
 def brief(s): return {k: v for k, v in s.items() if k not in ('perf', 'tail')}

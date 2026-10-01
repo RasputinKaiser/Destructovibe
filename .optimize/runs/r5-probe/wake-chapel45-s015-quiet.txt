@@ -1,0 +1,91 @@
+AWK 15.5 1044
+AWK 16 1044
+AWK 16.5 1046
+AWK 17 1072
+AWK 17.5 1070
+AWK 18 117
+AWK 18.5 94
+AWK 19 96
+AWK 19.5 94
+AWK 20 96
+AWK 20.5 94
+AWK 21 93
+AWK 21.5 93
+WAKE {"t":21.77,"id":3299,"mat":"lamp","vol":0.0097,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":false,"y":0.33,"before":96,"stack":"pulverize (destruction/structure.ts:4311:2) < fracture (destruction/structure.ts:4334:29) < processFractures (destruction/structure.ts:5181:3)","contacts":[{"id":4547,"kind":"piece","dyn":true,"awake":false,"ny":-1,"jw":0.001,"welds":0}],"after":96}
+AWK 22 97
+AWK 22.5 118
+WAKE {"t":22.53,"id":2106,"mat":"pvc","vol":0.0221,"depth":0,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.53,"before":114,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":3532,"kind":"piece","dyn":true,"awake":false,"ny":-1,"jw":0.048,"welds":0},{"id":4555,"kind":"piece","dyn":true,"awake":false,"ny":-0.85,"jw":0.069,"welds":0},{"id":4414,"kind":"piece","dyn":true,"awake":false,"ny":-0.07,"jw":0.001,"welds":0}],"after":116}
+AWK 23 97
+WAKE {"t":23.25,"id":4221,"mat":"stone","vol":0.0002,"depth":0,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":false,"y":0.31,"before":97,"stack":"shrink (destruction/detail.ts:2026:8) < detailHeat (destruction/detail.ts:2439:2) < updateHeat (destruction/structure.ts:6649:58)","contacts":[{"id":3899,"kind":"piece","dyn":true,"awake":false,"ny":-0.99,"jw":0.003,"welds":0},{"id":3898,"kind":"piece","dyn":true,"awake":false,"ny":-0.01,"jw":0,"welds":0},{"id":3529,"kind":"piece","dyn":true,"awake":false,"ny":-0.05,"jw":0,"welds":0},{"id":3528,"kind":"piece","dyn":true,"awake":false,"ny":-0.99,"jw":0.006,"welds":0}],"after":97}
+WAKE {"t":23.27,"id":3298,"mat":"lamp","vol":0.0064,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":false,"y":0.72,"before":97,"stack":"pulverize (destruction/structure.ts:4311:2) < fracture (destruction/structure.ts:4334:29) < processFractures (destruction/structure.ts:5181:3)","contacts":[{"id":4541,"kind":"piece","dyn":true,"awake":false,"ny":0,"jw":0,"welds":0},{"id":4541,"kind":"piece","dyn":true,"awake":false,"ny":-1,"jw":0.013,"welds":0}],"after":97}
+AWK 23.5 74
+AWK 24 76
+AWK 24.5 73
+AWK 25 72
+AWK 25.5 72
+AWK 26 69
+AWK 26.5 91
+AWK 27 92
+AWK 27.5 89
+AWK 28 112
+AWK 28.5 89
+AWK 29 90
+AWK 29.5 87
+AWK 30 88
+AWK 30.5 122
+AWK 31 95
+AWK 31.5 95
+AWK 32 124
+AWK 32.5 121
+AWK 33 112
+AWK 33.5 103
+AWK 34 105
+AWK 34.5 110
+AWK 35 120
+WAKE {"t":35.32,"id":3287,"mat":"glass","vol":0.0064,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":false,"y":1.73,"before":99,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":2962,"kind":"piece","dyn":true,"awake":false,"ny":-1,"jw":0.001,"welds":3}],"after":99}
+AWK 35.5 99
+AWK 36 102
+WAKE {"t":36.35,"id":4080,"mat":"stone","vol":0.0006,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":false,"y":0.01,"before":102,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":-1,"kind":"ground","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0}],"after":102}
+AWK 36.5 102
+AWK 37 111
+WAKE {"t":37.17,"id":3527,"mat":"wood","vol":0.0346,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.05,"before":110,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":3899,"kind":"piece","dyn":true,"awake":false,"ny":0.99,"jw":0.137,"welds":0},{"id":3907,"kind":"piece","dyn":true,"awake":false,"ny":0,"jw":0,"welds":0},{"id":2529,"kind":"piece","dyn":true,"awake":false,"ny":0,"jw":0.006,"welds":3},{"id":3530,"kind":"piece","dyn":true,"awake":false,"ny":1,"jw":3.236,"welds":0},{"id":-1,"kind":"ground","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0}],"after":1037}
+AWK 37.5 1035
+AWK 38 1057
+AWK 38.5 1031
+WAKE {"t":38.83,"id":3521,"mat":"glass","vol":0.0016,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":false,"y":0.95,"before":1033,"stack":"pulverize (destruction/structure.ts:4311:2) < fracture (destruction/structure.ts:4334:29) < processFractures (destruction/structure.ts:5181:3)","contacts":[{"id":3642,"kind":"piece","dyn":true,"awake":true,"ny":0.44,"jw":0.23,"welds":0},{"id":4532,"kind":"piece","dyn":true,"awake":true,"ny":0,"jw":0,"welds":0},{"id":4532,"kind":"piece","dyn":true,"awake":true,"ny":-0.44,"jw":0.057,"welds":0}],"after":1034}
+WAKE {"t":38.93,"id":4719,"mat":"wood","vol":0.0036,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":true,"y":0.34,"before":1035,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":4724,"kind":"piece","dyn":true,"awake":true,"ny":0.22,"jw":0,"welds":0}],"after":1035}
+WAKE {"t":38.93,"id":4718,"mat":"wood","vol":0.0036,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":true,"y":0.19,"before":1035,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":1253,"kind":"piece","dyn":true,"awake":true,"ny":-0.93,"jw":0,"welds":0},{"id":3580,"kind":"piece","dyn":true,"awake":true,"ny":-0.7,"jw":0,"welds":0},{"id":4437,"kind":"piece","dyn":true,"awake":true,"ny":0.7,"jw":0.827,"welds":0}],"after":1035}
+WAKE {"t":38.93,"id":4585,"mat":"stone","vol":0.0069,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":false,"y":0.07,"before":1035,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":-1,"kind":"ground","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0}],"after":1035}
+AWK 39 1035
+WAKE {"t":39.45,"id":4398,"mat":"stone","vol":0.0061,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":false,"y":0.25,"before":1011,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":-1,"kind":"ground","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0}],"after":1011}
+WAKE {"t":39.45,"id":3611,"mat":"stone","vol":0.0101,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":false,"y":0.07,"before":1011,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":-1,"kind":"ground","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0}],"after":1011}
+AWK 39.5 1011
+AWK 40 1013
+AWK 40.5 1007
+WAKE {"t":40.9,"id":3591,"mat":"wood","vol":0.0021,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.04,"before":1006,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":4786,"kind":"piece","dyn":true,"awake":true,"ny":1,"jw":0.093,"welds":0},{"id":3872,"kind":"piece","dyn":true,"awake":true,"ny":0,"jw":0.002,"welds":0}],"after":1006}
+AWK 41 1004
+WAKE {"t":41.02,"id":3522,"mat":"glass","vol":0.0015,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":false,"y":0.23,"before":1004,"stack":"pulverize (destruction/structure.ts:4311:2) < fracture (destruction/structure.ts:4334:29) < processFractures (destruction/structure.ts:5181:3)","contacts":[{"id":4547,"kind":"piece","dyn":true,"awake":true,"ny":-1,"jw":0,"welds":0}],"after":1004}
+WAKE {"t":41.05,"id":3602,"mat":"wood","vol":0.0045,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.01,"before":1004,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[],"after":1004}
+WAKE {"t":41.2,"id":3600,"mat":"wood","vol":0.0045,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.03,"before":1004,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":3578,"kind":"piece","dyn":true,"awake":true,"ny":-0.08,"jw":0,"welds":0},{"id":3593,"kind":"piece","dyn":true,"awake":true,"ny":0.99,"jw":8.812,"welds":0}],"after":1004}
+WAKE {"t":41.32,"id":3606,"mat":"wood","vol":0.0045,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.06,"before":1006,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":4759,"kind":"piece","dyn":true,"awake":true,"ny":1,"jw":0.259,"welds":0},{"id":4791,"kind":"piece","dyn":true,"awake":true,"ny":0.77,"jw":0,"welds":0},{"id":4761,"kind":"piece","dyn":true,"awake":true,"ny":0.49,"jw":0.006,"welds":0}],"after":1008}
+WAKE {"t":41.37,"id":3574,"mat":"wood","vol":0.0045,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.07,"before":1007,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":4764,"kind":"piece","dyn":true,"awake":true,"ny":0.11,"jw":0,"welds":0},{"id":4437,"kind":"piece","dyn":true,"awake":true,"ny":1,"jw":0,"welds":0}],"after":1007}
+AWK 41.5 1007
+WAKE {"t":41.52,"id":3594,"mat":"wood","vol":0.0045,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.01,"before":1010,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":3593,"kind":"piece","dyn":true,"awake":true,"ny":1,"jw":0,"welds":0}],"after":1010}
+WAKE {"t":41.52,"id":3597,"mat":"wood","vol":0.0021,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":true,"y":0.09,"before":1010,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":3603,"kind":"piece","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0},{"id":3599,"kind":"piece","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0},{"id":3589,"kind":"piece","dyn":false,"awake":false,"ny":-0.74,"jw":null,"welds":0},{"id":3587,"kind":"piece","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0}],"after":1010}
+WAKE {"t":41.52,"id":3577,"mat":"wood","vol":0.0021,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":true,"y":0.01,"before":1010,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":3573,"kind":"piece","dyn":false,"awake":false,"ny":0,"jw":null,"welds":0},{"id":4306,"kind":"piece","dyn":false,"awake":false,"ny":0,"jw":null,"welds":0},{"id":-1,"kind":"ground","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0}],"after":1010}
+WAKE {"t":41.52,"id":3571,"mat":"wood","vol":0.0021,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":true,"y":0.03,"before":1010,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":4443,"kind":"piece","dyn":false,"awake":false,"ny":0.8,"jw":null,"welds":0},{"id":3539,"kind":"piece","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0},{"id":4306,"kind":"piece","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0},{"id":-1,"kind":"ground","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0}],"after":1010}
+WAKE {"t":41.53,"id":3592,"mat":"wood","vol":0.0045,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.03,"before":1010,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":4759,"kind":"piece","dyn":true,"awake":true,"ny":1,"jw":0.163,"welds":0}],"after":1010}
+WAKE {"t":41.68,"id":3588,"mat":"wood","vol":0.0045,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.05,"before":1013,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":3929,"kind":"piece","dyn":true,"awake":false,"ny":1,"jw":0.126,"welds":0},{"id":4435,"kind":"piece","dyn":true,"awake":true,"ny":1,"jw":0,"welds":0}],"after":1014}
+AWK 42 1014
+WAKE {"t":42.33,"id":3586,"mat":"wood","vol":0.0045,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.02,"before":1013,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":4816,"kind":"piece","dyn":true,"awake":true,"ny":1,"jw":0.155,"welds":0},{"id":3578,"kind":"piece","dyn":true,"awake":true,"ny":1,"jw":0,"welds":0},{"id":3580,"kind":"piece","dyn":true,"awake":true,"ny":1,"jw":0,"welds":0}],"after":1013}
+AWK 42.5 1009
+WAKE {"t":42.55,"id":4343,"mat":"stone","vol":0.0058,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":-5.065392549852277e-16,"burning":false,"y":0.07,"before":1009,"stack":"housekeeping (destruction/structure.ts:6046:4) < Module.afterStep (destruction/structure.ts:6032:2) < file://<scratch>/r5/p2w/scripts/sim.mjs:114:8","contacts":[{"id":-1,"kind":"ground","dyn":false,"awake":false,"ny":-1,"jw":null,"welds":0}],"after":1009}
+AWK 43 1051
+WAKE {"t":43.33,"id":3598,"mat":"wood","vol":0.0045,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.01,"before":1008,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[],"after":1006}
+AWK 43.5 998
+AWK 44 999
+WAKE {"t":44.02,"id":3520,"mat":"glass","vol":0.0015,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":false,"y":0.28,"before":998,"stack":"pulverize (destruction/structure.ts:4311:2) < fracture (destruction/structure.ts:4334:29) < processFractures (destruction/structure.ts:5181:3)","contacts":[{"id":4309,"kind":"piece","dyn":true,"awake":true,"ny":0.92,"jw":0.176,"welds":0},{"id":3636,"kind":"piece","dyn":true,"awake":true,"ny":-0.87,"jw":0,"welds":0},{"id":3437,"kind":"piece","dyn":true,"awake":true,"ny":-0.97,"jw":3.034,"welds":0},{"id":3637,"kind":"piece","dyn":true,"awake":true,"ny":0.92,"jw":0.118,"welds":0}],"after":998}
+WAKE {"t":44.28,"id":3576,"mat":"wood","vol":0.0045,"depth":1,"welds":0,"rebars":0,"ropes":0,"dem":true,"fade":0,"burning":true,"y":0.06,"before":992,"stack":"disintegrate (destruction/structure.ts:6692:2) < updateFire (destruction/structure.ts:6527:20) < Module.afterStep (destruction/structure.ts:5997:2)","contacts":[{"id":4437,"kind":"piece","dyn":true,"awake":true,"ny":1,"jw":2.918,"welds":0}],"after":992}
+AWK 44.5 985
+AWK 45 984
+RESULT {"weldsLost":320,"runaways":0,"awakeAtEnd":984,"awakeMachine":68,"awakeOther":916,"fingerprint":"134f9d80c8f258e3"}

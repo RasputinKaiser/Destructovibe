@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { vec3, quat, clamp, lerp } from 'math';
-import type { b3ShapeId, b3JointId } from 'box3d.js';
+import type { b3ShapeId, b3JointId, b3BodyId, Contact as B3Contact, ContactsBuffer, Manifold } from 'box3d.js';
 import type { Blueprint, MaterialId, PieceSpec, Vec3, Quat } from '../types';
 import {
   b3, world, ground, CAT, ALL, filter, register, unregister, stepCount, overlapAABB, explodeImpulse,
@@ -57,7 +57,9 @@ let BUDGET = 800;                // bodies made by breakage before old rubble is
 const IMPACT_GRACE = 0.4;        // fresh fragments ignore collision damage while they fly apart
 const FRAG_TOUGHEN = 1.2;        // fragment hp × (1 + depth × this): sounder than the parent, but a hard landing still breaks them
 const LOAD_SAFETY = 2.6;         // joint capacity ≥ measured static load × this
-const FRACTURE_PER_STEP = 3;
+const FRACTURE_PER_STEP = 3;      // pieces broken per step at the least…
+const FRACTURE_DRAIN_STEPS = 30;  // …and a 30th of the queue while a collapse keeps it long (~0.5 s to clear)
+const FRACTURE_WAIT = 1;          // s: no damaged piece waits longer than this to break
 const BLAST_FRACTURES = 14;      // beyond this a blast only pre-damages pieces
 const MAX_BURNING = 60;
 const MAX_REBAR = 260;
@@ -235,7 +237,7 @@ let movedAt = -1;
 const welds = new Map<number, Weld>();
 const rebars = new Map<number, Rebar>();
 const ropeJoints = new Map<number, Rope>();
-const fractureQueue: { p: Piece; point: Vec3; intensity: number; blast: boolean }[] = [];
+const fractureQueue: { t: number; p: Piece; point: Vec3; intensity: number; blast: boolean }[] = [];
 const fusing: Piece[] = [];
 const fading: Piece[] = [];
 const burning = new Set<Piece>();
@@ -1133,7 +1135,7 @@ function crushAhead(s: Section, d: P2, zone: P2): void {
     const low = s.under[i], c = area2(s.regions[i]).c;
     if (c[0] * d[0] + c[1] * d[1] <= tz + 0.05 * s.R || low.dead || low.queued || low.pm.style === 'none') continue;
     low.queued = true;
-    fractureQueue.push({ p: low, point: [c[0], s.y0, c[1]], intensity: 1.5, blast: false });
+    fractureQueue.push({ t: clock, p: low, point: [c[0], s.y0, c[1]], intensity: 1.5, blast: false });
   }
 }
 
@@ -1838,7 +1840,7 @@ function crushBed(w: Weld): void {
   const low = w.a.curPos[1] < w.b.curPos[1] ? w.a : w.b;
   if (low.dead || low.queued || low.depth >= MAX_DEPTH || low.pm.style === 'none') return;
   low.queued = true;
-  fractureQueue.push({ p: low, point: weldPos(w, [0, 0, 0]), intensity: 1.5, blast: false });
+  fractureQueue.push({ t: clock, p: low, point: weldPos(w, [0, 0, 0]), intensity: 1.5, blast: false });
 }
 const _cbn: Vec3 = [0, 0, 0];
 
@@ -1949,7 +1951,7 @@ function buckle(p: Piece, N: number, Pcr: number): void {
   b3.b3Body_SetAwake(p.body, true);
   if (p.pm.style === 'splinter' && !p.queued && p.depth < MAX_DEPTH) {
     p.queued = true;
-    fractureQueue.push({ p, point: [p.curPos[0], p.curPos[1], p.curPos[2]], intensity: 1.2, blast: false });
+    fractureQueue.push({ t: clock, p, point: [p.curPos[0], p.curPos[1], p.curPos[2]], intensity: 1.2, blast: false });
     return;
   }
   let worst: Weld | null = null, u = -1;
@@ -2321,7 +2323,7 @@ function failWeld(w: Weld, mode: FailMode, crack = true): void {
   for (const q of [a, b]) {
     if (!q || q.dead || q.queued || q.pm.style !== 'splinter' || q.depth >= MAX_DEPTH || q.volume < 0.02 || chance() > 0.55) continue;
     q.queued = true;
-    fractureQueue.push({ p: q, point: pos, intensity: 1.2, blast: false });
+    fractureQueue.push({ t: clock, p: q, point: pos, intensity: 1.2, blast: false });
   }
 }
 
@@ -3005,6 +3007,7 @@ function syncRebar(alpha: number): void {
 
 function destroyPiece(p: Piece): void {
   if (p.dead) return;
+  const quiet = leavesQuietly(p);
   watchAbove(p);
   p.dead = true;
   for (const w of p.welds.slice()) killWeld(w, false);
@@ -3016,6 +3019,7 @@ function destroyPiece(p: Piece): void {
   hot.delete(p);
   unregister(p);
   if (b3.b3Body_IsValid(p.body)) b3.b3DestroyBody(p.body);
+  if (quiet) resettle(quiet);
   detachDetail(p);
   removePieceGfx(p.gfx);
   live.delete(p);
@@ -3059,7 +3063,7 @@ export function damagePiece(p: Piece, point: Vec3, energy: number, blast: boolea
   if (p.mechs) mechHarm(p, energy);
   if (p.damage >= hp && !p.queued) {
     p.queued = true;
-    fractureQueue.push({ p, point: [point[0], point[1], point[2]], intensity: p.damage / hp, blast });
+    fractureQueue.push({ t: clock, p, point: [point[0], point[1], point[2]], intensity: p.damage / hp, blast });
   } else {
     refreshColor(p);
   }
@@ -3623,16 +3627,35 @@ function crackMember(p: Piece, at: Vec3, into: Vec3): boolean {
   return true;
 }
 
-function processFractures(max: number): void {
-  let n = 0;
-  /* the hardest-hit first, then by place: which pieces break this step and which wait must not follow the order the
-     blows happened to be handled in */
-  if (fractureQueue.length > max) fractureQueue.sort((a, b) => b.intensity - a.intensity || pieceKey(a.p) - pieceKey(b.p));
-  while (fractureQueue.length && n < max) {
-    const f = fractureQueue.shift()!;
+/** Cost of breaking queued pieces, for profiling: ms and pieces broken, and the longest a broken piece had waited (s;
+    the harness reads and resets it). */
+export const fractureCost = { ms: 0, n: 0, waitMax: 0 };
+
+function processFractures(max: number, drain = false): void {
+  /* a piece that died in the queue (burnt out, faded, ground to fines, fell off the map) takes no slot */
+  let k = 0;
+  for (const f of fractureQueue) if (!f.p.dead) fractureQueue[k++] = f;
+  fractureQueue.length = k;
+  if (!k) return;
+  /* A piece hit past its breaking point breaks then, not seconds later in the heap: while a collapse keeps the queue
+     long each step breaks enough to clear it in about half a second, the longest-waiting first, and whatever has waited
+     FRACTURE_WAIT breaks this step whatever the count. */
+  if (drain) max = Math.max(max, Math.ceil(k / FRACTURE_DRAIN_STEPS));
+  /* then the hardest-hit first, then by place: which pieces break this step and which wait must not follow the order
+     the blows happened to be handled in */
+  if (k > max) fractureQueue.sort((a, b) => (drain ? a.t - b.t : 0) || b.intensity - a.intensity || pieceKey(a.p) - pieceKey(b.p));
+  const due = drain ? clock - FRACTURE_WAIT : -Infinity;
+  const batch: typeof fractureQueue = [];
+  let j = 0;
+  for (const f of fractureQueue) if (batch.length < max || f.t <= due) batch.push(f); else fractureQueue[j++] = f;
+  fractureQueue.length = j;
+  const t0 = performance.now();
+  for (const f of batch) {
+    fractureCost.waitMax = Math.max(fractureCost.waitMax, clock - f.t);
     fracture(f.p, f.point, f.intensity, f.blast);
-    n++;
   }
+  fractureCost.ms += performance.now() - t0;
+  fractureCost.n += batch.length;
 }
 
 function pieceKey(p: Piece): number {
@@ -4172,7 +4195,7 @@ export function afterStep(dt: number): void {
   fxBudget = Math.min(24, fxBudget + 1.5);
   if (stepCount % 2 === 0) pollJoints();
   if (stepCount % YIELD_EVERY === 1) updateYield();
-  processFractures(FRACTURE_PER_STEP);
+  processFractures(FRACTURE_PER_STEP, true);
   if (shatterQueue.length) processShatter();
   detailCarveDeferred();
   lateBlastPush();
@@ -4376,6 +4399,62 @@ function freezeRubble(p: Piece): void {
 }
 /** settled rubble held static (harness) */
 export function frozenRubble(): number { return frozenList.length; }
+
+/* Box3D wakes every sleeping island a destroyed body touched or merely lay close to (its contacts include the ones
+   whose bounding boxes only overlap), and a heap is one island: a burnt-out splinter, a pulverised shard or a faded chip
+   going from a sleeping heap woke the whole heap (the chapel's burning pile: ~1000 bodies solved again for 1-2 s, five
+   times in 10 s). A heap at rest that loses a piece which held nothing up is still at rest: after the piece goes, what
+   it lay on, beside or near is put back to sleep. What it bore (a body resting on it, or pressing on it from the side,
+   with more than a twentieth of its own weight) is woken, and with it that body's island, so a heap that loses its
+   support still settles. A piece that was awake, jointed, or near anything that is not a piece leaves as before. */
+const BORE = 0.05;
+let _qcb: ContactsBuffer | null = null, _qcon: B3Contact | null = null, _qman: Manifold | null = null;
+const _qlo: Vec3 = [0, 0, 0], _qhi: Vec3 = [0, 0, 0];
+interface Leaving { sleepers: b3BodyId[]; borne: b3BodyId[] }
+function leavesQuietly(p: Piece): Leaving | null {
+  if (p.welds.length || p.rebars.length || p.ropes.length || p.mechs || p.hinged || !b3.b3Body_IsValid(p.body)) return null;
+  if (b3.b3Body_GetType(p.body) !== b3.b3BodyType.b3_dynamicBody || b3.b3Body_IsAwake(p.body)) return null;
+  const q: Leaving = { sleepers: [], borne: [] };
+  /* everything the destroy can wake: bodies whose (fattened) boxes overlap this one's */
+  b3.b3Body_ComputeAABB(_aabb, p.body);
+  for (let k = 0; k < 3; k++) { _qlo[k] = _aabb[k] - 0.25; _qhi[k] = _aabb[k + 3] + 0.25; }
+  let other = false;
+  const seen = new Set<number>();
+  overlapAABB(_qlo, _qhi, ALL, shape => {
+    const body = b3.b3Shape_GetBody(shape);
+    if (b3.b3Body_GetType(body) !== b3.b3BodyType.b3_dynamicBody || body.index1 === p.body.index1 || seen.has(body.index1)) return;
+    seen.add(body.index1);
+    const e = entityOfShape(shape);
+    if (!e || e.kind !== 'piece') { other = true; return; }
+    if (!b3.b3Body_IsAwake(body)) q.sleepers.push(body);
+  });
+  if (other) return null;
+  /* what rests or leans on it: the normal runs from shape A to shape B, so from this piece to the other when it is A */
+  const cb = _qcb ??= b3.createContactsBuffer(), con = _qcon ??= b3.createContact(), man = _qman ??= b3.createManifold();
+  b3.getBodyContactData(cb, p.body);
+  const n = b3.getNumContacts(cb);
+  for (let i = 0; i < n; i++) {
+    b3.getContactAt(con, cb, i);
+    if (con.manifoldCount === 0) continue;
+    const pa = entityOfShape(con.shapeIdA) === p, sh = pa ? con.shapeIdB : con.shapeIdA;
+    const body = b3.b3Shape_GetBody(sh);
+    if (b3.b3Body_GetType(body) !== b3.b3BodyType.b3_dynamicBody) continue;
+    let up = -1, J = 0;
+    for (let m = 0; m < con.manifoldCount; m++) {
+      const mf = b3.getManifoldAt(man, con, m);
+      up = Math.max(up, pa ? mf.normal[1] : -mf.normal[1]);
+      for (let k = 0; k < mf.pointCount; k++) J += mf.points[k].totalNormalImpulse;
+    }
+    // it lay on the other (pushing it down): the other stays where it is without it
+    if (up < -0.3) continue;
+    if (J > BORE * b3.b3Body_GetMass(body) * 9.81 / 60) q.borne.push(body);
+  }
+  return q;
+}
+function resettle(q: Leaving): void {
+  for (const b of q.sleepers) if (b3.b3Body_IsValid(b) && b3.b3Body_IsAwake(b)) b3.b3Body_SetAwake(b, false);
+  for (const b of q.borne) if (b3.b3Body_IsValid(b)) b3.b3Body_SetAwake(b, true);
+}
 
 function fadeScale(p: Piece): number {
   return p.fade > 0 ? Math.max(0.02, p.fade / 0.7) : 1;
@@ -4628,7 +4707,7 @@ function updateHeat(): void {
     if (p.pm.thermal.spall !== undefined && p.pm.style !== 'shards' && p.pm.style !== 'dice') { spall(p); continue; }
     p.queued = true;
     audio.glassCrack(p.curPos);
-    fractureQueue.push({ p, point: [...p.curPos], intensity: 1.1, blast: false });
+    fractureQueue.push({ t: clock, p, point: [...p.curPos], intensity: 1.1, blast: false });
   }
   for (const p of hot) {
     if (p.dead) { hot.delete(p); continue; }
@@ -4661,7 +4740,7 @@ function updateHeat(): void {
     if (th.shock !== undefined && p.temp > th.shock && !p.queued) {
       p.queued = true;
       audio.glassCrack(p.curPos);
-      fractureQueue.push({ p, point: [...p.curPos], intensity: 1.1, blast: false });
+      fractureQueue.push({ t: clock, p, point: [...p.curPos], intensity: 1.1, blast: false });
     }
     if (!p.burning && p.temp < 60) {
       if (p.glow > 0) { p.glow = 0; setPieceHeat(p.gfx, 0); }
