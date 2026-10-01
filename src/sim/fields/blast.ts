@@ -196,7 +196,7 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
   const dir = face ?? (occ0[c0] ? airSide(pos) : null);
   if (dir) {
     // out of the cell it shares with its wall into the first air on its side; anything else solid in the way within a
-    // metre (furniture, the other wall of a passage) and it is judged in the open
+    // metre (furniture, the other wall of a passage) and it is judged from its own cell if that is air, else in the open
     seed = -1;
     for (let k = 0.25; k <= 1.0; k += 0.25) {
       const sx = Math.floor(pos[0] + dir[0] * k) - x0, sy = Math.floor(pos[1] + dir[1] * k) - y0, sz = Math.floor(pos[2] + dir[2] * k) - z0;
@@ -206,6 +206,8 @@ export function survey(pos: Vec3, radius: number, power: number, gasPower = powe
       if (!occ0[j]) { seed = j; break; }
       if (k > 0.5) break;
     }
+    // blocked by something in front (goods stacked by a column): it is where it is, if that is air
+    if (seed < 0 && !occ0[c0]) seed = c0;
   }
   /* what the charge holes: only what lies inside its contact-breach radius (a fuel-air cloud, nothing); a holed cell of
      the envelope counts as under cover, so the flood below reaches the far side of the hole and counts it as a vent */
