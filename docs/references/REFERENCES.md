@@ -1230,8 +1230,9 @@ Sources fetched for this section:
 - Gas blow-down through vents: P(t) = (P_QS + P0)·e^(−2.13 τ) − P0, τ = α_e·A_s·a0·t / V (α_e the vent share of the
   wall area A_s, a0 the sound speed); it reaches ambient at τ_max = ln((P_QS + P0)/P0) / 2.13, and the gas impulse is
   the area under the curve [S Catovic & Kljuno eqs. 12-15].
-- Peak gas pressure, UFC 3-340-02 Fig. 2-152 as replotted with test data: **~0.4 bar at W/V = 0.0058 kg/m³**
-  [S Salvado et al. §6, Fig. 18]. Full afterburn of TNT's products needs W/V below **0.387 kg/m³**; the total energy
+- Peak gas pressure **~0.4 bar at W/V = 0.0058 kg/m³**, read off Salvado et al.'s Fig. 18 (the UFC 3-340-02 curve,
+  test data and a JWL curve replotted from Feldgun et al.); the paper then treats that low W/V as one where afterburn
+  barely acts [S Salvado et al. §6]. Not a UFC chart reading of our own. Full afterburn of TNT's products needs W/V below **0.387 kg/m³**; the total energy
   with afterburn is **~3.22 ×** the heat of detonation [S Salvado et al. §6].
 - A detonation-only hydrocode (no afterburn) gives far less: P_g = 1.50·x^0.967 MPa, x = W/V in kg/m³
   [S Hu et al. 2011, eq. 7] (0.076 MPa at 0.046 kg/m³ against 0.20 MPa from the fit below [D]); afterburn is most of a
@@ -1244,24 +1245,30 @@ Sources fetched for this section:
 - The room is found on the building as it stood when the charge went off: its real ceiling and walls, glazing counted
   as open. The charge holes only what lies inside its contact-breach radius, P = R³·K·C with masonry K 0.35 and C 3.2
   (weapon/satchel): 2.5 kg TNT → 0.52 m [D]. A charge planted on a wall is on the side it was planted on.
-- P_QS = 2.25 MPa·(W/V)^0.78, W the charge's own TNT-eq (no ground-reflection factor). 0.40 bar at 0.0058 kg/m³ [D,
-  matches the S point]; 1.19 bar for 2.5 kg in 108 m³ [D], against the afterburn energy bound
-  (γ − 1)·3.22·4.184 MJ/kg·W/V = 1.25 bar [D]. The 2.25 MPa anchor at W/V = 1 kg/m³ is carried over from the earlier
-  fit and is **not re-sourced**.
+- P_QS = min(2.25 MPa·(W/V)^0.78, (γ − 1)·3.22·4.184 MJ/kg·W/V), W the charge's own TNT-eq (no ground-reflection
+  factor): never more than the products' heat with full afterburn can put into the air. The bound governs below
+  W/V ≈ 0.019 kg/m³: 0.31 bar at 0.0058 kg/m³ against the ~0.4 bar read [D]; 1.19 bar for 2.5 kg in 108 m³ (bound
+  1.25) [D]. The 2.25 MPa anchor at W/V = 1 kg/m³ is carried over from the earlier fit and is **not re-sourced**.
 - Blow-down on the Baker curve through the room's vent area (openings, the charge's own breach, and, once they have
   moved hL/2(h + L) out, the wall panels the gas blows out); what a member takes is its first 50 ms.
-- Reverberations: 0.75 × the wall's own normal reflected impulse on top of the direct shock (the 1.75 × train).
-- Charges fired together in one room share its air: an earlier charge's TNT-eq, blown down with the room's time constant
-  V/(A·a0) since it went, adds to the next one's for P_QS (a sealed 108 m³ room keeps ~80 % of it over a 70 ms stagger [D]).
-- Share held: 1 below a vent ratio A/V^⅔ of 0.3, none past 1.5 (judgement, **not sourced**; UFC's charts were not read).
+- Reverberations: 0.75 × the normal reflected impulse on top of the direct shock (the 1.75 × train), taken at the
+  surface's distance but never nearer than the room's half-width (the re-reflections have crossed the room).
+- Charges fired together in one room share its air: each one's TNT-eq stays in the room, blown down with its time
+  constant V/(A·a0) (faster once walls are out); the next charge sees the peak of all of it and adds only the rise it
+  makes, so n charges at once load the room exactly as one of n·W (test). A sealed 108 m³ room keeps ~80 % over a
+  70 ms stagger [D].
+- Share held: 1 below a vent ratio A/V^⅔ of 0.3, none past 1.5 (judgement, **not sourced**; UFC's charts were not
+  read). It scales the peak and the reverberation; the gas impulse is already the blow-down through the vents.
 - The gas load moves things: masonry panels by the SDOF P–I verdict, slabs and sheet walls bounding the room pushed out
-  by (gas + reverberation impulse) × area.
+  by (gas + reverberation impulse) × the area over the room. Breaching uses masonry K for every material (**gap**:
+  an RC slab under a big charge is holed as if it were brick).
 - A compound piece (a stair tower's or a chimney's course) is seen by its parts, so a hollow shaft is a room and a
   thermobaric cloud spreads inside it. The room is looked for within the survey grid only (11 m round a 2.5 kg charge,
   18 m at most): a nave or a train shed roofed higher than that is not judged a room (**gap**).
 - Test (tests/confinement.test.ts), 2.5 kg at 1 m in a 6 × 3 × 6 m 9 in brick room under a 25 cm RC slab: open (no
-  roof) walls ~6 % down; 3 × 3 m opening (vent ratio 0.53, held 0.81, gas impulse ~0.5 kPa·s) ~20-50 % of the site
-  down; closed (gas impulse ~5 kPa·s) ~98 % down with the slab thrown off [D, sim].
+  roof) walls ~6 % down; 3 × 3 m opening (vent ratio 0.53, held 0.81, gas impulse ~0.5 kPa·s) ~20-60 % of the
+  walls down; closed (gas impulse ~5 kPa·s) ~98 % down with the slab thrown off [D, sim]. Rooms are measured in 1 m
+  cells: an off-grid wall loses up to half a cell each side (**gap**: V low, P_QS high, by up to ~30 % in a small room).
 
 ## weapon gaps and conflicts
 - Constants K and C for P = R³KC (FM 3-34.214 tables): source blocked. Propylene oxide LEL/UEL. HEAT hole diameters in concrete or brick. Peak room overpressure when firing from an enclosure. 60 mm fragment data. BROACH, Bunkerfaust and M37 specs.

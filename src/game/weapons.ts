@@ -1091,7 +1091,7 @@ function removeProjectile(p: Projectile): void {
 
 function blowUp(p: Projectile, at: Vec3): void {
   if (p.type === 'cutter') { recordFire(p); cut(p); return; }
-  if (p.type === 'megabomb') { megaBlast(p, at); return; }
+  if (p.type === 'megabomb') { megaBlast(p, at, p.stuck ? faceNormal(p, [0, 0, 0]) : null); return; }
   if (p.type === 'charge' || p.type === 'satchel') recordFire(p);
   if (p.type === 'satchel') {
     const host = p.stuck && p.host && !p.host.dead ? p.host : null;
@@ -1106,7 +1106,8 @@ function blowUp(p: Projectile, at: Vec3): void {
   else if (p.type === 'bomb') explode(at, BOMB.radius, BOMB.power, BOMB.impulse, 1.2);
   else if (p.type === 'charge') {
     const b = blastOf(p.kg);
-    explode(at, b.radius, b.power, b.impulse, CHARGE.weldReach);
+    // planted: it goes off on the face it was put on
+    explode(at, b.radius, b.power, b.impulse, CHARGE.weldReach, undefined, b.power, false, p.stuck ? faceNormal(p, [0, 0, 0]) : null);
   }
 }
 
@@ -1239,7 +1240,7 @@ function cut(p: Projectile): void {
   }
   fx.cutter(at, across, clamp(width, 0.3, 3));
   audio.cutter(at);
-  explode(pos, CUTTER.radius, CUTTER.power, CUTTER.impulse, 0.5, 2);
+  explode(pos, CUTTER.radius, CUTTER.power, CUTTER.impulse, 0.5, 2, CUTTER.power, false, host ? n : null);
 }
 
 /* ---------------- thermite ---------------- */
@@ -1359,10 +1360,10 @@ function shatter(p: Projectile, at: Vec3, normal: Vec3): void {
 
 /* ---------------- megabomb ---------------- */
 
-function megaBlast(p: Projectile, at: Vec3): void {
+function megaBlast(p: Projectile, at: Vec3, face: Vec3 | null): void {
   removeProjectile(p);
   const b = blastOf(MEGA.kg);
-  explode(at, b.radius, b.power, b.impulse, MEGA.weldReach, MEGA.fractures);
+  explode(at, b.radius, b.power, b.impulse, MEGA.weldReach, MEGA.fractures, b.power, false, face);
   fx.megablast(at, b.radius * 1.4);
   audio.megabomb(at);
   for (const { p: q, d } of piecesNear(at, MEGA.fireball)) {

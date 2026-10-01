@@ -12,7 +12,7 @@ import { addWaterAt, stepWater, clearWater, waterStats, tiles } from './water';
 import { survey as blastSurvey, clearRoomGas, pso, POWER_PER_KG, type Survey } from './blast';
 
 export { thermalStrain, thermalStress, flameOf, charRate, recOf, surfaceArea } from './thermal';
-export { loadFactors, paneLoad, glassRange, glassBreaks, paneCapacity, inRoom, vent, pso, iso, cr, POWER_PER_KG, type Survey } from './blast';
+export { loadFactors, paneLoad, glassRange, glassBreaks, paneCapacity, inRoom, vent, reverb, pso, iso, cr, POWER_PER_KG, type Survey } from './blast';
 export { isFragile } from './grid';
 export { depthAt, tiles as waterTiles, CELL as WATER_CELL, TN as WATER_TN } from './water';
 export { FIRE_CLOCK, SOLID_CLOCK };
@@ -149,8 +149,8 @@ export function fieldsHeatTick(dt: number, burning: ReadonlySet<Piece>, hot: Set
 }
 
 /** Blast survey round a charge (see blast.ts), timed. */
-export function survey(pos: Vec3, radius: number, power: number, gasPower = power, cloud = false, now = 0): Survey {
-  const s = blastSurvey(pos, radius, power, gasPower, cloud, now);
+export function survey(pos: Vec3, radius: number, power: number, gasPower = power, cloud = false, now = 0, face: Vec3 | null = null): Survey {
+  const s = blastSurvey(pos, radius, power, gasPower, cloud, now, face);
   fieldCost.blastMs += s.ms;
   fieldCost.blasts++;
   return s;

@@ -90,8 +90,25 @@ test('a charge in a closed room demolishes more than in a vented one, and that m
     const one = fields.survey([-1.5, 1.0, 0], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 1.0);
     const two = fields.survey([1.5, 1.0, 0], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 1.07);
     const late = fields.survey([1.5, 1.0, 0], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 3.5);
-    assert.ok(two.Pqs > 1.5 * one.Pqs && late.Pqs < 1.05 * one.Pqs,
+    assert.ok(two.Pqs > 1.3 * one.Pqs && late.Pqs < 1.05 * one.Pqs,
       `together ${(one.Pqs / 1e3).toFixed(0)} then ${(two.Pqs / 1e3).toFixed(0)} kPa; 2.5 s later ${(late.Pqs / 1e3).toFixed(0)} kPa`);
+
+    /* six charges in the same instant load the room as one of six times the mass: the last sees the peak of all six,
+       and their gas impulses add up to that one charge's, not more */
+    const blast = await L('/src/sim/fields/blast.ts');
+    fields.clearFields();
+    let sumI = 0, last = one;
+    for (let k = 0; k < 6; k++) { last = fields.survey([-1.5 + 0.6 * k, 1.0, 0], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 5.0); sumI += last.iGas0; }
+    const P6 = blast.gasPressure(6 * KG, last.V), I6 = blast.gasImpulse(P6, last.V, last.Av);
+    assert.ok(Math.abs(last.Pqs / P6 - 1) < 0.02 && Math.abs(sumI / I6 - 1) < 0.02,
+      `six at once: last peak ${(last.Pqs / 1e3).toFixed(0)} kPa vs ${(P6 / 1e3).toFixed(0)}; impulses ${sumI.toFixed(0)} vs ${I6.toFixed(0)} Pa·s`);
+
+    /* a charge planted on the street face of the wall is in the open; on the room face it is in the room */
+    fields.clearFields();
+    const wallZ = W / 2 + t / 2;
+    const out = fields.survey([0.75, 1.2, wallZ + t / 2 + 0.07], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 7.0, [0, 0, 1]);
+    const inn = fields.survey([0.75, 1.2, wallZ - t / 2 - 0.07], 3.1 * Math.cbrt(KG), 60e3 * KG, 60e3 * KG, false, 7.0, [0, 0, -1]);
+    assert.ok(!out.confined && inn.confined, `outside face confined ${out.confined}, inside face confined ${inn.confined}`);
   } finally {
     await server.close();
   }

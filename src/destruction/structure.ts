@@ -3665,8 +3665,9 @@ function detonateProp(p: Piece): void {
 
 /** gasPower: what a room it goes off in is pressurised by, when not the same as the shock's power (a fuel-air charge's
  * whole energy; 0 for a blast whose room pressure is dealt elsewhere: the breach half of a contact charge, a gas
- * deflagration). cloud: a fuel-air cloud, which holes nothing round itself. */
-export function explode(pos: Vec3, radius: number, power: number, impulse: number, weldReach = 1, maxFractures = BLAST_FRACTURES, gasPower = power, cloud = false): void {
+ * deflagration). cloud: a fuel-air cloud, which holes nothing round itself. face: the outward normal of the face a planted
+ * charge sits on. */
+export function explode(pos: Vec3, radius: number, power: number, impulse: number, weldReach = 1, maxFractures = BLAST_FRACTURES, gasPower = power, cloud = false, face: Vec3 | null = null): void {
   counters.explosions++;
   chance.at(pos[0], pos[1], pos[2], stepCount, 4);
   fx.explosion(pos, radius);
@@ -3681,7 +3682,7 @@ export function explode(pos: Vec3, radius: number, power: number, impulse: numbe
   /* The wave, not just the distance: in plain view in the open a piece takes the calibrated fall-off below; a wall
      between shadows it (the wave diffracts round, weaker); inside a room the gas pressure and the reflections load
      every surface that bounds it, however far from the charge. */
-  const bl = fields.survey(pos, radius, power, gasPower, cloud, stepCount / 60);
+  const bl = fields.survey(pos, radius, power, gasPower, cloud, stepCount / 60, face);
   /* the room's walls the gas blows out vent the rest of its blow-down: what its floors, columns and joints take */
   if (bl.confined) { const b = blownOut(bl, pos); fields.vent(bl, b.A, b.t); }
   const lo: Vec3 = [pos[0] - radius, pos[1] - radius, pos[2] - radius], hi: Vec3 = [pos[0] + radius, pos[1] + radius, pos[2] + radius];
@@ -3802,7 +3803,7 @@ function lateBlastPush(): void {
    over it takes (gas impulse + reverberation) × its area upward, a sheet wall or a door outward. A plate with the room on
    both sides (a partition) is pushed equally both ways; masonry panels are the SDOF verdict's (blastPanels). What its
    joints make of the momentum is theirs. */
-const _gn: Vec3 = [0, 0, 0], _gq: Vec3 = [0, 0, 0];
+const _gn: Vec3 = [0, 0, 0], _gq: Vec3 = [0, 0, 0], _gb: [number, number, number, number, number, number] = [0, 0, 0, 0, 0, 0];
 function gasPush(bl: Survey, pos: Vec3, hits: { p: Piece; d: number; cp: Vec3 }[]): void {
   for (const h of hits) {
     const p = h.p;
@@ -3819,9 +3820,13 @@ function gasPush(bl: Survey, pos: Vec3, hits: { p: Piece; d: number; cp: Vec3 }[
     const side = (h.cp[0] - pos[0]) * _gn[0] + (h.cp[1] - pos[1]) * _gn[1] + (h.cp[2] - pos[2]) * _gn[2] >= 0 ? 1 : -1;
     vec3.scaleAndAdd(_gq, p.curPos, _gn, side * (th / 2 + 0.6));
     if (fields.inRoom(bl, _gq, 0)) continue;
-    const Zd = Math.max(0.2, h.d) / bl.cw;
-    const I = bl.held * (bl.iGas + 0.75 * bl.cw * fields.iso(Zd) * fields.cr(fields.pso(Zd)));
-    const j = Math.min(I * a * b, p.mass * 22);
+    const I = bl.iGas + bl.held * fields.reverb(bl, h.d);
+    // only the part of the plate over this room is loaded (a slab spanning several rooms)
+    b3.b3Body_ComputeAABB(_gb, p.body);
+    const ax = Math.abs(_gn[0]) >= Math.abs(_gn[1]) && Math.abs(_gn[0]) >= Math.abs(_gn[2]) ? 0 : Math.abs(_gn[1]) >= Math.abs(_gn[2]) ? 1 : 2;
+    let area = 1;
+    for (let k = 0; k < 3; k++) if (k !== ax) area *= Math.max(0, Math.min(_gb[k + 3], bl.roomMax[k]) - Math.max(_gb[k], bl.roomMin[k]));
+    const j = Math.min(I * Math.min(a * b, area), p.mass * 22);
     if (j <= 0) continue;
     b3.b3Body_ApplyLinearImpulseToCenter(p.body, [_gn[0] * side * j, _gn[1] * side * j, _gn[2] * side * j], true);
   }
