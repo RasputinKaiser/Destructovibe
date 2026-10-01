@@ -89,13 +89,19 @@ export function wheelAt(w: Wheel, x: number, y: number, f: WeaponId[][]): Wheel 
   if (r < DEAD) { w.lock = false; return w; }   // the centre keeps whatever was picked last (a stick let go)
   const a = (Math.atan2(x, -y) * 180) / Math.PI;
   const sector = ((Math.round(a / SECTOR) % CATS.length) + CATS.length) % CATS.length;
+  /* the nearest tool on category c's fan to the pointer's angle, and how far off it is */
+  const nearest = (c: number): [WeaponId | null, number] => {
+    const l = f[c];
+    let best: WeaponId | null = null, bd = Infinity;
+    l.forEach((id, i) => { const d = Math.abs(wrap(a - fanAngle(c, i, l.length))); if (d < bd) { bd = d; best = id; } });
+    return [best, bd];
+  };
   if (w.lock && w.cat >= 0 && r >= LOCK) {
-    // along the held category's fan: the nearest tool, until the pointer is past the fan's end (half a step; half a
-    // wedge for a lone tool); there the wedge under it takes over
-    const l = f[w.cat], st = fanStep(l.length);
-    let best = -1, bd = Infinity;
-    l.forEach((_, i) => { const d = Math.abs(wrap(a - fanAngle(w.cat, i, l.length))); if (d < bd) { bd = d; best = i; } });
-    if (best >= 0 && bd <= (l.length > 1 ? st / 2 + 3 : SECTOR / 2)) { w.tool = l[best]; return w; }
+    // along the held category's fan: the nearest tool, for as long as the pointer is in the category's own wedge or
+    // within half a step of the fan's end; past that the wedge under it takes over
+    const [best, bd] = nearest(w.cat);
+    const own = Math.abs(wrap(a - w.cat * SECTOR)) <= SECTOR / 2;
+    if (best && (own || bd <= fanStep(f[w.cat].length) / 2 + 3)) { w.tool = best; return w; }
     w.lock = false;
   }
   if (!f[sector].length) { w.cat = -1; w.tool = null; w.lock = false; return w; }
@@ -103,7 +109,12 @@ export function wheelAt(w: Wheel, x: number, y: number, f: WeaponId[][]): Wheel 
     w.cat = sector;
     w.tool = f[sector][Math.floor((f[sector].length - 1) / 2)];
   }
-  if (r >= LOCK) { w.lock = true; return wheelAt(w, x, y, f); }
+  if (r >= LOCK) {
+    // out past the ring: the category holds, and the pointer is already in its own wedge, so its fan answers
+    w.lock = true;
+    const [best] = nearest(sector);
+    if (best) w.tool = best;
+  }
   return w;
 }
 

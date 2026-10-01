@@ -293,6 +293,11 @@ svg {
   outline-offset: 3px;
 }
 
+/* on the yellow primary button a yellow mark would vanish */
+#ui.nav-keys .btn--primary.is-nav {
+  outline-color: var(--c-100);
+}
+
 #ui.nav-keys .btn.is-nav::before {
   transform: scaleY(1);
 }
@@ -2622,7 +2627,7 @@ svg {
   position: relative;
   height: 0.9rem;
   font-family: var(--f-mono);
-  font-size: 0.6rem;
+  font-size: max(10.5px, 0.6rem);
   color: var(--c-400);
 }
 
@@ -3038,7 +3043,7 @@ svg {
   padding: 0.35rem 0.8rem;
   background: rgba(12, 12, 11, 0.9);
   font-weight: 600;
-  font-size: 0.78rem;
+  font-size: max(11.5px, 0.78rem);
   color: var(--c-200);
 }
 
@@ -3046,6 +3051,17 @@ svg {
 @container (max-width: 400px) {
   .tw__tool b {
     display: none;
+  }
+
+  /* the tile under the pointer keeps its name, under it */
+  .tw__tool.is-pick b {
+    display: block;
+    position: absolute;
+    top: 100%;
+    max-width: none;
+    margin-top: 0.15rem;
+    padding: 0 0.25rem;
+    background: var(--ink);
   }
 
   .tw__tool svg {

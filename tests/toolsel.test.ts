@@ -95,6 +95,28 @@ test('sweeping the rim from one fan reaches the next wedge, not the one beyond',
   assert.ok(!seen.has(CATS.findIndex(k => k.id === 'explosive')), 'never jumped past ordnance');
 });
 
+test('any pointer path on any loadout settles (two-tool fans included)', () => {
+  const loadouts: Partial<Record<WeaponId, number>>[] = [
+    { hammer: -1, cannon: 12 },
+    { charge: 4, cutter: 2, hammer: -1 },
+    { hammer: -1 },
+    ALL,
+  ];
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (const ammo of loadouts) {
+    const f = fans(TABLE, ammo);
+    const w = wheelStart(issued(TABLE, ammo)[0], f);
+    for (let k = 0; k < 4000; k++) {
+      const a = rnd() * Math.PI * 2, r = rnd() * 1.2;
+      wheelAt(w, Math.sin(a) * r, -Math.cos(a) * r, f);
+      if (w.tool) assert.ok(f[w.cat].includes(w.tool));
+    }
+    // a slow sweep round the rim, the stick's path: every degree
+    for (let d = 0; d < 720; d++) wheelAt(w, Math.sin((d * Math.PI) / 180), -Math.cos((d * Math.PI) / 180), f);
+  }
+});
+
 test('an empty category picks nothing', () => {
   const ammo = { hammer: -1, charge: 3 } as Partial<Record<WeaponId, number>>;
   const f = fans(TABLE, ammo);

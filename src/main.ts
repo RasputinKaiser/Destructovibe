@@ -394,6 +394,7 @@ function pause(): void {
   closeWheel();
   wheelDown = -1;
   state = 'paused';
+  ui.setSignOff(mode === 'campaign');
   audio.setPaused(true);
   ui.showScreen('pause');
 }
@@ -820,7 +821,9 @@ function promptFor(id: WeaponId): boolean {
   return true;
 }
 
+let jobPins: (WeaponId | null)[] | null = null;
 function refreshTools(): void {
+  jobPins = null;
   slots = quickSlots(WEAPONS, loadout.ammo, save.pins);
   toolFans = fans(WEAPONS, loadout.ammo);
   heldTool = loadout.current;
@@ -865,7 +868,7 @@ function handleTools(busy: boolean): boolean {
   const down = held('bank');
   if (wheelDown !== -1 && !down) {
     if (wheel) { const t = wheel.tool; closeWheel(); takeTool(t); }
-    else if (wheelDown >= 0 && lastTool) takeTool(lastTool);
+    else if (wheelDown >= 0 && now - wheelDown <= WHEEL_HOLD && lastTool) takeTool(lastTool);
     wheelDown = -1;
   }
   if (!wheel && wheelDown >= 0 && down && !busy) {
@@ -879,8 +882,10 @@ function handleTools(busy: boolean): boolean {
   }
   if (!wheel) {
     for (let k = 1; k <= 6; k++) if (input.pressed.has(`Digit${k}`)) takeTool(slots[k - 1] ?? null);
+    if (pad.slot && !busy) cycleSlots(Math.sign(pad.slot));
     return false;
   }
+  if (pad.slot) wheelStep(wheel, Math.sign(pad.slot), toolFans);
   const was = `${wheel.cat}|${wheel.tool}|${wheel.lock}`;
   if (pad.connected && Math.hypot(pad.rx, pad.ry) > 0.3) wheelAt(wheel, pad.rx, pad.ry, toolFans);
   else if (input.mouseDX || input.mouseDY) wheelAt(wheel, wheel.x + input.mouseDX / WHEEL_PX, wheel.y + input.mouseDY / WHEEL_PX, toolFans);
@@ -888,9 +893,10 @@ function handleTools(busy: boolean): boolean {
   // pins only mean something where the slots are the player's to arrange (more tools issued than slots)
   for (let k = 1; k <= 6; k++) {
     if (!input.pressed.has(`Digit${k}`) || !wheel.tool || !pinnable()) continue;
-    save.pins = pin(save.pins, k - 1, wheel.tool);
-    writeSave(save);
-    slots = quickSlots(WEAPONS, loadout.ammo, save.pins);
+    // free play keeps the player's pins; a contract's arrangement lasts the job (it would scramble free play's)
+    if (mode === 'sandbox') { save.pins = pin(save.pins, k - 1, wheel.tool); writeSave(save); }
+    else jobPins = pin(jobPins ?? save.pins, k - 1, wheel.tool);
+    slots = quickSlots(WEAPONS, loadout.ammo, mode === 'sandbox' ? save.pins : jobPins ?? save.pins);
     audio.ui('click');
   }
   if ((input.clicked & 1) || pad.hit.has('jump')) {
@@ -1314,6 +1320,11 @@ async function boot(): Promise<void> {
       }
     },
     onResume: () => resume(),
+    onSignOff: () => {
+      if (state !== 'paused' || mode !== 'campaign') return;
+      state = 'playing';
+      finish(scoring.goalMet(active.target));
+    },
     onRestart: () => restart(),
     onQuit: () => void showTitle(),
     onNext: () => { if (lastWon && contractIdx < CONTRACTS.length - 1) showBriefing(contractIdx + 1); },

@@ -87,6 +87,8 @@ export const pad = {
   lookX: 0, lookY: 0,
   /** right stick after the deadzone, linear (the tool wheel points with it) */
   rx: 0, ry: 0,
+  /** D-pad left/right this frame: steps through the quick slots */
+  slot: 0,
   held: new Set<Action>(),
   hit: new Set<Action>(),
   /** menu navigation this frame: D-pad or left stick (repeating while held), A, B, Start */
@@ -135,8 +137,11 @@ export function pollPad(): boolean {
   padBits = (b(7) ? 1 : 0) | (b(6) ? 4 : 0);
   if (edge(7)) input.clicked |= 1;
   if (edge(6)) input.clicked |= 4;
-  if (edge(4) || edge(14)) input.wheel -= 1;
-  if (edge(5) || edge(15)) input.wheel += 1;
+  // bumpers are the mouse wheel (the tool's setting, else the next quick slot); D-pad left/right always step the slots
+  if (edge(4)) input.wheel -= 1;
+  if (edge(5)) input.wheel += 1;
+  if (edge(14)) pad.slot -= 1;
+  if (edge(15)) pad.slot += 1;
   input.buttons = mouseBits | padBits;
   const start = edge(9);
   // menus: a direction fires once, then repeats while it is held; A, B and Start on the press
@@ -270,6 +275,7 @@ export function releaseLock(): void {
 }
 
 export function endFrame(): void {
+  pad.slot = 0;
   input.pressed.clear();
   input.clicked = 0;
   input.mouseDX = 0;

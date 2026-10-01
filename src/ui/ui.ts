@@ -296,6 +296,7 @@ const TEMPLATE = () => `
       <h2 class="h1">Paused</h2>
       <nav class="menu">
         ${btn('resume', 'Resume', 'btn--primary', 'Esc')}
+        ${btn('signoff', 'Sign off the job')}
         ${btn('restart', 'Restart')}
         ${btn('settings', 'Settings')}
         ${btn('quit', 'Quit to title', 'btn--danger')}
@@ -391,7 +392,7 @@ type Ref = (typeof REFS)[number];
 /* ---------------- state ---------------- */
 
 /** the free-play sites past the three in UiHandlers, and contract cards with the chapter they are filed under */
-export type Handlers = UiHandlers & { onRailway(): void };
+export type Handlers = UiHandlers & { onRailway(): void; onSignOff(): void };
 export type JobCard = ContractCard & { chapter: string };
 /** conditions beyond the demolition target (what it counts, footprint, time limit, salvage) */
 export type JobBriefing = BriefingView & { terms?: string[] };
@@ -609,6 +610,7 @@ export function padScroll(dy: number): void {
 /** A pad's menu input this frame (main polls the pad outside play). */
 export function padNav(nav: ReadonlySet<string>): void {
   if (!root || current === null || current === 'loading') return;
+  chipLabels();
   if (overlay) { if (nav.has('back') || nav.has('start')) closeByUser(); return; }
   const ae = document.activeElement as HTMLElement | null;
   const scope = screens.get(current);
@@ -654,6 +656,7 @@ const ACTS: Record<string, Action> = {
   quit: 'onQuit',
   next: 'onNext',
   retry: 'onRetry',
+  signoff: 'onSignOff',
 };
 
 function run(k: Action): void {
@@ -679,9 +682,28 @@ function act(a: string, el: HTMLElement): void {
 
 /* ---------------- screens ---------------- */
 
+/** the pause menu offers "sign off" on a contract (a pad has no Enter) */
+export function setSignOff(on: boolean): void {
+  root?.querySelectorAll<HTMLElement>('[data-act="signoff"]').forEach(b => { b.hidden = !on; });
+}
+
+/* key chips on menu buttons read as the pad's buttons while a pad is what the player is using */
+const PAD_KEY: Record<string, string> = { Enter: 'A', Esc: 'B' };
+let padChips: boolean | null = null;
+function chipLabels(): void {
+  const p = usingPad();
+  if (!root || p === padChips) return;
+  padChips = p;
+  for (const k of root.querySelectorAll<HTMLElement>('.btn__k')) {
+    k.dataset.k ??= k.textContent ?? '';
+    k.textContent = p ? PAD_KEY[k.dataset.k] ?? k.dataset.k : k.dataset.k;
+  }
+}
+
 export function showScreen(s: ScreenId | null): void {
   current = s;
   if (!root) return;
+  chipLabels();
   if (s === 'pause') R.pauseKeys.innerHTML = `<h3 class="label">Controls</h3>${keys(true)}`;
   root.dataset.view = s ?? 'game';
   const target = s ? screens.get(s) : undefined;
@@ -760,6 +782,19 @@ function card(c: JobCard, i: number): string {
 /* The briefing lists the keys this job's loadout needs; the pause screen keeps the full list. */
 function jobKeys(ids: WeaponId[]): KeyRow[] {
   const has = (...w: WeaponId[]) => w.some(id => ids.includes(id));
+  if (usingPad()) {
+    const rows: KeyRow[] = [
+      ['L stick · R stick', 'Move · look · L3 sprint · A jump / climb'],
+      ['RT', has('hammer') ? 'Fire / use the tool · hold the sledge to wind up, release to strike' : 'Fire / use the tool'],
+      ['D-pad ← →', 'Quick slots'],
+    ];
+    if (ids.length > 1) rows.push(['D-pad ↑', 'Hold: tool wheel (right stick points, A takes) · tap: last tool']);
+    rows.push(['LB RB', 'Tool setting (charge size, delay…), else the next slot']);
+    if (has('charge', 'cutter', 'planner', 'satchel')) rows.push(['LT · Y', 'Detonate what you have placed']);
+    if (has('excavator')) rows.push(['X', 'Climb into the machine / get out']);
+    rows.push(['Start', 'Pause: every control, and sign off the job']);
+    return rows;
+  }
   const rows: KeyRow[] = [
     [`${K('forward')} ${K('left')} ${K('back')} ${K('right')}`, `Move · mouse to look · ${K('sprint')} sprint · ${K('jump')} jump / climb`],
     ['LMB', has('hammer') ? 'Fire / use the tool · hold the sledge to wind up, release to strike' : 'Fire / use the tool'],
@@ -1405,7 +1440,7 @@ function syncSlots(ws: WeaponView[], ids: (WeaponId | null)[], cur: WeaponId): v
   R.weapons.innerHTML =
     `<div class="hb-wheel" data-r-wheel><span class="kbd">${esc(wheelKey())}</span><span>Tools</span></div>` +
     ids.map((id, i) => slotCell(id, String(i + 1))).join('') +
-    (loose ? slotCell(loose, '·', ' wslot--loose') : '');
+    (loose ? slotCell(loose, '', ' wslot--loose') : '');
   const cells = Array.from(R.weapons.querySelectorAll<HTMLElement>('.wslot'));
   slots = cells.map(el => ({
     el,
@@ -1728,13 +1763,20 @@ function btnLabel(b: Btn, pad: boolean): string {
 /* the readout's detail drops its own key hints ("LMB …", "wheel …", "RMB/G …") while the prompt row shows them, or
    while a pad is in use (its buttons are not those keys) */
 const KEYISH = /\b(LMB|RMB|MMB|[Ww]heel)\b|\bShift ±/;
-const stripKeys = (d: string): string => d.split(' · ').filter(p => !KEYISH.test(p)).join(' · ');
+/* a segment loses its key words; what is left stays if it still says something ("within 5 m", "(2 armed)") */
+const stripKeys = (d: string): string => d.split(' · ').map(p => {
+  if (!KEYISH.test(p)) return p;
+  if (/^\s*(hold |press )?[Ww]heel\b/.test(p)) return '';
+  const rest = p.replace(/\b(hold |press )?(LMB|RMB|MMB)(\/\S+)?/g, '').replace(/^\s*(on|to|at)\b/, '').trim();
+  return rest.split(/\s+/).length >= 3 ? rest : '';
+}).filter(Boolean).join(' · ');
 
 function updateTool(t: ToolReadout | null): void {
   const now = performance.now() / 1000;
   const gist = t ? `${t.title.replace(/[\d.,]+/g, '')}|${t.warn}|${/on target: (\w+)|lands on the ground|no landing/.exec(t.detail)?.[0] ?? ''}` : '';
   if (gist !== toolGist) { toolGist = gist; toolShownAt = now; }
-  const busy = !!t && (t.warn || t.progress !== null || !!t.lines?.length || now - pokedAt < TOOL_IDLE);
+  const prompting = !!promptTool && S.prompts !== 'off' && (S.prompts === 'always' || now < promptUntil);
+  const busy = !!t && (t.warn || t.progress !== null || !!t.lines?.length || now - pokedAt < TOOL_IDLE || prompting);
   R.tool.classList.toggle('is-idle', !busy && now - toolShownAt > TOOL_IDLE);
   const showKeys = !!promptTool && (S.prompts === 'always' || (S.prompts !== 'off' && now < promptUntil));
   const pad = usingPad();
