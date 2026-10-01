@@ -147,7 +147,7 @@ const ODD_JOBS: Omit<Job, 'chapter'>[] = [
       + 'wake up, and the canal trust\'s gatehouse by the road is let and staying. No guns on this one: walk in, set the charges on '
       + 'the steel columns (the wheel sizes them), walk out, G. The gas is stacked down the gatehouse side and goes when the columns '
       + 'do: the smaller the charges, and the further from the gas, the less of the fireball reaches the gatehouse.',
-    target: 0.55,
+    target: 0.45,
     par: 80,
     stars: [0, 0],
     primary: 'charge',
