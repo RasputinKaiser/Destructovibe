@@ -198,7 +198,7 @@ void main() {
   // noise eats the puff from its rim inward as it ages, so neighbouring puffs merge into one ragged mass
   // instead of each keeping a round outline
   float nz = texture2D( uNoise, vNz ).r * 0.62 + texture2D( uNoise, vNz * 2.7 + 0.31 ).g * 0.38;
-  float er = uErode * ( 0.2 + 0.55 * vT ) * ( 0.45 + 0.55 * smoothstep( 0.05, 0.85, r2 ) );
+  float er = uErode * ( 0.32 + 0.5 * vT ) * ( 0.4 + 0.6 * smoothstep( 0.05, 0.8, r2 ) );
   dens = clamp( ( dens - er * ( 1.0 - nz ) * 1.25 ) / ( 1.0 - 0.5 * er ), 0.0, 1.0 );
   float ground = smoothstep( 0.0, 0.35, vY );
   float soft = 1.0;
@@ -881,7 +881,7 @@ const DUSTQ = {
 };
 let dustRate = 0;
 let coverClock = 0;
-const _cc = new THREE.Color(), _cg = new THREE.Color(0x9c8a72);
+const _cc = new THREE.Color(), _cg = new THREE.Color(0xc0b09a);
 
 const cbrt = Math.cbrt;
 const cloudLife = (c: Cloud): number => clamp(18 + cbrt(c.mass) * 5, 18, 60);
@@ -951,7 +951,7 @@ function spawnBillow(c: Cloud, R: number, life: number): void {
   if (grounded && rng() < 0.6) {
     // the density current: a low bank that rolls out along the ground and swallows what it reaches; the leading
     // billows are the thickest and lowest, the ones behind ride up over them
-    const ang = rf(0, 6.283), ca = Math.cos(ang), sa = Math.sin(ang), r0 = R * rf(0, 0.35), front = rng(), sp = R * (0.3 + 0.5 * front);
+    const ang = rf(0, 6.283), ca = Math.cos(ang), sa = Math.sin(ang), r0 = R * rf(0, 0.35), front = rng(), sp = R * (0.3 + 0.5 * front) * (1 + 1.2 * clamp((R - 25) / 40, 0, 1) * front);
     pAt(c.x + ca * r0, ps * (0.12 + 0.35 * (1 - front) * rng()), c.z + sa * r0);
     P.vx = ca * sp; P.vy = rf(0.1, 0.4); P.vz = sa * sp; P.drag = 0.5;
     P.rise = rf(0.03, 0.2) * (1.2 - front); P.s0 = ps * rf(0.75, 1.05); P.s1 = ps * rf(1.8, 2.7);
@@ -961,10 +961,10 @@ function spawnBillow(c: Cloud, R: number, life: number): void {
     const ang = rf(0, 6.283), r0 = R * 0.35 * Math.sqrt(rng());
     pAt(c.x + Math.cos(ang) * r0, Math.max(ps * 0.4, c.y * rf(0.3, 1) + rf(0, R * 0.5)), c.z + Math.sin(ang) * r0);
     P.vx = rf(-0.6, 0.6); P.vy = rf(3, 10); P.vz = rf(-0.6, 0.6); P.drag = 0.4;
-    P.rise = rf(0.4, 1.1) * (1 + clamp(R / 25, 0, 2)); P.accel = -0.004; P.s0 = ps * rf(0.75, 1.05); P.s1 = ps * rf(1.9, 3.0);
+    P.rise = rf(0.4, 1.1) * (1 + clamp(R / 18, 0, 3.2)); P.accel = -0.004; P.s0 = ps * rf(0.75, 1.05); P.s1 = ps * rf(1.9, 3.0);
   }
   const k = rf(0.86, 1.08);
-  _cc.setRGB(c.r, c.g, c.b).lerp(_cg, 0.45);
+  _cc.setRGB(c.r, c.g, c.b).lerp(_cg, 0.6);
   P.r = _cc.r * k; P.g = _cc.g * k; P.b = _cc.b * k;
   P.life = life * rf(0.55, 1); P.a = a * BILLOW_ALPHA; P.fadeIn = rf(0.15, 0.45); P.grow = rf(1.5, 3.5);
   P.wind = rf(0.8, 1.1); P.spin = rf(-0.12, 0.12); P.curl = rf(0.35, 0.6);
@@ -1248,8 +1248,9 @@ export const fx = {
     dustLedger.smoke += smokeV;
     feedCloud(x, y, z, smokeV, y < R * 0.9 ? 0x8a7c68 : 0x5d554c);
     const fk = comfort.flash;
-    S.x = x; S.y = y + 0.3; S.z = z; S.vx = S.vy = S.vz = 0; S.life = 0.08; S.r = 60 * fk; S.g = 52 * fk; S.b = 38 * fk;
-    S.w = R * 0.3; S.grav = 0; S.drag = 1; S.streak = 0; S.bounce = 0; spark();
+    _lp.set(cam.position.x - x, cam.position.y - y, cam.position.z - z).normalize().multiplyScalar(Math.min(1.5, R * 0.6));
+    S.x = x + _lp.x; S.y = y + 0.3 + _lp.y; S.z = z + _lp.z; S.vx = S.vy = S.vz = 0; S.life = 0.09; S.r = 60 * fk; S.g = 52 * fk; S.b = 38 * fk;
+    S.w = R * 0.45; S.grav = 0; S.drag = 1; S.streak = 0; S.bounce = 0; spark();
     for (let i = 0; i < 6; i++) {
       dirAround(0, 0.2, 0, 1);
       const sp = R * rf(14, 22);
