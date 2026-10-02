@@ -8,7 +8,8 @@ import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import type { EnvPreset, Quality, Vec3 } from '../types';
 import { setMeshDetail } from '../destruction/polytope';
 import { SkyDome } from './sky';
-import { DV_ATMOS_GLSL, DV_CLOUD_GLSL, FX_LAYER, FX_SOFT_LAYER, atmosU, dustU, envU, lighting, qualU, roomU, softU, view } from './shared';
+import { noiseTex } from './textures';
+import { DV_ATMOS_GLSL, DV_CLOUD_GLSL, FX_DUST_LAYER, FX_LAYER, FX_SOFT_LAYER, atmosU, dustU, envU, lighting, qualU, roomU, softU, view } from './shared';
 import { applySceneryEnv } from './scenery';
 import { setViewmodelAspect, syncViewmodel, viewmodelLayer } from './viewmodel';
 
@@ -28,7 +29,9 @@ function patchChunks(): boolean {
   if (at < 0 || !re.test(lf.slice(at))) return false;
   const pre = /* glsl */`
 float dvSunVis = 1.0;
-if ( uDvCloudN * uDvCloudSurf > 0.5 ) dvSunVis = exp( - dvCloudOD( ( vec4( geometryPosition, 0.0 ) * viewMatrix ).xyz + cameraPosition, uDvSunDir ) );
+// mineral dust scatters mostly forward, so much of the sunlight it intercepts still arrives along the beam: the
+// shadow it casts on the ground is a dimming, not an eclipse (effective extinction ~(1 - g))
+if ( uDvCloudN * uDvCloudSurf > 0.5 ) dvSunVis = exp( - 0.4 * dvCloudOD( ( vec4( geometryPosition, 0.0 ) * viewMatrix ).xyz + cameraPosition, uDvSunDir ) );
 #if NUM_DIR_LIGHTS == 2
 	float dvNear = 1.0;
 	#if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
@@ -81,7 +84,7 @@ const PRESETS: Record<EnvPreset, Preset> = {
   dusk: {
     elev: 7, azim: -100, sun: 0xff7a42, sunI: 2.2, shadow: 0.9, zenith: 0x283060, horizon: 0xb57a6a, fogD: 0.003,
     hemiSky: 0x6a6aa8, hemiGround: 0x37312f, hemiI: 0.35, envI: 0.7, exposure: 1.35,
-    glow: 0xff7040, glowK: 1.5, cloud: 0.4, cloudLit: 0xff9a6a, cloudShade: 0x4a3c58, stars: 0.25, disc: 25, discDeg: 1.4, bloomT: 2.2, bloomS: 0.55,
+    glow: 0xff7040, glowK: 1.5, cloud: 0.4, cloudLit: 0xff9a6a, cloudShade: 0x4a3c58, stars: 0, disc: 25, discDeg: 1.4, bloomT: 2.2, bloomS: 0.55,
     hazeD: 0.0018, hazeH: 18, scatter: 1.0, god: 0.45, humid: 0.6, wet: 0.35,
   },
   night: {
@@ -188,10 +191,15 @@ void main() {
 
 const AO_FS = /* glsl */`
 uniform sampler2D tAO;
+uniform sampler2D tDepth;
 uniform float uK;
 varying vec2 vUv;
 void main() {
-  gl_FragColor = vec4( vec3( mix( 1.0, texture2D( tAO, vUv ).r, uK ) ), 1.0 );
+  // half-res AO from a 24-bit depth buffer turns to streaks on the skyline and hills hundreds of metres out, where
+  // a metre of occlusion is under a pixel anyway: fade it with distance (tDepth: the linear depth copy)
+  float z = texture2D( tDepth, vUv ).r;
+  float k = uK * ( 1.0 - smoothstep( 90.0, 220.0, z ) );
+  gl_FragColor = vec4( vec3( mix( 1.0, texture2D( tAO, vUv ).r, k ) ), 1.0 );
 }`;
 
 const COMP_FS = /* glsl */`
@@ -203,6 +211,7 @@ void main() {
 
 const ATM_FS = /* glsl */`
 uniform sampler2D tDepth;
+uniform sampler2D tNoise;
 uniform mat4 uInvProj;
 uniform mat4 uCamWorld;
 uniform vec3 uCam;
@@ -215,22 +224,37 @@ void main() {
   vec4 v = uInvProj * vec4( vUv * 2.0 - 1.0, 1.0, 1.0 );
   vec3 vd = v.xyz / v.w;
   vec3 wp = ( uCamWorld * vec4( vd * ( min( z, uFar ) / max( - vd.z, 1e-4 ) ), 1.0 ) ).xyz;
-  vec4 a = dvAtmos( uCam, wp, sky );
+  // standing in a dust cloud: its density varies along the view (thick rolls and thinner gaps drifting past), so the
+  // engulfing wall has structure instead of being an even tint
+  float dK = 1.0;
+  if ( uDustFog.a > 0.0 ) {
+    vec3 dd = normalize( wp - uCam );
+    float Ld = min( length( wp - uCam ), uDustFogR );
+    vec3 q1 = uCam + dd * Ld * 0.3, q2 = uCam + dd * Ld * 0.75;
+    vec2 drift = vec2( 0.021, 0.009 ) * uAtmT;
+    float n1 = texture2D( tNoise, q1.xz / 13.0 + q1.y / 17.0 + drift ).r;
+    float n2 = texture2D( tNoise, q2.xz / 29.0 - q2.y / 23.0 + drift * 0.6 + 0.37 ).g;
+    float nn = smoothstep( 0.25, 0.75, n1 * 0.55 + n2 * 0.45 );
+    dK = 0.45 + 1.4 * nn;
+  }
+  vec4 a = dvAtmosK( uCam, wp, sky, dK );
   gl_FragColor = vec4( a.rgb, 1.0 - a.a );
 }`;
 
 class ScenePass extends Pass {
   readonly depthRT = floatRT(1, 1, THREE.RedFormat, THREE.NearestFilter);
   private readonly fxRT = floatRT(1, 1);
+  /** the lingering dust billows: huge, soft and many deep, so they always fill at half resolution */
+  private readonly dustRT = floatRT(1, 1);
   private readonly compQ = fsQuad(COMP_FS, { tColor: { value: null } }, 'over');
   private readonly clearCol = new THREE.Color();
   /** offscreen half-res puffs even at modest resolutions (medium) */
   forceHalf = false;
   private half = false;
   private readonly copyQ = fsQuad(DEPTH_FS, { tDepth: { value: null }, uNear: { value: 0.05 }, uFar: { value: 1200 } });
-  private readonly aoQ = fsQuad(AO_FS, { tAO: { value: null }, uK: { value: 0.9 } }, 'mul');
+  private readonly aoQ = fsQuad(AO_FS, { tAO: { value: null }, tDepth: { value: null }, uK: { value: 0.9 } }, 'mul');
   private readonly atmQ = fsQuad(ATM_FS, Object.assign({
-    tDepth: { value: null }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() },
+    tDepth: { value: null }, tNoise: { value: noiseTex() }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() },
     uCam: { value: new THREE.Vector3() }, uFar: { value: 1200 },
   }, atmosU), 'over');
   ao = false;
@@ -249,6 +273,7 @@ class ScenePass extends Pass {
     const ds = this.half ? 0.5 : 1, dw = Math.max(1, Math.round(w * ds)), dh = Math.max(1, Math.round(h * ds));
     this.depthRT.setSize(dw, dh);
     this.fxRT.setSize(dw, dh);
+    this.dustRT.setSize(Math.max(1, Math.round(w * 0.5)), Math.max(1, Math.round(h * 0.5)));
     this.gtao.setSize(Math.max(1, Math.round(w * this.aoScale)), Math.max(1, Math.round(h * this.aoScale)));
   }
   resizeAO(): void { this.setSize(this.w, this.h); }
@@ -256,16 +281,18 @@ class ScenePass extends Pass {
     const { scene, camera } = this;
     renderer.setRenderTarget(read);
     renderer.render(scene, camera);
-    if (this.ao) {
-      this.gtao.render(renderer, read, read, 0, false);
-      U(this.aoQ).tAO.value = this.gtao.pdRenderTarget.texture;
-      draw(renderer, this.aoQ, read, false);
-    }
     const cu = U(this.copyQ);
     cu.tDepth.value = read.depthTexture;
     cu.uNear.value = camera.near;
     cu.uFar.value = camera.far;
     draw(renderer, this.copyQ, this.depthRT, true);
+    if (this.ao) {
+      this.gtao.render(renderer, read, read, 0, false);
+      const ao = U(this.aoQ);
+      ao.tAO.value = this.gtao.pdRenderTarget.texture;
+      ao.tDepth.value = this.depthRT.texture;
+      draw(renderer, this.aoQ, read, false);
+    }
     softU.uDepth.value = this.depthRT.texture;
     softU.uSoft.value = 1;
     const au = U(this.atmQ);
@@ -278,19 +305,26 @@ class ScenePass extends Pass {
     const mask = camera.layers.mask, auto = scene.matrixWorldAutoUpdate, ac = renderer.autoClear;
     scene.matrixWorldAutoUpdate = false;
     renderer.autoClear = false;
-    camera.layers.set(FX_SOFT_LAYER);
-    if (this.half) {
-      softU.uRes.value.set(this.fxRT.width, this.fxRT.height);
+    const offscreen = (rt: THREE.WebGLRenderTarget): void => {
+      softU.uRes.value.set(rt.width, rt.height);
       renderer.getClearColor(this.clearCol);
       const ca = renderer.getClearAlpha();
-      renderer.setRenderTarget(this.fxRT);
+      renderer.setRenderTarget(rt);
       renderer.setClearColor(0x000000, 0);
       renderer.clear(true, false, false);
       renderer.render(scene, camera);
       renderer.setClearColor(this.clearCol, ca);
-      U(this.compQ).tColor.value = this.fxRT.texture;
+      U(this.compQ).tColor.value = rt.texture;
       draw(renderer, this.compQ, read, false);
+    };
+    if (this.half) {
+      camera.layers.set(FX_DUST_LAYER);
+      camera.layers.enable(FX_SOFT_LAYER);
+      offscreen(this.fxRT);
     } else {
+      camera.layers.set(FX_DUST_LAYER);
+      offscreen(this.dustRT);
+      camera.layers.set(FX_SOFT_LAYER);
       softU.uRes.value.set(read.width, read.height);
       renderer.setRenderTarget(read);
       renderer.render(scene, camera);
@@ -568,11 +602,15 @@ function ensureComposer(g: Gfx): EffectComposer {
   gtao.updateGtaoMaterial({ radius: 0.65, distanceExponent: 1.4, thickness: 1.2, scale: 1.15, samples: 16, distanceFallOff: 0.8 });
   scenePass = new ScenePass(g.scene, g.camera, gtao);
   godPass = new GodRayPass(g.camera);
-  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), PRESETS[env].bloomS, 0.5, PRESETS[env].bloomT);
+  // radius low: the wide mips get little weight, so the halo falls off from the source like a real lens's instead of a flat glow
+  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), PRESETS[env].bloomS, 0.12, PRESETS[env].bloomT);
   const hp = bloom.materialHighPassFilter;
   hp.fragmentShader = hp.fragmentShader
     .replace('void main() {', `${FINITE_GLSL}\nvoid main() {`)
-    .replace('vec4 texel = texture2D( tDiffuse, vUv );', 'vec4 texel = texture2D( tDiffuse, vUv ); texel.rgb = dvFinite( texel.rgb );');
+    .replace('vec4 texel = texture2D( tDiffuse, vUv );', 'vec4 texel = texture2D( tDiffuse, vUv ); texel.rgb = dvFinite( texel.rgb );')
+    // a lens scatters a small share of the light above the threshold, not the whole pixel: only the excess feeds the
+    // bloom, and very bright small sources (lamps, the sun) are compressed so their halo stays a halo, not a blob
+    .replace('gl_FragColor = mix( outputColor, texel, alpha );', 'vec3 dvOver = texel.rgb * ( max( v - luminosityThreshold, 0.0 ) / max( v, 1e-4 ) ); gl_FragColor = vec4( dvOver / ( 1.0 + luminance( dvOver ) * 0.07 ), 1.0 );');
   hp.needsUpdate = true;
   exposurePass = new ExposurePass();
   lensPass = new LensPass();
@@ -1006,12 +1044,14 @@ function drawFrame(dt: number): void {
   if (++farTick >= FAR_EVERY[quality]) { farTick = 0; sunFar.shadow.needsUpdate = true; }
   if (quality === 'low' || !composer) {
     softU.uSoft.value = 0;
+    camera.layers.enable(FX_DUST_LAYER);
     camera.layers.enable(FX_SOFT_LAYER);
     camera.layers.enable(FX_LAYER);
     renderer.setRenderTarget(null);
     renderer.render(scene, camera);
     camera.layers.disable(FX_LAYER);
     camera.layers.disable(FX_SOFT_LAYER);
+    camera.layers.disable(FX_DUST_LAYER);
     const vm = viewmodelLayer();
     if (vm) {
       renderer.autoClear = false;

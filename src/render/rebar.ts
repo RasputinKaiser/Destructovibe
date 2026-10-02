@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { Vec3 } from '../types';
 import { pbr } from './materials';
 import { hash, texSet } from './textures';
+import { pendRange } from './shared';
 
 const BARS = 1024;
 let mesh: THREE.InstancedMesh | null = null;
@@ -124,9 +125,7 @@ export const rebar = {
     mesh.count = hi * 2;
     if (dirtyHi <= dirtyLo) return;
     const im = mesh.instanceMatrix;
-    im.clearUpdateRanges();
-    im.addUpdateRange(dirtyLo * 16, (dirtyHi - dirtyLo) * 16);
-    im.needsUpdate = true;
+    pendRange(im, dirtyLo * 16, (dirtyHi - dirtyLo) * 16);
     dirtyLo = BARS * 2;
     dirtyHi = 0;
   },

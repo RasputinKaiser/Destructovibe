@@ -527,6 +527,8 @@ export interface Settings {
   colorblind: boolean;
   /** dims blast and arc flashes, the blast vignette and the damage flash */
   reduceFlash: boolean;
+  /** demolition dust, 1 = the game's own amount (0.4..1.5) */
+  dust: number;
   /** stills the HUD's own motion (bumps, slides, pulses) whatever the system setting */
   reduceMotion: boolean;
   /** the tool's controls under its readout: for the first few uses of each tool, always, or never */

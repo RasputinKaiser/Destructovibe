@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { MaterialId, PieceSpec } from '../types';
 import { getFinishMaterial, getPieceMaterials, setBatchHeat, setBatchPower, type SurfaceFinish } from '../render/materials';
 import { buildMesh, meshDetail, type MeshData } from './polytope';
+import { pendRange } from '../render/shared';
 export type { SurfaceFinish };
 
 /* Every piece face-group lives in one BatchedMesh per (material, exterior|interior), so a
@@ -351,10 +352,8 @@ export function poolFlush(): void {
     if (p.hi < p.lo) continue;
     const hi = Math.min(p.hi, p.cap - 1);
     const a = p.mesh.instanceMatrix, c = p.mesh.instanceColor!;
-    a.clearUpdateRanges(); c.clearUpdateRanges();
-    a.addUpdateRange(p.lo * 16, (hi - p.lo + 1) * 16);
-    c.addUpdateRange(p.lo * 3, (hi - p.lo + 1) * 3);
-    a.needsUpdate = true; c.needsUpdate = true;
+    pendRange(a, p.lo * 16, (hi - p.lo + 1) * 16);
+    pendRange(c, p.lo * 3, (hi - p.lo + 1) * 3);
     p.lo = Infinity; p.hi = -1;
   }
 }
