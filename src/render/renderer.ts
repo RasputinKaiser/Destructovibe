@@ -29,7 +29,9 @@ function patchChunks(): boolean {
   if (at < 0 || !re.test(lf.slice(at))) return false;
   const pre = /* glsl */`
 float dvSunVis = 1.0;
-if ( uDvCloudN * uDvCloudSurf > 0.5 ) dvSunVis = exp( - dvCloudOD( ( vec4( geometryPosition, 0.0 ) * viewMatrix ).xyz + cameraPosition, uDvSunDir ) );
+// mineral dust scatters mostly forward, so much of the sunlight it intercepts still arrives along the beam: the
+// shadow it casts on the ground is a dimming, not an eclipse (effective extinction ~(1 - g))
+if ( uDvCloudN * uDvCloudSurf > 0.5 ) dvSunVis = exp( - 0.4 * dvCloudOD( ( vec4( geometryPosition, 0.0 ) * viewMatrix ).xyz + cameraPosition, uDvSunDir ) );
 #if NUM_DIR_LIGHTS == 2
 	float dvNear = 1.0;
 	#if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0

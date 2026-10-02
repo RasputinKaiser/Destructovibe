@@ -433,7 +433,7 @@ function towers(mats: Mats): THREE.Object3D[] {
     cones?.setMatrixAt(i, m);
     let sp = spots[i];
     if (!sp) {
-      sp = new THREE.SpotLight(0xffe2b8, 0, 125, 0.62, 0.9, 1);
+      sp = new THREE.SpotLight(0xffe2b8, 0, 0, 0.62, 0.65, 1);
       sp.castShadow = false;
       spots.push(sp);
     }

@@ -198,7 +198,8 @@ void main() {
   // noise eats the puff from its rim inward as it ages, so neighbouring puffs merge into one ragged mass
   // instead of each keeping a round outline
   float nz = texture2D( uNoise, vNz ).r * 0.62 + texture2D( uNoise, vNz * 2.7 + 0.31 ).g * 0.38;
-  float er = uErode * ( 0.32 + 0.5 * vT ) * ( 0.4 + 0.6 * smoothstep( 0.05, 0.8, r2 ) );
+  // thin billows break up hardest: a faint, even disc reads as a sprite, not as haze
+  float er = uErode * ( 0.32 + 0.5 * vT ) * ( 0.4 + 0.6 * smoothstep( 0.05, 0.8, r2 ) ) * ( 1.0 + 0.9 * smoothstep( 0.3, 0.08, vCol.a ) );
   dens = clamp( ( dens - er * ( 1.0 - nz ) * 1.25 ) / ( 1.0 - 0.5 * er ), 0.0, 1.0 );
   float ground = smoothstep( 0.0, 0.35, vY );
   float soft = 1.0;
@@ -222,7 +223,7 @@ void main() {
   float fwd = min( max( phase - 1.0, 0.0 ) * 0.5, 6.0 ) * exp( - tau * 0.9 );
   vec3 amb = mix( uAmbBot, uAmbTop, n.y * 0.5 + 0.5 ) * mix( 0.45, 1.0, vOcc ) * mix( 0.62, 1.0, exp( - tau * 0.8 ) );
   // shadowed interior still glows a little from light scattered in from the lit side
-  vec3 light = amb + uSunCol * ( vSun * ( wrap * wrap * mix( 0.5, 1.0, self ) + fwd ) + 0.12 * vOcc * ( 1.0 - vSun ) ) + vLoc;
+  vec3 light = amb + uSunCol * ( vSun * ( wrap * wrap * mix( 0.5, 1.0, self ) + fwd ) + 0.22 * vOcc * ( 1.0 - vSun ) ) + vLoc;
   vec3 outc = vCol.rgb * light * mix( 0.72, 1.12, tx.g ) * a + emit;
   #ifdef USE_FOG
     ${FOG_FACTOR}
@@ -1032,7 +1033,8 @@ function updateClouds(dt: number): void {
       c.paid++; c.acc--; dustRate--;
     }
     const fade = (1 - THREE.MathUtils.smoothstep(idle / life, 0.45, 1)) * THREE.MathUtils.smoothstep(age, 0, 1.5);
-    const ext = clamp(0.015 + cbrt(c.mass) * 0.006, 0.015, 0.08) * fade * dustK();
+    // a tower's cloud spreads wider than the old 40 m cap, the same fines over more volume: thinner per metre
+    const ext = clamp(0.015 + cbrt(c.mass) * 0.006, 0.015, 0.08) * fade * dustK() * Math.min(1, 40 / baseRadius(c.mass));
     const cy = Math.max(R * 0.3, c.y * 0.7);
     cl[i].set(c.x, cy, c.z, R);
     cp[i].set(ext, SQUASH, 0, 0);
@@ -1041,13 +1043,15 @@ function updateClouds(dt: number): void {
     if (c.dep > 0.5 && c.mass > 2) {
       c.dep = 0;
       // a film, not a white-out: most of what settles comes down in the first half minute
-      splatCover(c.x, c.z, R * 1.15, clamp(0.005 * cbrt(c.mass), 0.003, 0.02) * fade * (age < 30 ? 1 : 0.3) * dustK(), c.r, c.g, c.b);
+      // what settles is the pale fines, not the blast soot that darkened the cloud
+      _cc.setRGB(c.r, c.g, c.b).lerp(_cg, 0.65);
+      splatCover(c.x, c.z, R * 1.15, clamp(0.005 * cbrt(c.mass), 0.003, 0.02) * fade * (age < 30 ? 1 : 0.3) * dustK(), _cc.r, _cc.g, _cc.b);
     }
     // camera inside this cloud: ellipsoid-normalised distance
     const ex = (cam3.x - c.x) / R, ey = ((cam3.y - cy) * SQUASH) / R, ez = (cam3.z - c.z) / R;
     const inside = 1 - THREE.MathUtils.smoothstep(Math.sqrt(ex * ex + ey * ey + ez * ez), 0.5, 1.05);
     if (inside > 0) {
-      const w = ext * 4 * inside;
+      const w = ext * 3 * inside;
       fogK += w; fogR += R * w;
       fr += c.r * w; fg += c.g * w; fb += c.b * w;
     }
@@ -1056,8 +1060,8 @@ function updateClouds(dt: number): void {
   const df = atmosU.uDustFog.value;
   if (fogK > 1e-5) {
     const sd = lighting.sunDir, vis = Math.exp(-cloudOD(cam3.x, cam3.y, cam3.z, sd.x, sd.y, sd.z));
-    const sk = (lighting.sunIntensity / Math.PI) * 0.55 * vis * Math.max(sd.y, 0.1), at = lighting.ambTop, sc = lighting.sunColor;
-    const al = (at.r * 0.2126 + at.g * 0.7152 + at.b * 0.0722) * 0.9, tint = 0.3;
+    const sk = (lighting.sunIntensity / Math.PI) * 0.55 * (0.35 + 0.65 * vis) * Math.max(sd.y, 0.1), at = lighting.ambTop, sc = lighting.sunColor;
+    const al = (at.r * 0.2126 + at.g * 0.7152 + at.b * 0.0722) * 1.5, tint = 0.3;
     df.set((fr / fogK) * (al + (at.r * 0.9 - al) * tint + sc.r * sk), (fg / fogK) * (al + (at.g * 0.9 - al) * tint + sc.g * sk), (fb / fogK) * (al + (at.b * 0.9 - al) * tint + sc.b * sk), fogK);
     atmosU.uDustFogR.value = Math.max(4, (fogR / fogK) * 1.2);
     atmosU.uAtmT.value = clock;
@@ -1249,13 +1253,13 @@ export const fx = {
     feedCloud(x, y, z, smokeV, y < R * 0.9 ? 0x8a7c68 : 0x5d554c);
     const fk = comfort.flash;
     _lp.set(cam.position.x - x, cam.position.y - y, cam.position.z - z).normalize().multiplyScalar(Math.min(1.5, R * 0.6));
-    S.x = x + _lp.x; S.y = y + 0.3 + _lp.y; S.z = z + _lp.z; S.vx = S.vy = S.vz = 0; S.life = 0.09; S.r = 60 * fk; S.g = 52 * fk; S.b = 38 * fk;
+    S.x = x + _lp.x; S.y = y + 0.3 + _lp.y; S.z = z + _lp.z; S.vx = S.vy = S.vz = 0; S.life = 0.09; S.r = 120 * fk; S.g = 104 * fk; S.b = 76 * fk;
     S.w = R * 0.45; S.grav = 0; S.drag = 1; S.streak = 0; S.bounce = 0; spark();
     for (let i = 0; i < 6; i++) {
       dirAround(0, 0.2, 0, 1);
       const sp = R * rf(14, 22);
       S.x = x; S.y = y + 0.3; S.z = z; S.vx = _v.x * sp; S.vy = _v.y * sp; S.vz = _v.z * sp; S.life = rf(0.05, 0.08);
-      S.r = 30 * fk; S.g = 24 * fk; S.b = 14 * fk; S.w = R * 0.08; S.grav = 0; S.drag = 6; S.streak = 0.03; S.bounce = 0; spark();
+      S.r = 60 * fk; S.g = 48 * fk; S.b = 28 * fk; S.w = R * 0.1; S.grav = 0; S.drag = 6; S.streak = 0.03; S.bounce = 0; spark();
     }
     flash(x, y + R * 0.3, z, 0xffb468, 320 * R * R, 0.6, Math.max(R * 10, 28), 3);
   },

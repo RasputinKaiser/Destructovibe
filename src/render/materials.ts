@@ -243,7 +243,8 @@ const DV_DUST = /* glsl */`
     * ( 1.0 - smoothstep( 30.0, 90.0, vDvW.y ) );
   // a film over the brick, greying it, never a white-out: the units still read through
   dvDust += dvRub * smoothstep( 0.45, 0.9, dvNd.y ) * min( dvCov.a * 4.0, 1.0 ) * 0.35;
-  diffuseColor.rgb = mix( diffuseColor.rgb, dvCov.rgb * 0.85, clamp( dvDust, 0.0, mix( 0.5, 0.65, dvRub ) ) );`;
+  // settled fines are pale whatever darkened the cloud overhead (blast soot): keep only a hint of the splat's hue
+  diffuseColor.rgb = mix( diffuseColor.rgb, mix( vec3( 0.6, 0.56, 0.5 ), dvCov.rgb, 0.3 ), clamp( dvDust, 0.0, mix( 0.5, 0.65, dvRub ) ) );`;
 const DV_BREAK = /* glsl */`
   normal = dvBumpI( normal, texture2D( uDvNoise, vDvUv * 0.7 + 0.11 ).r * 0.045 + texture2D( uDvNoise, vDvUv * 2.3 + 0.53 ).g * 0.018 + texture2D( uDvNoise, vDvUv * 7.9 + 0.29 ).r * 0.004 );`;
 const DV_DUST_ROUGH = /* glsl */`
