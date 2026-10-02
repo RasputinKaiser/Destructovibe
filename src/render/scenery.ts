@@ -107,7 +107,7 @@ void main() {
   // which windows are lit: runs of 2-6 bays per floor, a share per building
   vec2 cell = floor( g );
   float run = 2.0 + floor( 5.0 * fract( vSeed * 23.7 ) );
-  float share = uLit * ( 0.35 + 1.3 * fract( vSeed * 31.3 ) );
+  float share = uLit * ( 0.25 + 1.0 * fract( vSeed * 31.3 ) );
   float h1 = hs( vec2( floor( cell.x / run ), cell.y ) + vSeed * 17.0 );
   float h2 = hs( cell + vSeed * 7.0 );
   float litCell = step( h1, share ) * step( 0.12, h2 ) + step( 0.985, h2 ) * step( 0.1, uLit );
@@ -126,9 +126,9 @@ void main() {
   #endif
   vec3 alb = mix( base, vec3( 0.0 ), win );
   vec3 col = alb * ( amb + uSunCol * max( dot( n, uSunDir ), 0.0 ) ) + glassC * win * ( 1.0 - lit );
-  vec3 wc = mix( vec3( 1.0, 0.72, 0.42 ), vec3( 0.78, 0.86, 1.0 ), step( 0.7, hs( cell * 1.7 + 3.0 ) ) ) * ( 0.65 + 0.7 * hs( cell + 9.1 ) );
+  vec3 wc = mix( vec3( 1.0, 0.72, 0.42 ), vec3( 0.78, 0.86, 1.0 ), step( 0.8, hs( cell * 1.7 + 3.0 ) ) ) * ( 0.45 + 0.7 * hs( cell + 9.1 ) );
   wc = mix( wc, vec3( 0.88, 0.8, 0.66 ), far );
-  col += wc * lit * 2.0;
+  col += wc * lit * 1.4;
   #ifdef USE_FOG
     #ifdef FOG_EXP2
       float fogF = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
@@ -136,7 +136,7 @@ void main() {
       float fogF = smoothstep( fogNear, fogFar, vFogDepth );
     #endif
     // aerial perspective: surfaces go to the horizon colour, lit windows keep a little more of their contrast
-    col = mix( col, fogColor, fogF * 0.78 ) + wc * lit * 2.0 * fogF * 0.08;
+    col = mix( col, fogColor, fogF * 0.68 ) + wc * lit * 1.4 * fogF * 0.08;
   #endif
   gl_FragColor = vec4( col, 1.0 );
   #include <tonemapping_fragment>
@@ -433,7 +433,7 @@ function towers(mats: Mats): THREE.Object3D[] {
     cones?.setMatrixAt(i, m);
     let sp = spots[i];
     if (!sp) {
-      sp = new THREE.SpotLight(0xffe2b8, 0, 0, 0.62, 0.65, 1);
+      sp = new THREE.SpotLight(0xffe2b8, 0, 170, 0.62, 0.65, 1);
       sp.castShadow = false;
       spots.push(sp);
     }

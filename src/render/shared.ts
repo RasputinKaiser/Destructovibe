@@ -172,7 +172,7 @@ vec4 dvAtmosK( vec3 cam, vec3 wp, float sky, float dustK ) {
   vec3 col = uHFogCol + uHFogSun * uHFog.w * ( pow( mu, 6.0 ) * 0.6 + pow( mu, 40.0 ) * 1.4 );
   float Ld = min( L, uDustFogR );
   float lift = max( dir.y * Ld * 0.5 + cam.y - 3.0, 0.0 );
-  float Td = exp( - uDustFog.a * dustK * Ld * exp( - lift / 14.0 ) );
+  float Td = exp( - uDustFog.a * dustK * Ld * exp( - lift / 18.0 ) );
   return vec4( col * ( 1.0 - T ) * Td + uDustFog.rgb * ( 1.0 - Td ), T * Td );
 }
 vec4 dvAtmos( vec3 cam, vec3 wp, float sky ) { return dvAtmosK( cam, wp, sky, 1.0 ); }`;

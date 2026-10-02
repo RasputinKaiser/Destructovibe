@@ -213,7 +213,7 @@ void main() {
   vec3 n = normalize( vec3( vQ * 0.45 - dvG * 0.35, sqrt( 1.0 - r2 ) + 0.9 ) );
   float wrap = clamp( dot( n, vSunV ) * 0.45 + 0.55, 0.0, 1.0 );
   // local optical thickness: dense cores shadow themselves on the side away from the sun
-  float tau = dens * vCol.a * 3.0;
+  float tau = dens * vCol.a * 5.0;
   float self = exp( - tau * ( 1.1 - 0.75 * wrap ) );
   // mineral dust scatters strongly forward (g ~ 0.7) with a weak back lobe: with a low sun behind the cloud its thin
   // margins glow and the light leaks through, while the thick core stays dark
@@ -886,7 +886,7 @@ const _cc = new THREE.Color(), _cg = new THREE.Color(0x9c8a72);
 const cbrt = Math.cbrt;
 const cloudLife = (c: Cloud): number => clamp(18 + cbrt(c.mass) * 5, 18, 60);
 // a high-rise's cloud spreads well past a terrace's: the caps are where a tower's worth of fines is still dense
-const baseRadius = (m: number): number => clamp(2.5 + cbrt(m) * 2.4, 3, 55);
+const baseRadius = (m: number): number => clamp(2.5 + cbrt(m) * 2.4, 3, 70);
 const billowSize = (m: number): number => clamp(1.4 + cbrt(m) * 0.75, 1.6, 14);
 function cloudRadius(c: Cloud): number {
   // born the size of the debris throw, it rolls out as a density current and spreads for tens of seconds
@@ -940,7 +940,7 @@ function feedCloud(x: number, y: number, z: number, vol: number, hex: number): v
   c.last = clock;
   const q = DUSTQ[view.quality];
   // enough final-size billows to cover the cloud's silhouette `layers` deep, fewer for small clouds
-  const cover = baseRadius(m) / (billowSize(m) * 0.95), layers = q.layers * clamp(cbrt(m) / 6, 0.3, 1);
+  const cover = baseRadius(m) / (billowSize(m) * 0.95), layers = q.layers * clamp(cbrt(m) / 6, 0.3, 1) * (1 + clamp((cbrt(m) - 8) / 8, 0, 0.8));
   c.owed = m < 2.5 ? 0 : Math.min(Math.floor(q.cap * 0.5), Math.floor(layers * 1.3 * cover * cover * dustK() * BILLOW_DEPTH));
 }
 
@@ -961,7 +961,7 @@ function spawnBillow(c: Cloud, R: number, life: number): void {
     const ang = rf(0, 6.283), r0 = R * 0.35 * Math.sqrt(rng());
     pAt(c.x + Math.cos(ang) * r0, Math.max(ps * 0.4, c.y * rf(0.3, 1) + rf(0, R * 0.5)), c.z + Math.sin(ang) * r0);
     P.vx = rf(-0.6, 0.6); P.vy = rf(3, 10); P.vz = rf(-0.6, 0.6); P.drag = 0.4;
-    P.rise = rf(0.4, 1.1); P.accel = -0.004; P.s0 = ps * rf(0.75, 1.05); P.s1 = ps * rf(1.9, 3.0);
+    P.rise = rf(0.4, 1.1) * (1 + clamp(R / 25, 0, 2)); P.accel = -0.004; P.s0 = ps * rf(0.75, 1.05); P.s1 = ps * rf(1.9, 3.0);
   }
   const k = rf(0.86, 1.08);
   _cc.setRGB(c.r, c.g, c.b).lerp(_cg, 0.45);
@@ -1041,13 +1041,13 @@ function updateClouds(dt: number): void {
     if (c.dep > 0.5 && c.mass > 2) {
       c.dep = 0;
       // a film, not a white-out: most of what settles comes down in the first half minute
-      splatCover(c.x, c.z, R * 1.15, clamp(0.003 * cbrt(c.mass), 0.002, 0.012) * fade * (age < 30 ? 1 : 0.3) * dustK(), c.r, c.g, c.b);
+      splatCover(c.x, c.z, R * 1.15, clamp(0.005 * cbrt(c.mass), 0.003, 0.02) * fade * (age < 30 ? 1 : 0.3) * dustK(), c.r, c.g, c.b);
     }
     // camera inside this cloud: ellipsoid-normalised distance
     const ex = (cam3.x - c.x) / R, ey = ((cam3.y - cy) * SQUASH) / R, ez = (cam3.z - c.z) / R;
     const inside = 1 - THREE.MathUtils.smoothstep(Math.sqrt(ex * ex + ey * ey + ez * ez), 0.5, 1.05);
     if (inside > 0) {
-      const w = ext * 2.6 * inside;
+      const w = ext * 4 * inside;
       fogK += w; fogR += R * w;
       fr += c.r * w; fg += c.g * w; fb += c.b * w;
     }
@@ -1057,7 +1057,8 @@ function updateClouds(dt: number): void {
   if (fogK > 1e-5) {
     const sd = lighting.sunDir, vis = Math.exp(-cloudOD(cam3.x, cam3.y, cam3.z, sd.x, sd.y, sd.z));
     const sk = (lighting.sunIntensity / Math.PI) * 0.55 * vis * Math.max(sd.y, 0.1), at = lighting.ambTop, sc = lighting.sunColor;
-    df.set((fr / fogK) * (at.r * 0.9 + sc.r * sk), (fg / fogK) * (at.g * 0.9 + sc.g * sk), (fb / fogK) * (at.b * 0.9 + sc.b * sk), fogK);
+    const al = (at.r * 0.2126 + at.g * 0.7152 + at.b * 0.0722) * 0.9, tint = 0.3;
+    df.set((fr / fogK) * (al + (at.r * 0.9 - al) * tint + sc.r * sk), (fg / fogK) * (al + (at.g * 0.9 - al) * tint + sc.g * sk), (fb / fogK) * (al + (at.b * 0.9 - al) * tint + sc.b * sk), fogK);
     atmosU.uDustFogR.value = Math.max(4, (fogR / fogK) * 1.2);
     atmosU.uAtmT.value = clock;
   } else df.set(0, 0, 0, 0);
@@ -1246,6 +1247,15 @@ export const fx = {
     const smokeV = R * R * R * (y < R * 0.9 ? 0.9 : 0.35);
     dustLedger.smoke += smokeV;
     feedCloud(x, y, z, smokeV, y < R * 0.9 ? 0x8a7c68 : 0x5d554c);
+    const fk = comfort.flash;
+    S.x = x; S.y = y + 0.3; S.z = z; S.vx = S.vy = S.vz = 0; S.life = 0.08; S.r = 60 * fk; S.g = 52 * fk; S.b = 38 * fk;
+    S.w = R * 0.3; S.grav = 0; S.drag = 1; S.streak = 0; S.bounce = 0; spark();
+    for (let i = 0; i < 6; i++) {
+      dirAround(0, 0.2, 0, 1);
+      const sp = R * rf(14, 22);
+      S.x = x; S.y = y + 0.3; S.z = z; S.vx = _v.x * sp; S.vy = _v.y * sp; S.vz = _v.z * sp; S.life = rf(0.05, 0.08);
+      S.r = 30 * fk; S.g = 24 * fk; S.b = 14 * fk; S.w = R * 0.08; S.grav = 0; S.drag = 6; S.streak = 0.03; S.bounce = 0; spark();
+    }
     flash(x, y + R * 0.3, z, 0xffb468, 320 * R * R, 0.6, Math.max(R * 10, 28), 3);
   },
 

@@ -233,7 +233,7 @@ void main() {
     float n1 = texture2D( tNoise, q1.xz / 13.0 + q1.y / 17.0 + drift ).r;
     float n2 = texture2D( tNoise, q2.xz / 29.0 - q2.y / 23.0 + drift * 0.6 + 0.37 ).g;
     float nn = smoothstep( 0.25, 0.75, n1 * 0.55 + n2 * 0.45 );
-    dK = 0.25 + 1.6 * nn;
+    dK = 0.45 + 1.4 * nn;
   }
   vec4 a = dvAtmosK( uCam, wp, sky, dK );
   gl_FragColor = vec4( a.rgb, 1.0 - a.a );

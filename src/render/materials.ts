@@ -139,7 +139,7 @@ const LAMP_RGB = /* glsl */`
 #endif`;
 const LAMP_EMIT = /* glsl */`
 #ifdef USE_COLOR_ALPHA
-  if ( vColor.a > 1.001 ) totalEmissiveRadiance += vColor.rgb * ( ( vColor.a - 1.0 ) * 9.0 * ( 1.0 - metalnessFactor ) );
+  if ( vColor.a > 1.001 ) totalEmissiveRadiance += vColor.rgb * ( ( vColor.a - 1.0 ) * 5.0 * ( 1.0 - metalnessFactor ) );
 #endif`;
 /* Machinery: the tint is paint, so worn bare steel (metallic texels) keeps its own colour. */
 const MACHINE_RGB = /* glsl */`
@@ -400,7 +400,7 @@ const GLASS_FRESNEL = /* glsl */`
     vec3 dvT0 = normalize( vec3( - dvNw0.z, 0.0, dvNw0.x ) + vec3( 1e-5, 0.0, 0.0 ) );
     vec2 dvPc = floor( vec2( dot( vDvW, dvT0 ) / 1.2, vDvW.y / 3.8 ) );
     float dvA = dvHash( dvPc.x * 3.17 + dvPc.y * 71.3 ) - 0.5, dvB = dvHash( dvPc.x * 13.1 + dvPc.y * 7.7 + 0.5 ) - 0.5;
-    normal = normalize( normal + ( viewMatrix * vec4( dvT0 * dvA * 0.06 + vec3( 0.0, dvB * 0.04, 0.0 ), 0.0 ) ).xyz );
+    normal = normalize( normal + ( viewMatrix * vec4( dvT0 * dvA * 0.045 + vec3( 0.0, dvB * 0.03, 0.0 ), 0.0 ) ).xyz );
   }
   #endif
   float dvFr = pow( 1.0 - saturate( abs( dot( normal, normalize( vViewPosition ) ) ) ), 5.0 );
