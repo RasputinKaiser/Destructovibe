@@ -13,6 +13,35 @@ npm run build      # typecheck + production build → dist/
 node scripts/validate-levels.ts   # check every blueprint for overlaps / floating pieces
 ```
 
+## Start here
+
+- [Game](#game): contracts and free-play sites
+- [Tools](#tools) and [Controls](#controls): equipment, input, and accessibility settings
+- [What's simulated](#whats-simulated): materials, joints, fracture, heat, and services
+- [Development checks](#development-checks): test and validation commands
+- [Layout](#layout): source directory map
+
+For a first session, choose a contract and read its briefing, or use free play for unlimited tools. Hold `Q` to open the tool wheel and use `X` to inspect joint stress and building services. Settings includes control rebinding and comfort options.
+
+## Development checks
+
+Run commands from the repository root after `npm ci`:
+
+```sh
+npm test
+npm run validate:fractures
+npm run validate:levels
+npm run validate:grid
+npm run validate:rigging
+git diff --check
+```
+
+`npm run build` generates building packages, typechecks, and writes the production build to `dist/`. `npm run typecheck` checks TypeScript separately, and `npm run preview` serves the built output.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete pre-PR gate and browser evidence requirements. Current development lives in `src/`; `legacy/` preserves the original Rapier version. Keep generated output and dependencies out of commits.
+
+Further reading: [gameplay and map reviews](docs/gameplay-loop.md), [physics and visual evidence](docs/critic-loop.md), and [performance measurement](docs/perf-loop.md). Automated geometry checks do not replace playtesting.
+
 ## What's simulated
 
 - **Structures are joined, not stacked.** Every blueprint piece (box, cylinder, n-gon prism, wedge
